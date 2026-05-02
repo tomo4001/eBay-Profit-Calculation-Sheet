@@ -365,8 +365,8 @@
     font-size: 12px;
   }
   .fuel-pair-row input {
-    width: 55px;
-    padding: 3px 6px;
+    width: 80px;
+    padding: 3px 8px;
     border: 1px solid #ddd;
     border-radius: 4px;
     text-align: right;
@@ -1215,6 +1215,18 @@
     <div class="calc-row">
       <label for="rivalPrice">ライバル合計価格 ($)</label>
       <input type="number" id="rivalPrice" step="0.01" placeholder="例: 337.16" />
+    </div>
+    <div class="calc-row" style="background:#fff8e7; border-radius:6px; padding:8px 12px;">
+      <label style="color:#c97a00;">価格分離モード</label>
+      <div style="display:flex; gap:14px; flex-wrap:wrap;">
+        <label style="font-weight:normal; color:#444; font-size:13px;">
+          <input type="radio" name="priceMode" value="split" checked /> 分離(販売価格X + 送料)
+        </label>
+        <label style="font-weight:normal; color:#444; font-size:13px;">
+          <input type="radio" name="priceMode" value="single" /> 一括(販売価格のみ・送料$0)
+          <span style="color:#d32f2f; font-weight:600; margin-left:6px;">※ブランドバッグ$500以上など</span>
+        </label>
+      </div>
     </div>
     <div class="calc-row">
       <label>自動計算の基準（ライバル−$0.01）</label>
@@ -4037,57 +4049,80 @@ function recalc() {
   const targetPrice = rivalPrice - 0.01;
   targetPriceEl.textContent = '$' + targetPrice.toFixed(2);
 
+  // 価格分離モードの取得
+  const priceMode = (document.querySelector('input[name="priceMode"]:checked') || {}).value || 'split';
+  const isSingleMode = (priceMode === 'single');
+
   // X が手動でなければ自動計算
   let X;
-  if (!xIsManual) {
-    const result = calcXOptimal(targetPrice, ranges, tariffRate);
-    if (result.error) {
-      xEl.classList.add('error');
+  let send;
+  if (isSingleMode) {
+    // 一括モード: X = ライバル−$0.01、送料 = $0
+    X = targetPrice;
+    send = 0;
+    if (!xIsManual) xInput.value = X.toFixed(2);
+    else {
+      const manualX = parseFloat(xInput.value);
+      if (!isNaN(manualX)) X = manualX;
+    }
+    xEl.classList.remove('error');
+    shipEl.classList.remove('error');
+  } else {
+    // 分離モード(従来通り): calcX_optimal で送料を寄せる
+    if (!xIsManual) {
+      const result = calcXOptimal(targetPrice, ranges, tariffRate);
+      if (result.error) {
+        xEl.classList.add('error');
+        shipEl.classList.add('error');
+        xInput.value = '';
+        xSub.textContent = result.error + ' (関税率を下げる、またはレンジ表を確認)';
+        shipVal.textContent = '—';
+        shipSub.textContent = '';
+        myTotalEl.textContent = '—';
+        diffEl.textContent = '—';
+        return;
+      }
+      X = result.X;
+      xInput.value = X.toFixed(2);
+    } else {
+      X = parseFloat(xInput.value);
+      if (isNaN(X)) {
+        xSub.textContent = 'X に数値を入力してください';
+        return;
+      }
+    }
+
+    // X に対する送料を引く
+    send = lookupShipping(X, ranges);
+    xEl.classList.remove('error');
+
+    if (send === null) {
       shipEl.classList.add('error');
-      xInput.value = '';
-      xSub.textContent = result.error + ' (関税率を下げる、またはレンジ表を確認)';
-      shipVal.textContent = '—';
-      shipSub.textContent = '';
+      shipVal.textContent = '該当なし';
+      shipSub.textContent = `X=$${X.toFixed(2)} はレンジ表に含まれません`;
       myTotalEl.textContent = '—';
       diffEl.textContent = '—';
+      xSub.textContent = xIsManual ? '手動入力中' : '自動計算';
       return;
     }
-    X = result.X;
-    xInput.value = X.toFixed(2);
-  } else {
-    X = parseFloat(xInput.value);
-    if (isNaN(X)) {
-      xSub.textContent = 'X に数値を入力してください';
-      return;
-    }
+    shipEl.classList.remove('error');
   }
 
-  // X に対する送料を引く
-  const send = lookupShipping(X, ranges);
-  xEl.classList.remove('error');
-
-  if (send === null) {
-    shipEl.classList.add('error');
-    shipVal.textContent = '該当なし';
-    shipSub.textContent = `X=$${X.toFixed(2)} はレンジ表に含まれません`;
-    myTotalEl.textContent = '—';
-    diffEl.textContent = '—';
-    xSub.textContent = xIsManual ? '手動入力中' : '自動計算';
-    return;
-  }
-
-  shipEl.classList.remove('error');
   const myTotal = X + send;
-  const sendRate = send / X;
+  const sendRate = X > 0 ? send / X : 0;
   const diff = rivalPrice - myTotal;
 
   // 表示
   shipVal.textContent = '$' + send.toFixed(2);
-  const rateOk = sendRate >= tariffRate;
-  shipSub.innerHTML = `送料率 ${(sendRate*100).toFixed(1)}% ` +
-    (rateOk
-      ? `<span style="color:#2e7d32;">✓ 関税率${tariffPercent}%以上</span>`
-      : `<span style="color:#c0504d;">⚠ 関税率${tariffPercent}%未満</span>`);
+  if (isSingleMode) {
+    shipSub.innerHTML = '<span style="color:#c97a00;">一括モード(送料 $0 固定)</span>';
+  } else {
+    const rateOk = sendRate >= tariffRate;
+    shipSub.innerHTML = `送料率 ${(sendRate*100).toFixed(1)}% ` +
+      (rateOk
+        ? `<span style="color:#2e7d32;">✓ 関税率${tariffPercent}%以上</span>`
+        : `<span style="color:#c0504d;">⚠ 関税率${tariffPercent}%未満</span>`);
+  }
 
   myTotalEl.textContent = '$' + myTotal.toFixed(2);
 
@@ -4959,6 +4994,25 @@ function init() {
   // 7項目コピーボタン
   const wcBtn = document.getElementById('winnerCopyBtn');
   if (wcBtn) wcBtn.addEventListener('click', copyWinnerSeven);
+
+  // 価格分離モード: ラジオ切替時の保存+再計算
+  const PRICE_MODE_KEY = 'profitCalcV1_priceMode';
+  document.querySelectorAll('input[name="priceMode"]').forEach(r => {
+    r.addEventListener('change', () => {
+      try { localStorage.setItem(PRICE_MODE_KEY, r.value); } catch (e) {}
+      xIsManual = false;  // モード切替時は手動入力をリセット
+      recalc();
+      if (typeof updateWinnerDisplay === 'function') updateWinnerDisplay();
+    });
+  });
+  // 起動時にモード復元
+  try {
+    const savedMode = localStorage.getItem(PRICE_MODE_KEY);
+    if (savedMode) {
+      const radio = document.querySelector(`input[name="priceMode"][value="${savedMode}"]`);
+      if (radio) radio.checked = true;
+    }
+  } catch (e) {}
 
   // 発送国: フォーカス時に値を一時退避して全候補を表示、ブラー時に未選択なら復元
   const countryEl = document.getElementById('setShippingCountry');
