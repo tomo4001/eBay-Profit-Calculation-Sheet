@@ -377,6 +377,16 @@
     font-size: 11px;
   }
 
+  /* ===== 為替変換カード入力欄のプレースホルダー薄色化 ===== */
+  #fxUsd::placeholder,
+  #fxGbp::placeholder,
+  #fxEur::placeholder,
+  #fxCad::placeholder,
+  #fxAud::placeholder {
+    color: #d0d0d0;
+    opacity: 1;
+  }
+
   /* ===== タブナビゲーション ===== */
   .tab-nav {
     display: flex;
@@ -1297,10 +1307,12 @@
 
   <!-- ===== 💱 為替変換カード ===== -->
   <div class="card" style="border-left: 4px solid #2e8b57;">
-    <h2>💱 為替変換
-      <span style="font-size:11px; color:#888; margin-left:8px;" id="fxStatus">—</span>
-    </h2>
-    <p style="margin:0 0 10px; font-size:12px; color:#666;">どれか1つに金額を入力すると、他の通貨が自動で換算されます(双方向)。</p>
+    <h2>💱 為替変換</h2>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+      <button class="btn" id="fxRefreshBtn" style="padding:6px 14px; font-size:13px; background:#2e8b57; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">🔄 最新レート取得</button>
+      <span id="fxRefreshStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
+      <span style="font-size:12px; color:#666;">どれか1つに金額を入力 → 他通貨が自動換算(双方向)</span>
+    </div>
 
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
       <div style="background:#f4faf6; border:1px solid #c7e2d2; padding:8px 12px; border-radius:6px;">
@@ -2522,7 +2534,6 @@ function updateFxFromSource(sourceId) {
 function updateFxRateInfoDisplay() {
   const rates = getFxRates();
   const infoEl = document.getElementById('fxRateInfo');
-  const statusEl = document.getElementById('fxStatus');
   if (!infoEl) return;
   const parts = [];
   if (rates.GBP) parts.push(`USD/GBP=${rates.GBP.toFixed(4)}`);
@@ -2530,7 +2541,44 @@ function updateFxRateInfoDisplay() {
   if (rates.CAD) parts.push(`USD/CAD=${rates.CAD.toFixed(4)}`);
   if (rates.AUD) parts.push(`USD/AUD=${rates.AUD.toFixed(4)}`);
   infoEl.textContent = parts.length ? 'レート: ' + parts.join(' / ') : 'レート未取得';
-  if (statusEl) statusEl.textContent = exchangeRates.date ? `基準日 ${exchangeRates.date}` : '';
+}
+
+// 入力済みの値を最新レートで再計算 (どこかの欄に値があれば、そこを基準に他を更新)
+function recalculateFxInputs() {
+  // 優先順位: USD → GBP → EUR → CAD → AUD のうち最初に値があるものを基準にする
+  const ids = ['fxUsd', 'fxGbp', 'fxEur', 'fxCad', 'fxAud'];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el && el.value && !isNaN(parseFloat(el.value))) {
+      updateFxFromSource(id);
+      return;
+    }
+  }
+}
+
+// FXカード専用の手動更新ボタン
+async function fetchFxRatesManual() {
+  const btn = document.getElementById('fxRefreshBtn');
+  const status = document.getElementById('fxRefreshStatus');
+  if (!btn) return;
+  const originalText = btn.textContent;
+  btn.textContent = '取得中…';
+  btn.disabled = true;
+  status.textContent = '';
+  try {
+    await fetchExchangeRate(true);
+    status.textContent = '✓ 更新しました';
+    status.style.color = '#2e7d32';
+    recalculateFxInputs();
+    updateFxRateInfoDisplay();
+  } catch (e) {
+    status.textContent = '⚠ 取得失敗';
+    status.style.color = '#c0504d';
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+    setTimeout(() => { status.textContent = ''; status.style.color = '#2e7d32'; }, 2500);
+  }
 }
 
 function attachFxEvents() {
@@ -2538,6 +2586,8 @@ function attachFxEvents() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', () => updateFxFromSource(id));
   });
+  const refreshBtn = document.getElementById('fxRefreshBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', fetchFxRatesManual);
   updateFxRateInfoDisplay();
 }
 
@@ -4607,8 +4657,9 @@ function applyExchangeRatesToUI() {
       `AUD=AU$${exchangeRates.AUD.toFixed(3)}<br>` +
       `<span style="color:#888;">基準日 ${exchangeRates.date} / 取得 ${ageStr}（ECB公式 / 自動更新中）</span>`;
   }
-  // 為替変換カードのレート情報も更新
+  // 為替変換カードのレート情報も更新 + 入力済み値の再計算
   if (typeof updateFxRateInfoDisplay === 'function') updateFxRateInfoDisplay();
+  if (typeof recalculateFxInputs === 'function') recalculateFxInputs();
 }
 
 // 起動時に自動取得（キャッシュが古い場合のみ）
