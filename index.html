@@ -1295,6 +1295,38 @@
     </div>
   </div>
 
+  <!-- ===== 💱 為替変換カード ===== -->
+  <div class="card" style="border-left: 4px solid #2e8b57;">
+    <h2>💱 為替変換
+      <span style="font-size:11px; color:#888; margin-left:8px;" id="fxStatus">—</span>
+    </h2>
+    <p style="margin:0 0 10px; font-size:12px; color:#666;">どれか1つに金額を入力すると、他の通貨が自動で換算されます(双方向)。</p>
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
+      <div style="background:#f4faf6; border:1px solid #c7e2d2; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#2e8b57; font-weight:700; margin-bottom:2px;">🇺🇸 USD</div>
+        <input type="number" id="fxUsd" step="0.01" placeholder="100.00" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇬🇧 GBP</div>
+        <input type="number" id="fxGbp" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇪🇺 EUR</div>
+        <input type="number" id="fxEur" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇨🇦 CAD</div>
+        <input type="number" id="fxCad" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇦🇺 AUD</div>
+        <input type="number" id="fxAud" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+    </div>
+    <div id="fxRateInfo" style="margin-top:8px; font-size:11px; color:#888;">レート: —</div>
+  </div>
+
   <!-- ===== 🏆 最高利益の選択 ===== -->
   <div class="card winner-card no-result" id="winnerCard">
     <h2>🏆 最高利益の選択</h2>
@@ -2428,6 +2460,85 @@ const EXCHANGE_FEE_COUNTRIES = ['イギリス', 'カナダ', 'オーストラリ
 const DDP_COUNTRIES = ['アメリカ', 'アメリカ（eLoji）', 'アメリカ西部', 'アメリカ西部（eLogi）'];
 function isDdpCountry(country) {
   return DDP_COUNTRIES.includes(country);
+}
+
+// ============================================================
+// 為替変換カード (USD ↔ GBP/EUR/CAD/AUD 双方向)
+// ============================================================
+let fxUpdatingFromUser = false;  // 入力中の循環防止
+
+function getFxRates() {
+  // USDあたりの各通貨レート(API返値)
+  return {
+    GBP: exchangeRates.GBP || null,
+    EUR: exchangeRates.EUR || null,
+    CAD: exchangeRates.CAD || null,
+    AUD: exchangeRates.AUD || null,
+  };
+}
+
+function updateFxFromSource(sourceId) {
+  if (fxUpdatingFromUser) return;
+  fxUpdatingFromUser = true;
+  try {
+    const rates = getFxRates();
+    const usdEl = document.getElementById('fxUsd');
+    const gbpEl = document.getElementById('fxGbp');
+    const eurEl = document.getElementById('fxEur');
+    const cadEl = document.getElementById('fxCad');
+    const audEl = document.getElementById('fxAud');
+    if (!usdEl) return;
+
+    const v = parseFloat(document.getElementById(sourceId).value);
+    if (isNaN(v) || v === 0) {
+      // 入力空ならソース以外をクリア
+      [usdEl, gbpEl, eurEl, cadEl, audEl].forEach(el => {
+        if (el && el.id !== sourceId) el.value = '';
+      });
+      return;
+    }
+
+    // ソースをUSDに変換
+    let usd;
+    if (sourceId === 'fxUsd')      usd = v;
+    else if (sourceId === 'fxGbp') usd = rates.GBP ? v / rates.GBP : null;
+    else if (sourceId === 'fxEur') usd = rates.EUR ? v / rates.EUR : null;
+    else if (sourceId === 'fxCad') usd = rates.CAD ? v / rates.CAD : null;
+    else if (sourceId === 'fxAud') usd = rates.AUD ? v / rates.AUD : null;
+
+    if (usd === null || isNaN(usd)) return;
+
+    // USDから各通貨へ
+    if (sourceId !== 'fxUsd') usdEl.value = usd.toFixed(2);
+    if (sourceId !== 'fxGbp' && rates.GBP) gbpEl.value = (usd * rates.GBP).toFixed(2);
+    if (sourceId !== 'fxEur' && rates.EUR) eurEl.value = (usd * rates.EUR).toFixed(2);
+    if (sourceId !== 'fxCad' && rates.CAD) cadEl.value = (usd * rates.CAD).toFixed(2);
+    if (sourceId !== 'fxAud' && rates.AUD) audEl.value = (usd * rates.AUD).toFixed(2);
+  } finally {
+    fxUpdatingFromUser = false;
+  }
+}
+
+function updateFxRateInfoDisplay() {
+  const rates = getFxRates();
+  const infoEl = document.getElementById('fxRateInfo');
+  const statusEl = document.getElementById('fxStatus');
+  if (!infoEl) return;
+  const parts = [];
+  if (rates.GBP) parts.push(`USD/GBP=${rates.GBP.toFixed(4)}`);
+  if (rates.EUR) parts.push(`USD/EUR=${rates.EUR.toFixed(4)}`);
+  if (rates.CAD) parts.push(`USD/CAD=${rates.CAD.toFixed(4)}`);
+  if (rates.AUD) parts.push(`USD/AUD=${rates.AUD.toFixed(4)}`);
+  infoEl.textContent = parts.length ? 'レート: ' + parts.join(' / ') : 'レート未取得';
+  if (statusEl) statusEl.textContent = exchangeRates.date ? `基準日 ${exchangeRates.date}` : '';
+}
+
+function attachFxEvents() {
+  ['fxUsd', 'fxGbp', 'fxEur', 'fxCad', 'fxAud'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => updateFxFromSource(id));
+  });
+  updateFxRateInfoDisplay();
 }
 
 // ============================================================
@@ -4335,7 +4446,7 @@ function lookupCategoryFee(catNo) {
 
 // 取得した為替レートのグローバル保持
 let exchangeRates = {
-  JPY: null, GBP: null, EUR: null, AUD: null,
+  JPY: null, GBP: null, EUR: null, AUD: null, CAD: null,
   date: null, fetchedAt: null,
 };
 
@@ -4389,6 +4500,7 @@ async function fetchExchangeRate(silent = false) {
         GBP: d.usd && d.usd.gbp,
         EUR: d.usd && d.usd.eur,
         AUD: d.usd && d.usd.aud,
+        CAD: d.usd && d.usd.cad,
         date: d.date,
       }),
     },
@@ -4399,16 +4511,18 @@ async function fetchExchangeRate(silent = false) {
         GBP: d.usd && d.usd.gbp,
         EUR: d.usd && d.usd.eur,
         AUD: d.usd && d.usd.aud,
+        CAD: d.usd && d.usd.cad,
         date: d.date,
       }),
     },
     {
-      url: 'https://api.frankfurter.app/latest?from=USD&to=JPY,GBP,EUR,AUD',
+      url: 'https://api.frankfurter.app/latest?from=USD&to=JPY,GBP,EUR,AUD,CAD',
       parse: (d) => ({
         JPY: d.rates && d.rates.JPY,
         GBP: d.rates && d.rates.GBP,
         EUR: d.rates && d.rates.EUR,
         AUD: d.rates && d.rates.AUD,
+        CAD: d.rates && d.rates.CAD,
         date: d.date,
       }),
     },
@@ -4437,6 +4551,7 @@ async function fetchExchangeRate(silent = false) {
       GBP: parsed.GBP || null,
       EUR: parsed.EUR || null,
       AUD: parsed.AUD || null,
+      CAD: parsed.CAD || null,
       date: parsed.date || new Date().toISOString().slice(0, 10),
       fetchedAt: new Date().toISOString(),
     };
@@ -4492,6 +4607,8 @@ function applyExchangeRatesToUI() {
       `AUD=AU$${exchangeRates.AUD.toFixed(3)}<br>` +
       `<span style="color:#888;">基準日 ${exchangeRates.date} / 取得 ${ageStr}（ECB公式 / 自動更新中）</span>`;
   }
+  // 為替変換カードのレート情報も更新
+  if (typeof updateFxRateInfoDisplay === 'function') updateFxRateInfoDisplay();
 }
 
 // 起動時に自動取得（キャッシュが古い場合のみ）
@@ -4990,6 +5107,7 @@ function init() {
   updateDdpUi();
   attachSkuEvents();
   updateSkuOutput();
+  attachFxEvents();
   attachAuthEvents();
   // 7項目コピーボタン
   const wcBtn = document.getElementById('winnerCopyBtn');
