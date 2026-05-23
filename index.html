@@ -1214,6 +1214,17 @@
   <div class="card manual-input">
     <h2>🧮 計算</h2>
 
+    <!-- eBay URL から自動取得 -->
+    <div style="background:#eef5fb; border:1px solid #c5d8e8; border-radius:8px; padding:10px 12px; margin-bottom:14px;">
+      <div style="font-size:12px; font-weight:700; color:#1565c0; margin-bottom:6px;">🔗 eBay出品URLから自動取得</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... を貼り付け" style="flex:1; min-width:240px; padding:7px 10px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
+        <button class="btn" id="ebayFetchBtn" style="padding:7px 16px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">取得</button>
+        <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
+      </div>
+      <div style="font-size:11px; color:#888; margin-top:4px;">商品タイトル・カテゴリーNo.・ライバル合計価格($)を自動入力します</div>
+    </div>
+
     <div class="calc-row">
       <label for="setCategoryNo">カテゴリーNo.</label>
       <input type="number" id="setCategoryNo" step="1" placeholder="例: 11844" />
@@ -2813,6 +2824,80 @@ function updateSkuOutput() {
     `part3=${r.part3} (${r.filtered[r.filtered.length-1] || '-'})  ` +
     `category=${r.category}`;
   bd.style.whiteSpace = 'pre-wrap';
+}
+
+// =============================================================================
+// eBay URL から商品情報を自動取得(Vercelサーバー関数 /api/ebay-item 経由)
+// =============================================================================
+async function fetchEbayItem() {
+  const urlEl = document.getElementById('ebayUrl');
+  const btn = document.getElementById('ebayFetchBtn');
+  const status = document.getElementById('ebayFetchStatus');
+  if (!urlEl) return;
+
+  const url = (urlEl.value || '').trim();
+  if (!url) { status.textContent = '⚠ URLを入力してください'; status.style.color = '#c0504d'; return; }
+
+  btn.textContent = '取得中…';
+  btn.disabled = true;
+  status.textContent = '';
+  status.style.color = '#2e7d32';
+
+  try {
+    const res = await fetch('/api/ebay-item?url=' + encodeURIComponent(url));
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      status.textContent = '⚠ ' + (data.error || ('HTTP ' + res.status));
+      status.style.color = '#c0504d';
+      console.warn('eBay取得エラー:', data);
+      return;
+    }
+
+    // 商品タイトル → SKU生成欄
+    const titleEl = document.getElementById('skuTitle');
+    if (titleEl && data.title) {
+      titleEl.value = data.title;
+      if (typeof updateSkuOutput === 'function') updateSkuOutput();
+    }
+    // カテゴリーNo.
+    const catEl = document.getElementById('setCategoryNo');
+    if (catEl && data.categoryId) {
+      catEl.value = data.categoryId;
+      if (typeof refreshEbayFeeDerived === 'function') refreshEbayFeeDerived();
+      if (typeof renderCatTable === 'function') {
+        const cs = document.getElementById('catSearch');
+        renderCatTable(cs ? cs.value : '');
+      }
+    }
+    // ライバル合計価格($)
+    const rivalEl = document.getElementById('rivalPrice');
+    if (rivalEl && data.total != null) {
+      rivalEl.value = Number(data.total).toFixed(2);
+    }
+
+    if (typeof recalc === 'function') recalc();
+    if (typeof saveState === 'function') saveState();
+
+    const cur = data.currency && data.currency !== 'USD' ? ` (${data.currency}建て注意)` : '';
+    status.textContent = `✓ 取得: ${data.title ? data.title.slice(0,20) + '…' : ''} / cat ${data.categoryId || '-'} / $${Number(data.total||0).toFixed(2)}${cur}`;
+    status.style.color = '#2e7d32';
+  } catch (e) {
+    status.textContent = '⚠ 通信エラー: ' + e.message;
+    status.style.color = '#c0504d';
+  } finally {
+    btn.textContent = '取得';
+    btn.disabled = false;
+  }
+}
+
+function attachEbayUrlEvents() {
+  const btn = document.getElementById('ebayFetchBtn');
+  const urlEl = document.getElementById('ebayUrl');
+  if (btn) btn.addEventListener('click', fetchEbayItem);
+  if (urlEl) urlEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); fetchEbayItem(); }
+  });
 }
 
 function attachSkuEvents() {
@@ -5159,6 +5244,7 @@ function init() {
   attachSkuEvents();
   updateSkuOutput();
   attachFxEvents();
+  attachEbayUrlEvents();
   attachAuthEvents();
   // 7項目コピーボタン
   const wcBtn = document.getElementById('winnerCopyBtn');
