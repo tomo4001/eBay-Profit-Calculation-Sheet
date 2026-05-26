@@ -1093,6 +1093,70 @@
     color: #555;
     margin-top: 6px;
   }
+
+  /* ===== シッピングポリシー管理タブ CSS ===== */
+  .ship-header {
+    background: #fff; padding: 14px 18px; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .ship-header h2 { margin: 0; font-size: 18px; color: #1a365d; }
+  .ship-header-info { font-size: 12px; color: #888; }
+  .ship-btn-refresh {
+    background: #2563eb; color: #fff; border: none;
+    padding: 8px 16px; border-radius: 6px; font-weight: 600;
+    cursor: pointer; font-size: 13px;
+  }
+  .ship-btn-refresh:hover:not(:disabled) { background: #1d4ed8; }
+  .ship-btn-refresh:disabled { background: #9ca3af; cursor: wait; }
+
+  .ship-table-wrap {
+    background: #fff; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .ship-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ship-table thead th {
+    background: #f3f4f6; padding: 9px 10px; text-align: left;
+    font-weight: 700; font-size: 11px; color: #374151;
+    border-bottom: 2px solid #e5e7eb; white-space: nowrap;
+  }
+  .ship-table tbody td {
+    padding: 9px 10px; border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+  }
+  .ship-table tbody tr:hover { background: #fafbfc; }
+  .ship-table tbody tr.legacy { opacity: 0.5; }
+  .ship-table tbody tr.special { background: #fefce8; }
+
+  .ship-name { font-weight: 600; color: #1f2937; min-width: 240px; max-width: 360px; }
+  .ship-tag {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    font-size: 10px; font-weight: 700; margin-right: 3px;
+  }
+  .ship-tag.exp  { background: #dbeafe; color: #1e40af; }
+  .ship-tag.eco  { background: #dcfce7; color: #166534; }
+  .ship-tag.std  { background: #fef3c7; color: #92400e; }
+  .ship-tag.vero { background: #fce7f3; color: #9d174d; }
+  .ship-tag.spec { background: #ede9fe; color: #5b21b6; }
+  .ship-tag.leg  { background: #e5e7eb; color: #6b7280; }
+  .ship-num { text-align: right; font-family: 'SF Mono', Consolas, monospace; }
+  .ship-excluded-badge {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    background: #fee2e2; color: #991b1b; font-size: 10px; font-weight: 700;
+  }
+  .ship-excluded-badge.zero { background: #f3f4f6; color: #9ca3af; }
+
+  .ship-loading {
+    text-align: center; padding: 60px 20px; color: #6b7280;
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .ship-error {
+    background: #fef2f2; border-left: 4px solid #dc2626;
+    padding: 14px 18px; border-radius: 6px; color: #991b1b;
+    font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -2054,30 +2118,18 @@
 
   <!-- ===== シッピングポリシー管理タブ ===== -->
   <div id="tabShipping" class="tab-content">
-    <div class="card" style="background: #fffbeb; border-left: 4px solid #f59e0b;">
-      <h2>📦 シッピングポリシー管理</h2>
-      <p style="font-size:13px; color:#78350f;">
-        <strong>🚧 本実装中</strong> — モックアップで設計確定済み。本タブにフル機能を移植中です。
-      </p>
-      <p style="font-size:12px; color:#666;">
-        実装予定の機能:
-      </p>
-      <ul style="font-size:12px; color:#666;">
-        <li>📋 全127ポリシーの一覧(eBayから自動取得)</li>
-        <li>⚙️ サービス種別ごとのデフォルト設定(除外国)+特別設定(戦争関連の一時除外)</li>
-        <li>🛠️ 一括操作: 除外国の一括反映、ポリシー一括更新</li>
-        <li>🆕 新規ポリシー作成(VeRO版同時生成オプション付き)</li>
-        <li>✏️ ポリシーの個別編集・削除</li>
-        <li>📊 サービス別フィルタ・並び替え・複数選択でのカスタム操作</li>
-      </ul>
-      <p style="font-size:12px; color:#666;">
-        現状確認できるもの:
-      </p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-        <button class="btn" onclick="window.open('/api/ebay-policies-list', '_blank')">📋 ポリシー一覧(JSON)</button>
-        <button class="btn" onclick="window.open('/api/ebay-shipping-services-v2', '_blank')">🚚 配送サービスマスタ(JSON)</button>
-        <button class="btn" onclick="window.open('/api/ebay-excluded-analysis', '_blank')">📊 除外国分析(JSON)</button>
+    <div class="ship-header">
+      <div>
+        <h2>📦 シッピングポリシー管理</h2>
+        <div class="ship-header-info">全 <span id="shipTotalCount">-</span> 件 / 最終取得: <span id="shipLastFetch">未取得</span></div>
       </div>
+      <div style="display:flex; gap:8px;">
+        <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
+      </div>
+    </div>
+
+    <div id="shipContent">
+      <div class="ship-loading">📦 「🔄 最新を取得」を押して、eBay からポリシー一覧を読み込んでください。</div>
     </div>
   </div><!-- /tabShipping -->
 
@@ -5568,6 +5620,166 @@ try {
     banner.textContent = `⚠ 初期化エラー: ${e.message}`;
   }
   console.error(e);
+}
+
+// =========================================================================
+// 📦 シッピングポリシー管理モジュール (Phase 2-A: 一覧表示のみ)
+// =========================================================================
+const Shipping = {
+  policies: [],       // 取得したポリシー(本物のeBayデータ)
+  lastFetchAt: null,
+  isLoading: false,
+
+  // タブ初回オープン時に呼ばれる
+  initIfNeeded() {
+    if (this.policies.length === 0 && !this.isLoading) {
+      // 自動取得はしない、ユーザーがボタン押下で取得
+    }
+  },
+
+  // ポリシー一覧をeBayから取得
+  async fetchPolicies() {
+    if (this.isLoading) return;
+    this.isLoading = true;
+    const btn = document.getElementById('shipRefreshBtn');
+    const content = document.getElementById('shipContent');
+    if (btn) { btn.disabled = true; btn.textContent = '取得中…'; }
+    if (content) content.innerHTML = '<div class="ship-loading">📡 eBay からポリシー一覧を取得中…(数秒かかります)</div>';
+    try {
+      const res = await fetch('/api/ebay-policies-list');
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || ('HTTP ' + res.status));
+      }
+      const raw = (data.raw && data.raw.fulfillmentPolicies) || [];
+      // 各ポリシーをパース
+      this.policies = raw.map(p => this.parsePolicy(p));
+      this.lastFetchAt = new Date();
+      document.getElementById('shipTotalCount').textContent = this.policies.length;
+      document.getElementById('shipLastFetch').textContent = this.lastFetchAt.toLocaleString('ja-JP');
+      this.renderList();
+    } catch (e) {
+      console.error(e);
+      if (content) content.innerHTML = `<div class="ship-error">⚠ 取得失敗: ${e.message}</div>`;
+    } finally {
+      this.isLoading = false;
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 最新を取得'; }
+    }
+  },
+
+  // ポリシー名から サービス種別 / VeRO / 特殊カテゴリ / レガシー を判定
+  parsePolicy(p) {
+    const name = p.name || '';
+    const n = name.toLowerCase();
+    let service = 'Other';
+    if (n.startsWith('expedited')) service = 'Expedited';
+    else if (n.startsWith('economy')) service = 'Economy';
+    else if (n.startsWith('standard')) service = 'Standard';
+
+    const vero = n.includes('vero');
+    // 特殊カテゴリ判定(Golf Bag Only 等)
+    let special = null;
+    const specialMatch = name.match(/(Golf Bag\s*Only|Surfboard|Bike|Skateboard|Snowboard)/i);
+    if (specialMatch) special = specialMatch[1];
+
+    // レガシー判定 (短い名前パターン、例: "JP S/E 20d", "EMS/IE 15d")
+    const isLegacy = service === 'Other' || !!name.match(/^(JP\s|EMS\/|IE\s)/i);
+
+    // 価格レンジを名前から抽出 (例: "230~260$" or "230-260$")
+    let priceMin = null, priceMax = null;
+    const rangeMatch = name.match(/(\d+(?:\.\d+)?)[~\-](\d+(?:\.\d+)?)\$/);
+    if (rangeMatch) {
+      priceMin = parseFloat(rangeMatch[1]);
+      priceMax = parseFloat(rangeMatch[2]);
+    }
+
+    // 既存料金 (Domestic primary)
+    let domesticCost = 0;
+    if (p.shippingOptions && p.shippingOptions[0]) {
+      const opt = p.shippingOptions.find(o => o.optionType === 'DOMESTIC') || p.shippingOptions[0];
+      if (opt.shippingServices && opt.shippingServices[0]) {
+        domesticCost = parseFloat(opt.shippingServices[0].shippingCost?.value || 0);
+      }
+    }
+
+    // 除外国
+    const excluded = ((p.shipToLocations && p.shipToLocations.regionExcluded) || []).map(r => r.regionName);
+
+    return {
+      id: p.fulfillmentPolicyId,
+      name,
+      service,
+      vero,
+      special,
+      isLegacy,
+      handlingTime: p.handlingTime ? p.handlingTime.value : null,
+      priceMin,
+      priceMax,
+      domesticCost,
+      excluded,
+      shippingOptionsCount: (p.shippingOptions || []).length,
+      _raw: p,
+    };
+  },
+
+  // リスト描画
+  renderList() {
+    const content = document.getElementById('shipContent');
+    if (!content) return;
+    if (this.policies.length === 0) {
+      content.innerHTML = '<div class="ship-loading">ポリシーがありません</div>';
+      return;
+    }
+    // サービス→価格帯 順で並べ替え
+    const order = { Expedited: 0, Economy: 1, Standard: 2, Other: 9 };
+    const sorted = this.policies.slice().sort((a, b) => {
+      return (order[a.service] - order[b.service]) ||
+             ((a.priceMin || 0) - (b.priceMin || 0)) ||
+             ((a.vero ? 1 : 0) - (b.vero ? 1 : 0));
+    });
+
+    let html = `<div class="ship-table-wrap"><table class="ship-table">
+      <thead><tr>
+        <th>ポリシー名</th>
+        <th>種別</th>
+        <th>HT</th>
+        <th>価格帯</th>
+        <th class="ship-num">Domestic送料</th>
+        <th class="ship-num">Int'l</th>
+        <th>除外国</th>
+      </tr></thead><tbody>`;
+
+    sorted.forEach(p => {
+      const tagSvc =
+        p.service === 'Expedited' ? '<span class="ship-tag exp">Exp</span>' :
+        p.service === 'Economy'   ? '<span class="ship-tag eco">Eco</span>' :
+        p.service === 'Standard'  ? '<span class="ship-tag std">Std</span>' :
+                                    '<span class="ship-tag leg">Other</span>';
+      const tagV = p.vero ? '<span class="ship-tag vero">VeRO</span>' : '';
+      const tagS = p.special ? `<span class="ship-tag spec">${p.special}</span>` : '';
+      const tagL = p.isLegacy && p.service !== 'Other' ? '<span class="ship-tag leg">Legacy</span>' : '';
+      const rowClass = p.isLegacy ? 'legacy' : (p.special ? 'special' : '');
+      const exClass = p.excluded.length === 0 ? 'ship-excluded-badge zero' : 'ship-excluded-badge';
+      const priceRange = (p.priceMin != null && p.priceMax != null) ? `$${p.priceMin}〜${p.priceMax}` : '-';
+      html += `<tr class="${rowClass}">
+        <td class="ship-name">${p.name}</td>
+        <td>${tagSvc}${tagV}${tagS}${tagL}</td>
+        <td>${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
+        <td>${priceRange}</td>
+        <td class="ship-num">$${p.domesticCost.toFixed(2)}</td>
+        <td class="ship-num">${p.shippingOptionsCount - 1}件</td>
+        <td><span class="${exClass}" title="${p.excluded.join(', ')}">${p.excluded.length}</span></td>
+      </tr>`;
+    });
+
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+  },
+};
+
+// シッピングタブが開かれた時に呼ばれる
+function onShippingTabOpen() {
+  Shipping.initIfNeeded();
 }
 </script>
 
