@@ -1290,7 +1290,13 @@
           <button class="btn" id="aiDimBtn" style="padding:6px 14px; font-size:13px; background:#2e8b57; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">商品名から推定</button>
           <span id="aiDimStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
         </div>
-        <div style="font-size:11px; color:#888; margin-top:4px;">商品タイトルを元にネット検索 → 梱包サイズ優先で寸法・重量を自動入力</div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+          <label style="font-size:12px; color:#2e8b57; font-weight:600;">📦 梱包余裕(全辺に加算)</label>
+          <input type="number" id="boxMargin" step="0.5" min="0" placeholder="0" style="width:70px; padding:4px 8px; border:1px solid #c7e2d2; border-radius:4px; font-size:13px; text-align:right; background:#fff;" />
+          <span style="font-size:12px; color:#888;">cm</span>
+          <span style="font-size:11px; color:#888;">— AI取得値 + この値 を寸法に入れる</span>
+        </div>
+        <div style="font-size:11px; color:#888; margin-top:4px;">商品タイトルを元にネット検索 → 外箱サイズで寸法・重量を自動入力 + 梱包余裕を加算</div>
         <div id="aiDimBasis" style="display:none; margin-top:8px; padding:8px 10px; background:#fff; border:1px solid #d4e8dd; border-radius:6px; font-size:11px; color:#444; line-height:1.6;"></div>
       </div>
 
@@ -2946,15 +2952,22 @@ async function fetchAiDimensions() {
       return;
     }
 
+    // 梱包余裕(全辺に加算する cm)
+    const marginEl = document.getElementById('boxMargin');
+    const margin = marginEl ? (parseFloat(marginEl.value) || 0) : 0;
+
     // 寸法・重量を入力(奥行き=length, 幅=width, 高さ=height で割り当て)
+    // 梱包余裕を全辺に加算
     const depthEl = document.getElementById('dimDepth');
     const widthEl = document.getElementById('dimWidth');
     const heightEl = document.getElementById('dimHeight');
     const weightEl = document.getElementById('actualWeight');
 
-    if (depthEl && data.length != null) depthEl.value = data.length;
-    if (widthEl && data.width != null) widthEl.value = data.width;
-    if (heightEl && data.height != null) heightEl.value = data.height;
+    const addMargin = (v) => (v == null ? null : Number(v) + margin);
+
+    if (depthEl && data.length != null) depthEl.value = addMargin(data.length);
+    if (widthEl && data.width != null) widthEl.value = addMargin(data.width);
+    if (heightEl && data.height != null) heightEl.value = addMargin(data.height);
     if (weightEl && data.weight != null) weightEl.value = Math.round(data.weight);
 
     // 再計算
@@ -2993,6 +3006,16 @@ async function fetchAiDimensions() {
 function attachAiDimEvents() {
   const btn = document.getElementById('aiDimBtn');
   if (btn) btn.addEventListener('click', fetchAiDimensions);
+
+  // 梱包余裕値を localStorage に保存・復元
+  const marginEl = document.getElementById('boxMargin');
+  if (marginEl) {
+    const saved = localStorage.getItem('profitCalcV1_boxMargin');
+    if (saved !== null) marginEl.value = saved;
+    marginEl.addEventListener('input', () => {
+      localStorage.setItem('profitCalcV1_boxMargin', marginEl.value);
+    });
+  }
 }
 
 function attachSkuEvents() {
