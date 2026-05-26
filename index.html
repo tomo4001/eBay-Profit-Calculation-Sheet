@@ -1115,6 +1115,7 @@
   <!-- ===== タブナビゲーション ===== -->
   <nav class="tab-nav">
     <button class="tab-btn active" data-tab="user">📋 利益計算</button>
+    <button class="tab-btn admin locked" data-tab="shipping">📦 シッピングポリシー</button>
     <button class="tab-btn admin locked" data-tab="admin">⚙️ 管理者設定</button>
   </nav>
 
@@ -2051,6 +2052,35 @@
 
   </div><!-- /tabAdmin -->
 
+  <!-- ===== シッピングポリシー管理タブ ===== -->
+  <div id="tabShipping" class="tab-content">
+    <div class="card" style="background: #fffbeb; border-left: 4px solid #f59e0b;">
+      <h2>📦 シッピングポリシー管理</h2>
+      <p style="font-size:13px; color:#78350f;">
+        <strong>🚧 本実装中</strong> — モックアップで設計確定済み。本タブにフル機能を移植中です。
+      </p>
+      <p style="font-size:12px; color:#666;">
+        実装予定の機能:
+      </p>
+      <ul style="font-size:12px; color:#666;">
+        <li>📋 全127ポリシーの一覧(eBayから自動取得)</li>
+        <li>⚙️ サービス種別ごとのデフォルト設定(除外国)+特別設定(戦争関連の一時除外)</li>
+        <li>🛠️ 一括操作: 除外国の一括反映、ポリシー一括更新</li>
+        <li>🆕 新規ポリシー作成(VeRO版同時生成オプション付き)</li>
+        <li>✏️ ポリシーの個別編集・削除</li>
+        <li>📊 サービス別フィルタ・並び替え・複数選択でのカスタム操作</li>
+      </ul>
+      <p style="font-size:12px; color:#666;">
+        現状確認できるもの:
+      </p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+        <button class="btn" onclick="window.open('/api/ebay-policies-list', '_blank')">📋 ポリシー一覧(JSON)</button>
+        <button class="btn" onclick="window.open('/api/ebay-shipping-services-v2', '_blank')">🚚 配送サービスマスタ(JSON)</button>
+        <button class="btn" onclick="window.open('/api/ebay-excluded-analysis', '_blank')">📊 除外国分析(JSON)</button>
+      </div>
+    </div>
+  </div><!-- /tabShipping -->
+
 </main>
 
 <!-- ===== ログインモーダル ===== -->
@@ -2660,21 +2690,28 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.tab === tab);
   });
+  // tab id mapping: user→tabUser, admin→tabAdmin, shipping→tabShipping
+  const tabIdMap = { user: 'tabUser', admin: 'tabAdmin', shipping: 'tabShipping' };
+  const targetId = tabIdMap[tab] || ('tab' + tab);
   document.querySelectorAll('.tab-content').forEach(c => {
-    c.classList.toggle('active', c.id === 'tab' + (tab === 'user' ? 'User' : 'Admin'));
+    c.classList.toggle('active', c.id === targetId);
   });
+  // シッピングタブを開いた時、初回ならポリシー一覧を読み込み
+  if (tab === 'shipping' && typeof onShippingTabOpen === 'function') {
+    onShippingTabOpen();
+  }
 }
-function showLoginModal() {
+let _pendingTabAfterLogin = 'admin';
+function showLoginModal(intendedTab) {
+  if (intendedTab) _pendingTabAfterLogin = intendedTab;
   const ov = document.getElementById('loginOverlay');
   const idEl = document.getElementById('loginId');
   const passEl = document.getElementById('loginPass');
   const errEl = document.getElementById('loginError');
   if (!ov) return;
   errEl.textContent = '';
-  // 入力値はクリアしない(ブラウザの自動入力を活かす)
   ov.classList.add('active');
   setTimeout(() => {
-    // 既にIDが入っていればパスワード欄にフォーカス、なければID欄
     if (idEl.value) passEl.focus(); else idEl.focus();
   }, 100);
 }
@@ -2689,7 +2726,7 @@ function attemptLogin() {
   if (id.toLowerCase() === ADMIN_ID.toLowerCase() && pass === ADMIN_PASSWORD) {
     setAdminUnlocked(true);
     hideLoginModal();
-    switchTab('admin');
+    switchTab(_pendingTabAfterLogin || 'admin');
   } else {
     err.textContent = '⚠ ID または パスワードが違います';
   }
@@ -2699,8 +2736,9 @@ function attachAuthEvents() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const t = btn.dataset.tab;
-      if (t === 'admin' && !isAdminUnlocked()) {
-        showLoginModal();
+      // admin と shipping は管理者ログインが必要
+      if ((t === 'admin' || t === 'shipping') && !isAdminUnlocked()) {
+        showLoginModal(t);
         return;
       }
       switchTab(t);
