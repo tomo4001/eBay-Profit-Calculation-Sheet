@@ -5745,7 +5745,6 @@ const Shipping = {
         <th>HT</th>
         <th>価格帯</th>
         <th class="ship-num">Domestic送料</th>
-        <th class="ship-num">Int'l</th>
         <th>除外国</th>
       </tr></thead><tbody>`;
 
@@ -5767,7 +5766,6 @@ const Shipping = {
         <td>${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
         <td>${priceRange}</td>
         <td class="ship-num">$${p.domesticCost.toFixed(2)}</td>
-        <td class="ship-num">${p.shippingOptionsCount - 1}件</td>
         <td><span class="${exClass}" title="${p.excluded.join(', ')}">${p.excluded.length}</span></td>
       </tr>`;
     });
