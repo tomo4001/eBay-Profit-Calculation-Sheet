@@ -1283,6 +1283,17 @@
     <div class="weight-section">
       <p class="weight-section-title">📦 重量 & 寸法</p>
 
+      <!-- AIで寸法・重量を検索 -->
+      <div style="background:#f0f7f3; border:1px solid #c7e2d2; border-radius:8px; padding:10px 12px; margin-bottom:12px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <span style="font-size:12px; font-weight:700; color:#2e8b57;">🤖 AI寸法・重量検索</span>
+          <button class="btn" id="aiDimBtn" style="padding:6px 14px; font-size:13px; background:#2e8b57; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">商品名から推定</button>
+          <span id="aiDimStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
+        </div>
+        <div style="font-size:11px; color:#888; margin-top:4px;">商品タイトルを元にネット検索 → 梱包サイズ優先で寸法・重量を自動入力</div>
+        <div id="aiDimBasis" style="display:none; margin-top:8px; padding:8px 10px; background:#fff; border:1px solid #d4e8dd; border-radius:6px; font-size:11px; color:#444; line-height:1.6;"></div>
+      </div>
+
       <div class="weight-grid">
         <div class="weight-cell">
           <label for="actualWeight">実重量</label>
@@ -2898,6 +2909,90 @@ function attachEbayUrlEvents() {
   if (urlEl) urlEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); fetchEbayItem(); }
   });
+}
+
+// =============================================================================
+// AI(Gemini+Google検索)で寸法・重量を推定して自動入力
+// =============================================================================
+async function fetchAiDimensions() {
+  const btn = document.getElementById('aiDimBtn');
+  const status = document.getElementById('aiDimStatus');
+  const basisEl = document.getElementById('aiDimBasis');
+  if (!btn) return;
+
+  // 商品タイトルは SKU生成欄から取得(eBay取得 or 手入力で入っている前提)
+  const titleEl = document.getElementById('skuTitle');
+  const title = titleEl ? (titleEl.value || '').trim() : '';
+  if (!title) {
+    status.textContent = '⚠ 先に商品タイトルを入れてください(SKU生成欄)';
+    status.style.color = '#c0504d';
+    return;
+  }
+
+  btn.textContent = '検索中…';
+  btn.disabled = true;
+  status.textContent = 'AI検索中(10〜20秒)…';
+  status.style.color = '#888';
+  basisEl.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/estimate-dimensions?title=' + encodeURIComponent(title));
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      status.textContent = '⚠ ' + (data.error || ('HTTP ' + res.status));
+      status.style.color = '#c0504d';
+      if (data.rawText) { basisEl.style.display = 'block'; basisEl.textContent = 'AI返答: ' + data.rawText; }
+      return;
+    }
+
+    // 寸法・重量を入力(奥行き=length, 幅=width, 高さ=height で割り当て)
+    const depthEl = document.getElementById('dimDepth');
+    const widthEl = document.getElementById('dimWidth');
+    const heightEl = document.getElementById('dimHeight');
+    const weightEl = document.getElementById('actualWeight');
+
+    if (depthEl && data.length != null) depthEl.value = data.length;
+    if (widthEl && data.width != null) widthEl.value = data.width;
+    if (heightEl && data.height != null) heightEl.value = data.height;
+    if (weightEl && data.weight != null) weightEl.value = Math.round(data.weight);
+
+    // 再計算
+    if (typeof recalcWeight === 'function') recalcWeight();
+    if (typeof recalc === 'function') recalc();
+    if (typeof saveState === 'function') saveState();
+
+    // 根拠表示
+    const typeBadge = data.sourceType === '梱包サイズ' ? '📦 梱包サイズ'
+      : data.sourceType === '商品サイズ' ? '📐 商品サイズ'
+      : '🤖 AI推測';
+    // 確信度バッジ
+    const confColor = data.confidence === '高' ? '#2e7d32' : data.confidence === '中' ? '#c97a00' : '#c0504d';
+    const confBadge = data.confidence
+      ? `<span style="display:inline-block; margin-left:8px; padding:1px 8px; border-radius:9px; background:${confColor}; color:#fff; font-size:10px; font-weight:700;">確信度 ${data.confidence}</span>`
+      : '';
+    let basisHtml = `<strong>${typeBadge}</strong>${confBadge}<br>${(data.basis || '').replace(/</g,'&lt;')}`;
+    if (data.sourceUrl) {
+      basisHtml += `<br>🔗 <a href="${data.sourceUrl}" target="_blank" rel="noopener" style="color:#1565c0;">参照元</a>`;
+    }
+    basisEl.innerHTML = basisHtml;
+    basisEl.style.display = 'block';
+
+    const confTxt = data.confidence ? `[確信度${data.confidence}] ` : '';
+    status.textContent = `✓ ${confTxt}${typeBadge}: ${data.length}×${data.width}×${data.height}cm / ${Math.round(data.weight||0)}g`;
+    status.style.color = data.confidence === '低' ? '#c97a00' : '#2e7d32';
+  } catch (e) {
+    status.textContent = '⚠ 通信エラー: ' + e.message;
+    status.style.color = '#c0504d';
+  } finally {
+    btn.textContent = '商品名から推定';
+    btn.disabled = false;
+  }
+}
+
+function attachAiDimEvents() {
+  const btn = document.getElementById('aiDimBtn');
+  if (btn) btn.addEventListener('click', fetchAiDimensions);
 }
 
 function attachSkuEvents() {
@@ -5245,6 +5340,7 @@ function init() {
   updateSkuOutput();
   attachFxEvents();
   attachEbayUrlEvents();
+  attachAiDimEvents();
   attachAuthEvents();
   // 7項目コピーボタン
   const wcBtn = document.getElementById('winnerCopyBtn');
