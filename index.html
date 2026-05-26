@@ -1157,6 +1157,19 @@
     padding: 14px 18px; border-radius: 6px; color: #991b1b;
     font-size: 13px;
   }
+  .ship-toolbar {
+    background: #fff; padding: 12px 16px; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 14px;
+  }
+  .ship-toolbar-field { display: flex; align-items: center; gap: 6px; }
+  .ship-toolbar-field label { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
+  .ship-toolbar-field input,
+  .ship-toolbar-field select {
+    padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; background: #fff;
+  }
+  .ship-toolbar-field input[type="text"] { width: 200px; }
 </style>
 </head>
 <body>
@@ -2121,10 +2134,50 @@
     <div class="ship-header">
       <div>
         <h2>📦 シッピングポリシー管理</h2>
-        <div class="ship-header-info">全 <span id="shipTotalCount">-</span> 件 / 最終取得: <span id="shipLastFetch">未取得</span></div>
+        <div class="ship-header-info">全 <span id="shipTotalCount">-</span> 件(表示 <span id="shipFilteredCount">-</span>) / 最終取得: <span id="shipLastFetch">未取得</span></div>
       </div>
       <div style="display:flex; gap:8px;">
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
+      </div>
+    </div>
+
+    <div class="ship-toolbar" id="shipToolbar" style="display:none;">
+      <div class="ship-toolbar-field">
+        <label>🔍 検索</label>
+        <input type="text" id="shipSearchBox" placeholder="ポリシー名で検索…" oninput="Shipping.renderList()" />
+      </div>
+      <div class="ship-toolbar-field">
+        <label>サービス</label>
+        <select id="shipFilterService" onchange="Shipping.renderList()">
+          <option value="">全て</option>
+          <option value="Expedited">Expedited</option>
+          <option value="Economy">Economy</option>
+          <option value="Standard">Standard</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="ship-toolbar-field">
+        <label>分類</label>
+        <select id="shipFilterClass" onchange="Shipping.renderList()">
+          <option value="">全て</option>
+          <option value="standard">標準形のみ(VeRO以外)</option>
+          <option value="vero">VeROのみ</option>
+          <option value="special">特殊カテゴリ</option>
+          <option value="legacy">レガシー(略記)</option>
+          <option value="bulkEligible">一括編集対象のみ(標準形+VeRO)</option>
+        </select>
+      </div>
+      <div class="ship-toolbar-field">
+        <label>並び順</label>
+        <select id="shipSortKey" onchange="Shipping.renderList()">
+          <option value="serviceThenPrice">サービス → 価格帯(昇順)</option>
+          <option value="priceAsc">価格帯(昇順)</option>
+          <option value="priceDesc">価格帯(降順)</option>
+          <option value="costAsc">送料(昇順)</option>
+          <option value="costDesc">送料(降順)</option>
+          <option value="name">ポリシー名(あいうえお順)</option>
+          <option value="excludedDesc">除外国数(降順)</option>
+        </select>
       </div>
     </div>
 
@@ -5656,6 +5709,7 @@ const Shipping = {
       this.policies = raw.map(p => this.parsePolicy(p));
       this.lastFetchAt = new Date();
       document.getElementById('shipTotalCount').textContent = this.policies.length;
+      document.getElementById('shipFilteredCount').textContent = this.policies.length;
       document.getElementById('shipLastFetch').textContent = this.lastFetchAt.toLocaleString('ja-JP');
       this.renderList();
     } catch (e) {
@@ -5722,21 +5776,54 @@ const Shipping = {
     };
   },
 
-  // リスト描画
+  // リスト描画(検索・フィルタ・ソート対応)
   renderList() {
     const content = document.getElementById('shipContent');
+    const toolbar = document.getElementById('shipToolbar');
     if (!content) return;
     if (this.policies.length === 0) {
       content.innerHTML = '<div class="ship-loading">ポリシーがありません</div>';
+      if (toolbar) toolbar.style.display = 'none';
       return;
     }
-    // サービス→価格帯 順で並べ替え
+    if (toolbar) toolbar.style.display = 'flex';
+
+    // フィルタ・検索
+    const q = (document.getElementById('shipSearchBox')?.value || '').toLowerCase();
+    const svc = document.getElementById('shipFilterService')?.value || '';
+    const cls = document.getElementById('shipFilterClass')?.value || '';
+    const sortKey = document.getElementById('shipSortKey')?.value || 'serviceThenPrice';
+
+    let list = this.policies.slice();
+    if (svc) list = list.filter(p => p.service === svc);
+    if (q) list = list.filter(p => p.name.toLowerCase().includes(q));
+    if (cls === 'standard')     list = list.filter(p => !p.vero && !p.special && !p.isLegacy);
+    if (cls === 'vero')         list = list.filter(p => p.vero);
+    if (cls === 'special')      list = list.filter(p => p.special);
+    if (cls === 'legacy')       list = list.filter(p => p.isLegacy);
+    if (cls === 'bulkEligible') list = list.filter(p => !p.special && !p.isLegacy);
+
+    // ソート
     const order = { Expedited: 0, Economy: 1, Standard: 2, Other: 9 };
-    const sorted = this.policies.slice().sort((a, b) => {
-      return (order[a.service] - order[b.service]) ||
-             ((a.priceMin || 0) - (b.priceMin || 0)) ||
-             ((a.vero ? 1 : 0) - (b.vero ? 1 : 0));
+    const sorted = list.sort((a, b) => {
+      switch (sortKey) {
+        case 'priceAsc':    return (a.priceMin || 0) - (b.priceMin || 0);
+        case 'priceDesc':   return (b.priceMin || 0) - (a.priceMin || 0);
+        case 'costAsc':     return a.domesticCost - b.domesticCost;
+        case 'costDesc':    return b.domesticCost - a.domesticCost;
+        case 'name':        return a.name.localeCompare(b.name);
+        case 'excludedDesc': return b.excluded.length - a.excluded.length;
+        case 'serviceThenPrice':
+        default:
+          return (order[a.service] - order[b.service]) ||
+                 ((a.priceMin || 0) - (b.priceMin || 0)) ||
+                 ((a.vero ? 1 : 0) - (b.vero ? 1 : 0));
+      }
     });
+
+    // フィルタ後の件数表示
+    const filteredEl = document.getElementById('shipFilteredCount');
+    if (filteredEl) filteredEl.textContent = sorted.length;
 
     let html = `<div class="ship-table-wrap"><table class="ship-table">
       <thead><tr>
