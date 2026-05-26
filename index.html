@@ -2996,10 +2996,38 @@ async function fetchAiDimensions() {
     const confBadge = data.confidence
       ? `<span style="display:inline-block; margin-left:8px; padding:1px 8px; border-radius:9px; background:${confColor}; color:#fff; font-size:10px; font-weight:700;">確信度 ${data.confidence}</span>`
       : '';
-    let basisHtml = `<strong>${typeBadge}</strong>${confBadge}<br>${(data.basis || '').replace(/</g,'&lt;')}`;
-    if (data.sourceUrl) {
-      basisHtml += `<br>🔗 <a href="${data.sourceUrl}" target="_blank" rel="noopener" style="color:#1565c0;">参照元</a>`;
+
+    // 参照元マッチ判定バッジ
+    const refMatch = data.refMatch || '';
+    let refBadge = '';
+    if (refMatch === '一致') {
+      refBadge = `<span style="display:inline-block; margin-left:6px; padding:1px 8px; border-radius:9px; background:#2e7d32; color:#fff; font-size:10px; font-weight:700;">✓ 参照元一致</span>`;
+    } else if (refMatch === '部分一致') {
+      refBadge = `<span style="display:inline-block; margin-left:6px; padding:1px 8px; border-radius:9px; background:#c97a00; color:#fff; font-size:10px; font-weight:700;">△ 部分一致</span>`;
+    } else if (refMatch === '不一致') {
+      refBadge = `<span style="display:inline-block; margin-left:6px; padding:1px 8px; border-radius:9px; background:#c0504d; color:#fff; font-size:10px; font-weight:700;">✗ 参照元不一致</span>`;
     }
+
+    let basisHtml = `<strong>${typeBadge}</strong>${confBadge}${refBadge}<br>${(data.basis || '').replace(/</g,'&lt;')}`;
+
+    // 商品タイトル ↔ 参照元商品名 を並べて表示(目視確認用)
+    if (data.queryTitle || data.refProduct) {
+      const q = (data.queryTitle || title || '').replace(/</g,'&lt;');
+      const r = (data.refProduct || '').replace(/</g,'&lt;');
+      const matchColor = refMatch === '一致' ? '#2e7d32' : refMatch === '部分一致' ? '#c97a00' : refMatch === '不一致' ? '#c0504d' : '#666';
+      const matchIcon = refMatch === '一致' ? '✓' : refMatch === '部分一致' ? '△' : refMatch === '不一致' ? '⚠' : '·';
+      basisHtml += `<br><div style="margin-top:6px; padding:6px 8px; border-left:3px solid ${matchColor}; background:#fafafa; font-size:11px; line-height:1.5;">
+        <div><span style="color:#666;">🔎 商品タイトル:</span> <strong>${q}</strong></div>
+        <div><span style="color:#666;">${matchIcon} 参照元商品名:</span> <strong style="color:${matchColor};">${r || '(なし)'}</strong></div>
+      </div>`;
+    }
+
+    if (data.sourceUrl) {
+      basisHtml += `<br>🔗 <a href="${data.sourceUrl}" target="_blank" rel="noopener" style="color:#1565c0;">参照元ページを開く</a>`;
+    } else if (refMatch === '不一致') {
+      basisHtml += `<br><span style="color:#c0504d; font-size:11px;">⚠ AIが見つけた参照元は別商品だったため採用していません。値は推測です。</span>`;
+    }
+
     // ベース寸法表示(ユーザーが余裕を変えたとき何に何cm足しているか把握できるように)
     if (baseLength != null && baseWidth != null && baseHeight != null) {
       basisHtml += `<br><span data-base-summary style="color:#666; font-size:11px;">📦 ベース: ${baseLength}×${baseWidth}×${baseHeight}cm / 余裕 +${aiMargin}cm = ${baseLength + aiMargin}×${baseWidth + aiMargin}×${baseHeight + aiMargin}cm</span>`;
