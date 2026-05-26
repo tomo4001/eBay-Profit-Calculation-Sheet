@@ -2057,15 +2057,17 @@
 <div id="loginOverlay" class="login-overlay">
   <div class="login-modal">
     <h3>🔐 管理者ログイン</h3>
-    <label for="loginId">ID(メールアドレス)</label>
-    <input type="email" id="loginId" autocomplete="username" placeholder="example@gmail.com" />
-    <label for="loginPass">パスワード</label>
-    <input type="password" id="loginPass" autocomplete="current-password" placeholder="パスワード" />
-    <p class="login-error" id="loginError"></p>
-    <div class="login-actions">
-      <button class="btn-cancel" id="loginCancel">キャンセル</button>
-      <button class="btn-login" id="loginSubmit">ログイン</button>
-    </div>
+    <form id="loginForm" method="post" action="#" autocomplete="on">
+      <label for="loginId">ID(メールアドレス)</label>
+      <input type="email" id="loginId" name="email" autocomplete="username" placeholder="example@gmail.com" />
+      <label for="loginPass">パスワード</label>
+      <input type="password" id="loginPass" name="password" autocomplete="current-password" placeholder="パスワード" />
+      <p class="login-error" id="loginError"></p>
+      <div class="login-actions">
+        <button type="button" class="btn-cancel" id="loginCancel">キャンセル</button>
+        <button type="submit" class="btn-login" id="loginSubmit">ログイン</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -2669,10 +2671,12 @@ function showLoginModal() {
   const errEl = document.getElementById('loginError');
   if (!ov) return;
   errEl.textContent = '';
-  idEl.value = '';
-  passEl.value = '';
+  // 入力値はクリアしない(ブラウザの自動入力を活かす)
   ov.classList.add('active');
-  setTimeout(() => idEl.focus(), 100);
+  setTimeout(() => {
+    // 既にIDが入っていればパスワード欄にフォーカス、なければID欄
+    if (idEl.value) passEl.focus(); else idEl.focus();
+  }, 100);
 }
 function hideLoginModal() {
   const ov = document.getElementById('loginOverlay');
@@ -2702,9 +2706,18 @@ function attachAuthEvents() {
       switchTab(t);
     });
   });
-  // ログインモーダル
-  const submit = document.getElementById('loginSubmit');
-  if (submit) submit.addEventListener('click', attemptLogin);
+  // ログインモーダル: フォーム送信(ブラウザのパスワード保存ダイアログを引き出すため)
+  const form = document.getElementById('loginForm');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      attemptLogin();
+    });
+  } else {
+    // フォールバック(古いHTMLの場合)
+    const submit = document.getElementById('loginSubmit');
+    if (submit) submit.addEventListener('click', attemptLogin);
+  }
   const cancel = document.getElementById('loginCancel');
   if (cancel) cancel.addEventListener('click', hideLoginModal);
   ['loginId', 'loginPass'].forEach(id => {
