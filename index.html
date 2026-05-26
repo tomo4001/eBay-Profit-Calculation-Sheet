@@ -1339,40 +1339,6 @@
     </div>
   </div>
 
-  <!-- ===== 💱 為替変換カード ===== -->
-  <div class="card" style="border-left: 4px solid #2e8b57;">
-    <h2>💱 為替変換</h2>
-    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-      <button class="btn" id="fxRefreshBtn" style="padding:6px 14px; font-size:13px; background:#2e8b57; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">🔄 最新レート取得</button>
-      <span id="fxRefreshStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
-      <span style="font-size:12px; color:#666;">どれか1つに金額を入力 → 他通貨が自動換算(双方向)</span>
-    </div>
-
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
-      <div style="background:#f4faf6; border:1px solid #c7e2d2; padding:8px 12px; border-radius:6px;">
-        <div style="font-size:11px; color:#2e8b57; font-weight:700; margin-bottom:2px;">🇺🇸 USD</div>
-        <input type="number" id="fxUsd" step="0.01" placeholder="100.00" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
-      </div>
-      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
-        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇬🇧 GBP</div>
-        <input type="number" id="fxGbp" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
-      </div>
-      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
-        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇪🇺 EUR</div>
-        <input type="number" id="fxEur" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
-      </div>
-      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
-        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇨🇦 CAD</div>
-        <input type="number" id="fxCad" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
-      </div>
-      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
-        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇦🇺 AUD</div>
-        <input type="number" id="fxAud" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
-      </div>
-    </div>
-    <div id="fxRateInfo" style="margin-top:8px; font-size:11px; color:#888;">レート: —</div>
-  </div>
-
   <!-- ===== 🏆 最高利益の選択 ===== -->
   <div class="card winner-card no-result" id="winnerCard">
     <h2>🏆 最高利益の選択</h2>
@@ -1410,6 +1376,40 @@
       </div>
       <div id="winnerCopyPreview" style="margin-top:8px; padding:8px 12px; background:#f4f8fc; border:1px solid #c5d8e8; border-radius:5px; font-family:'SF Mono',Consolas,monospace; font-size:12px; color:#2c3e50; word-break:break-all; line-height:1.6;">─  |  ─  |  ─  |  ─  |  ─  |  ─  |  ─</div>
     </div>
+  </div>
+
+  <!-- ===== 💱 為替変換カード ===== -->
+  <div class="card" style="border-left: 4px solid #2e8b57;">
+    <h2>💱 為替変換</h2>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+      <button class="btn" id="fxRefreshBtn" style="padding:6px 14px; font-size:13px; background:#2e8b57; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">🔄 最新レート取得</button>
+      <span id="fxRefreshStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
+      <span style="font-size:12px; color:#666;">どれか1つに金額を入力 → 他通貨が自動換算(双方向)</span>
+    </div>
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px;">
+      <div style="background:#f4faf6; border:1px solid #c7e2d2; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#2e8b57; font-weight:700; margin-bottom:2px;">🇺🇸 USD</div>
+        <input type="number" id="fxUsd" step="0.01" placeholder="100.00" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇬🇧 GBP</div>
+        <input type="number" id="fxGbp" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇪🇺 EUR</div>
+        <input type="number" id="fxEur" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇨🇦 CAD</div>
+        <input type="number" id="fxCad" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+      <div style="background:#fdfaf2; border:1px solid #e8d090; padding:8px 12px; border-radius:6px;">
+        <div style="font-size:11px; color:#c97a00; font-weight:700; margin-bottom:2px;">🇦🇺 AUD</div>
+        <input type="number" id="fxAud" step="0.01" placeholder="—" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:15px; text-align:right; font-family:'SF Mono',Consolas,monospace;" />
+      </div>
+    </div>
+    <div id="fxRateInfo" style="margin-top:8px; font-size:11px; color:#888;">レート: —</div>
   </div>
 
   <!-- ===== 計算オプション ===== -->
