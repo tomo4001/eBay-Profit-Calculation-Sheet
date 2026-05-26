@@ -22,10 +22,13 @@ export default function handler(req, res) {
     return;
   }
 
-  // ビジネスポリシー管理に必要なスコープ
+  // ビジネスポリシー管理 + Trading API 用スコープ
   const scopes = [
-    'https://api.ebay.com/oauth/api_scope/sell.account',
-    'https://api.ebay.com/oauth/api_scope/sell.account.readonly',
+    'https://api.ebay.com/oauth/api_scope',                       // Trading API / Browse 基本
+    'https://api.ebay.com/oauth/api_scope/sell.account',           // ポリシー管理
+    'https://api.ebay.com/oauth/api_scope/sell.account.readonly',  // ポリシー読み取り
+    'https://api.ebay.com/oauth/api_scope/sell.inventory',         // 出品在庫(将来用)
+    'https://api.ebay.com/oauth/api_scope/sell.inventory.readonly',
   ].join(' ');
 
   // CSRF対策のstate(本来はサーバーセッションで管理。MVPなのでシンプルに)
