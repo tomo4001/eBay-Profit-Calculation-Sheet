@@ -1175,6 +1175,17 @@
     </div>
   </div>
 
+  <!-- ===== ライバル商品URL から自動取得カード ===== -->
+  <div class="card manual-input" style="border-left:4px solid #1565c0;">
+    <h2 style="color:#1565c0;">🔗 ライバル商品URLから自動取得</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... を貼り付け" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
+      <button class="btn" id="ebayFetchBtn" style="padding:8px 18px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">取得</button>
+      <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
+    </div>
+    <div style="font-size:11px; color:#888; margin-top:6px;">商品タイトル・カテゴリーNo.・ライバル合計価格($) を自動入力します</div>
+  </div>
+
   <!-- ===== SKU生成カード ===== -->
   <div class="card manual-input">
     <h2>📦 SKU生成
@@ -1214,20 +1225,12 @@
   <div class="card manual-input">
     <h2>🧮 計算</h2>
 
-    <!-- eBay URL から自動取得 -->
-    <div style="background:#eef5fb; border:1px solid #c5d8e8; border-radius:8px; padding:10px 12px; margin-bottom:14px;">
-      <div style="font-size:12px; font-weight:700; color:#1565c0; margin-bottom:6px;">🔗 eBay出品URLから自動取得</div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... を貼り付け" style="flex:1; min-width:240px; padding:7px 10px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
-        <button class="btn" id="ebayFetchBtn" style="padding:7px 16px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">取得</button>
-        <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
-      </div>
-      <div style="font-size:11px; color:#888; margin-top:4px;">商品タイトル・カテゴリーNo.・ライバル合計価格($)を自動入力します</div>
-    </div>
-
     <div class="calc-row">
       <label for="setCategoryNo">カテゴリーNo.</label>
-      <input type="number" id="setCategoryNo" step="1" placeholder="例: 11844" />
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <input type="number" id="setCategoryNo" step="1" placeholder="例: 11844" style="flex:0 1 auto;" />
+        <span style="font-size:11px; color:#888;">※ライバル商品のURLにて商品情報を取得した場合、自動で反映されます。</span>
+      </div>
     </div>
     <div class="calc-row">
       <label for="purchasePrice">仕入値 (¥)</label>
@@ -1235,7 +1238,10 @@
     </div>
     <div class="calc-row">
       <label for="rivalPrice">ライバル合計価格 ($)</label>
-      <input type="number" id="rivalPrice" step="0.01" placeholder="例: 337.16" />
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <input type="number" id="rivalPrice" step="0.01" placeholder="例: 337.16" style="flex:0 1 auto;" />
+        <span style="font-size:11px; color:#888;">※ライバル商品のURLにて商品情報を取得した場合、自動で反映されます。</span>
+      </div>
     </div>
     <div class="calc-row" style="background:#fff8e7; border-radius:6px; padding:8px 12px;">
       <label style="color:#c97a00;">価格分離モード</label>
