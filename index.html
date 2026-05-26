@@ -1170,6 +1170,21 @@
     font-size: 13px; background: #fff;
   }
   .ship-toolbar-field input[type="text"] { width: 200px; }
+  .ship-bulk-bar {
+    background: #fef3c7; border: 1px solid #fbbf24;
+    padding: 10px 16px; border-radius: 8px; margin-bottom: 12px;
+    align-items: center; gap: 14px; flex-wrap: wrap;
+    color: #92400e; font-weight: 700;
+  }
+  .ship-bulk-btn {
+    background: #fff; border: 1px solid #92400e; color: #92400e;
+    padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .ship-bulk-btn:hover { background: #92400e; color: #fff; }
+  .ship-bulk-btn.danger { border-color: #b91c1c; color: #b91c1c; }
+  .ship-bulk-btn.danger:hover { background: #b91c1c; color: #fff; }
+  .ship-table tbody tr.selected { background: #fef9e7; }
 </style>
 </head>
 <body>
@@ -2179,6 +2194,12 @@
           <option value="excludedDesc">除外国数(降順)</option>
         </select>
       </div>
+    </div>
+
+    <div class="ship-bulk-bar" id="shipBulkBar" style="display:none;">
+      <span><strong id="shipSelectedCount">0</strong> 件選択中</span>
+      <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
+      <span style="font-size:11px; color:#92400e;">(一括操作は Phase 2-F で実装)</span>
     </div>
 
     <div id="shipContent">
@@ -5680,6 +5701,7 @@ try {
 // =========================================================================
 const Shipping = {
   policies: [],       // 取得したポリシー(本物のeBayデータ)
+  selected: new Set(),// チェックされた id のセット
   lastFetchAt: null,
   isLoading: false,
 
@@ -5827,6 +5849,7 @@ const Shipping = {
 
     let html = `<div class="ship-table-wrap"><table class="ship-table">
       <thead><tr>
+        <th style="width:30px;"><input type="checkbox" id="shipSelectAll" onchange="Shipping.toggleSelectAll(this.checked)" /></th>
         <th>ポリシー名</th>
         <th>種別</th>
         <th>HT</th>
@@ -5847,7 +5870,10 @@ const Shipping = {
       const rowClass = p.isLegacy ? 'legacy' : (p.special ? 'special' : '');
       const exClass = p.excluded.length === 0 ? 'ship-excluded-badge zero' : 'ship-excluded-badge';
       const priceRange = (p.priceMin != null && p.priceMax != null) ? `$${p.priceMin}〜${p.priceMax}` : '-';
-      html += `<tr class="${rowClass}">
+      const isChecked = this.selected.has(p.id);
+      const selectedClass = isChecked ? ' selected' : '';
+      html += `<tr class="${rowClass}${selectedClass}" data-pid="${p.id}">
+        <td><input type="checkbox" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleSelect('${p.id}', this.checked)" /></td>
         <td class="ship-name">${p.name}</td>
         <td>${tagSvc}${tagV}${tagS}${tagL}</td>
         <td>${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
@@ -5859,6 +5885,46 @@ const Shipping = {
 
     html += '</tbody></table></div>';
     content.innerHTML = html;
+    this.updateBulkBar();
+  },
+
+  // チェック切替
+  toggleSelect(id, checked) {
+    if (checked) this.selected.add(id); else this.selected.delete(id);
+    const tr = document.querySelector(`tr[data-pid="${id}"]`);
+    if (tr) tr.classList.toggle('selected', checked);
+    this.updateBulkBar();
+  },
+  // 全選択切替(現在のフィルタ結果対象)
+  toggleSelectAll(checked) {
+    const q = (document.getElementById('shipSearchBox')?.value || '').toLowerCase();
+    const svc = document.getElementById('shipFilterService')?.value || '';
+    const cls = document.getElementById('shipFilterClass')?.value || '';
+    this.policies.forEach(p => {
+      if (svc && p.service !== svc) return;
+      if (q && !p.name.toLowerCase().includes(q)) return;
+      if (cls === 'standard' && (p.vero || p.special || p.isLegacy)) return;
+      if (cls === 'vero' && !p.vero) return;
+      if (cls === 'special' && !p.special) return;
+      if (cls === 'legacy' && !p.isLegacy) return;
+      if (cls === 'bulkEligible' && (p.special || p.isLegacy)) return;
+      if (checked) this.selected.add(p.id); else this.selected.delete(p.id);
+    });
+    this.renderList();
+  },
+  clearSelection() {
+    this.selected.clear();
+    this.renderList();
+  },
+  getSelectedPolicies() {
+    return this.policies.filter(p => this.selected.has(p.id));
+  },
+  // 黄色の一括操作バー更新 (Phase 2-F で実装)
+  updateBulkBar() {
+    const bar = document.getElementById('shipBulkBar');
+    const cnt = document.getElementById('shipSelectedCount');
+    if (cnt) cnt.textContent = this.selected.size;
+    if (bar) bar.style.display = this.selected.size > 0 ? 'flex' : 'none';
   },
 };
 
