@@ -138,7 +138,31 @@ export default async function handler(req, res) {
 
     const services = extractShippingServices(xmlText);
 
-    // 整形して返す
+    // クエリ ?valid=true なら有効サービスだけに絞る(既定)
+    const validOnly = req.query.valid !== 'false';
+    const filtered = validOnly ? services.filter(s => s.validForSellingFlow) : services;
+
+    // Domestic / International に分離 + description順
+    const domestic = filtered
+      .filter(s => !s.internationalService)
+      .sort((a, b) => (a.description || '').localeCompare(b.description || ''));
+    const international = filtered
+      .filter(s => s.internationalService)
+      .sort((a, b) => (a.description || '').localeCompare(b.description || ''));
+
+    // Hartuoさんが実際使っているコード(参考表示)
+    const usedCodes = [
+      'US_ExpeditedSppedPAK',
+      'ExpeditedShippingFromOutsideUS',
+      'US_EconomySppedPAK',
+      'US_StandardSppedPAK',
+      'StandardShippingFromOutsideUS',
+      'ExpeditedInternational',
+      'OtherInternational',
+      'StandardInternational'
+    ];
+    const usedMatches = services.filter(s => usedCodes.includes(s.shippingService));
+
     res.status(200).json({
       ok: ack === 'Success' || ack === 'Warning',
       ack,
@@ -146,7 +170,21 @@ export default async function handler(req, res) {
       siteId,
       total: services.length,
       validForSellingFlowCount: services.filter(s => s.validForSellingFlow).length,
-      services,
+      shown: filtered.length,
+      domesticCount: domestic.length,
+      internationalCount: international.length,
+      // ★Hartuoさんの実使用コードが master に含まれているか
+      usedCodesCheck: usedCodes.map(code => {
+        const m = services.find(s => s.shippingService === code);
+        return {
+          code,
+          found: !!m,
+          validForSellingFlow: m ? m.validForSellingFlow : null,
+          description: m ? m.description : null,
+        };
+      }),
+      domestic,
+      international,
     });
 
   } catch (e) {
