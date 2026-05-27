@@ -1321,6 +1321,57 @@
   }
   .ship-chip-region button { color: #7c2d12; }
   .ship-chip-region button:hover { background: #7c2d12; color: #fff; }
+
+  /* チェックボックス除外国UI */
+  .ship-country-group {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+    margin-bottom: 8px; overflow: hidden;
+  }
+  .ship-country-group summary {
+    background: #f9fafb; padding: 10px 14px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer; user-select: none;
+    list-style: none;
+    border-bottom: 1px solid transparent;
+  }
+  .ship-country-group[open] summary {
+    border-bottom-color: #e5e7eb;
+  }
+  .ship-country-group summary::-webkit-details-marker { display: none; }
+  .ship-country-group summary::before {
+    content: '▶'; font-size: 10px; color: #6b7280;
+    transition: transform 0.2s;
+  }
+  .ship-country-group[open] summary::before {
+    transform: rotate(90deg);
+  }
+  .ship-country-group-name { font-weight: 700; font-size: 13px; color: #1f2937; }
+  .ship-country-group-count {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 700;
+  }
+  .ship-country-group-count.all { background: #fee2e2; color: #991b1b; }
+  .ship-country-group-count.partial { background: #fef3c7; color: #92400e; }
+  .ship-country-group-count.none { background: #f3f4f6; color: #6b7280; }
+  .ship-group-action {
+    background: #fff; border: 1px solid #d1d5db; color: #4b5563;
+    padding: 3px 10px; border-radius: 5px; cursor: pointer;
+    font-size: 11px; font-weight: 600;
+  }
+  .ship-group-action:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .ship-checkbox-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px;
+    padding: 10px 14px;
+    max-height: 280px; overflow-y: auto;
+  }
+  .ship-checkbox-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 6px; font-size: 12px; cursor: pointer;
+    border-radius: 4px;
+  }
+  .ship-checkbox-item:hover { background: #eff6ff; }
+  .ship-checkbox-item input { margin: 0; }
 </style>
 </head>
 <body>
@@ -6126,6 +6177,32 @@ function shipDisplayCountry(code) {
   return SHIP_COUNTRY_NAME[code] ? `${code} (${SHIP_COUNTRY_NAME[code]})` : code;
 }
 
+// 国を地域グループ別に分類(チェックボックスUI用)
+const SHIP_COUNTRY_GROUPS = {
+  '🌍 地域指定 (一括除外)': {
+    items: ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'],
+    isRegion: true
+  },
+  '🇪🇺 ヨーロッパ': {
+    items: ['AD','AL','BA','BG','BY','CY','DE','EE','GG','GI','HR','IS','JE','LT','LV','MD','ME','MK','MT','RO','RS','RU','SI','SJ','UA','VA']
+  },
+  '🕌 中東': {
+    items: ['AE','BH','EG','IL','IQ','IR','JO','KW','LB','OM','QA','SA','SY','TR','YE']
+  },
+  '🌏 アジア': {
+    items: ['AF','AM','AZ','BD','BN','BT','CN','GE','IN','JP','KG','KH','KP','KZ','LA','LK','MN','MO','MV','NP','PK','TJ','TM']
+  },
+  '🌊 オセアニア・太平洋': {
+    items: ['AS','AU','CK','FJ','FM','GU','KI','MH','NC','NR','NU','NZ','PF','PG','PW','SB','TO','TV','VU','WF','WS']
+  },
+  '🌎 北米・カリブ・中米(個別の国)': {
+    items: ['AI','BB','BM','CA','GL','GP','GT','HN','KY','MQ','MS','MX','PM','PR']
+  },
+  '🌎 南米(個別の国)': {
+    items: ['BR']
+  }
+};
+
 // デフォルト・特別設定をShippingオブジェクトに追加
 Object.assign(Shipping, {
   defaults: {
@@ -6184,20 +6261,42 @@ Object.assign(Shipping, {
   renderDefaultForm() {
     const d = this.defaults[this.currentDefaultType];
     const svc = this.currentDefaultType;
-    // 地域(Africa等)と個別国に分けて表示
-    const REGIONS = ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'];
-    const list = d.baseExcluded || [];
-    const regions = list.filter(c => REGIONS.includes(c));
-    const countries = list.filter(c => !REGIONS.includes(c)).sort((a, b) => {
-      const an = SHIP_COUNTRY_NAME[a] || a;
-      const bn = SHIP_COUNTRY_NAME[b] || b;
-      return an.localeCompare(bn);
-    });
+    const excluded = new Set(d.baseExcluded || []);
 
-    const regionsHtml = regions.map(r => `<span class="ship-chip ship-chip-region">🌍 ${r} <button onclick="Shipping.removeDefaultExcluded('${r}')">×</button></span>`).join('');
-    const countriesHtml = countries.length > 0
-      ? countries.map(c => `<span class="ship-chip">${shipDisplayCountry(c)} <button onclick="Shipping.removeDefaultExcluded('${c}')">×</button></span>`).join('')
-      : '<span style="color:#9ca3af; font-size:12px;">(個別の国が登録されていません)</span>';
+    let groupsHtml = '';
+    Object.entries(SHIP_COUNTRY_GROUPS).forEach(([groupName, group], gIdx) => {
+      const items = group.items;
+      const checkedCount = items.filter(c => excluded.has(c)).length;
+      const totalCount = items.length;
+      const isAllChecked = checkedCount === totalCount;
+      const isPartial = checkedCount > 0 && checkedCount < totalCount;
+      const isRegionGroup = group.isRegion;
+
+      const itemsHtml = items.map(c => {
+        const isChecked = excluded.has(c);
+        const label = isRegionGroup
+          ? `<strong>${c}</strong>${c === 'Africa' || c === 'South America' || c === 'Central America and Caribbean' ? ' (地域全域)' : ''}`
+          : shipDisplayCountry(c);
+        return `
+          <label class="ship-checkbox-item">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} data-code="${c}" onchange="Shipping.toggleDefaultExcluded('${c}', this.checked)" />
+            <span>${label}</span>
+          </label>
+        `;
+      }).join('');
+
+      groupsHtml += `
+        <details class="ship-country-group" ${gIdx < 2 || isPartial ? 'open' : ''}>
+          <summary>
+            <span class="ship-country-group-name">${groupName}</span>
+            <span class="ship-country-group-count ${isAllChecked ? 'all' : isPartial ? 'partial' : 'none'}">${checkedCount}/${totalCount} 除外</span>
+            <button class="ship-group-action" onclick="event.preventDefault(); Shipping.toggleAllInGroup('${groupName}', true)">✓ 全選択</button>
+            <button class="ship-group-action" onclick="event.preventDefault(); Shipping.toggleAllInGroup('${groupName}', false)">解除</button>
+          </summary>
+          <div class="ship-checkbox-grid">${itemsHtml}</div>
+        </details>
+      `;
+    });
 
     document.getElementById('shipDefaultForm').innerHTML = `
       <div class="ship-modal-section">
@@ -6211,34 +6310,33 @@ Object.assign(Shipping, {
 
         <div style="margin-top:14px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div style="font-size:12px; font-weight:700; color:#374151;">🌐 Base 除外(全 ${list.length} 項目: 地域 ${regions.length} + 個別国 ${countries.length})</div>
+            <div style="font-size:13px; font-weight:700; color:#374151;">🌐 Base 除外国(チェックで除外)</div>
+            <div style="font-size:11px; color:#888;">全 ${(d.baseExcluded||[]).length} 項目除外中</div>
           </div>
-
-          ${regions.length > 0 ? `
-          <div style="margin-bottom:10px;">
-            <div style="font-size:11px; color:#666; margin-bottom:4px;">▼ 地域(範囲指定)</div>
-            <div class="ship-country-chips" style="background:#fef3c7;">${regionsHtml}</div>
-          </div>
-          ` : ''}
-
-          <div style="margin-bottom:10px;">
-            <div style="font-size:11px; color:#666; margin-bottom:4px;">▼ 個別の国(あいうえお順)</div>
-            <div class="ship-country-chips" style="max-height:240px; overflow-y:auto;">${countriesHtml}</div>
-          </div>
-
-          <div style="background:#eff6ff; border:2px solid #93c5fd; padding:12px 14px; border-radius:8px; margin-top:12px;">
-            <div style="font-size:12px; font-weight:700; color:#1e40af; margin-bottom:8px;">➕ 除外国を追加</div>
-            <div style="display:flex; gap:6px;">
-              <input type="text" id="shipDefNewExcluded" list="shipCountryDatalist" placeholder="国名(Russia/イラン)、2文字コード(RU)、または地域名(Africa)を入力" style="flex:1; padding:9px 12px; border:1px solid #93c5fd; border-radius:6px; font-size:13px; background:#fff;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addDefaultExcluded();}" />
-              <button class="ship-btn-add-chip" style="padding:9px 18px; font-size:13px;" onclick="Shipping.addDefaultExcluded()">+ 追加</button>
-            </div>
-            <div style="font-size:11px; color:#1e40af; margin-top:6px;">
-              💡 入力欄をクリックすると候補が出ます。Enter キーまたは「+追加」ボタンで追加。
-            </div>
-          </div>
+          ${groupsHtml}
         </div>
       </div>
     `;
+  },
+  toggleDefaultExcluded(code, checked) {
+    const list = this.defaults[this.currentDefaultType].baseExcluded || [];
+    if (checked) {
+      if (!list.includes(code)) list.push(code);
+    } else {
+      this.defaults[this.currentDefaultType].baseExcluded = list.filter(c => c !== code);
+    }
+    this.renderDefaultForm();
+  },
+  toggleAllInGroup(groupName, checked) {
+    const group = SHIP_COUNTRY_GROUPS[groupName];
+    if (!group) return;
+    const list = this.defaults[this.currentDefaultType].baseExcluded || [];
+    const set = new Set(list);
+    group.items.forEach(c => {
+      if (checked) set.add(c); else set.delete(c);
+    });
+    this.defaults[this.currentDefaultType].baseExcluded = Array.from(set);
+    this.renderDefaultForm();
   },
   addDefaultExcluded() {
     const input = document.getElementById('shipDefNewExcluded');
