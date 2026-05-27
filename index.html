@@ -6230,15 +6230,46 @@ Object.assign(Shipping, {
     } catch (e) {}
   },
 
-  openSettingsModal() {
+  countriesFetched: false,
+  async fetchAllCountries() {
+    if (this.countriesFetched) return;
+    try {
+      const res = await fetch('/api/ebay-country-codes');
+      const data = await res.json();
+      if (!data.ok || !data.countries) return;
+      // SHIP_COUNTRY_NAME に未登録の国を追加
+      data.countries.forEach(c => {
+        if (c.code && c.name && !SHIP_COUNTRY_NAME[c.code]) {
+          SHIP_COUNTRY_NAME[c.code] = c.name;
+        }
+      });
+      // SHIP_COUNTRY_GROUPS の各グループに、まだ未分類の国を追加
+      const allKnown = new Set();
+      Object.values(SHIP_COUNTRY_GROUPS).forEach(g => g.items.forEach(i => allKnown.add(i)));
+      // 未分類 = SHIP_COUNTRY_NAME にあるが既存グループに無い国
+      const uncategorized = Object.keys(SHIP_COUNTRY_NAME).filter(c => !allKnown.has(c)).sort((a, b) => {
+        const an = SHIP_COUNTRY_NAME[a]; const bn = SHIP_COUNTRY_NAME[b];
+        return an.localeCompare(bn);
+      });
+      if (uncategorized.length > 0 && !SHIP_COUNTRY_GROUPS['🌐 その他']) {
+        SHIP_COUNTRY_GROUPS['🌐 その他'] = { items: uncategorized };
+      }
+      this.countriesFetched = true;
+      console.log(`[Shipping] Loaded ${data.countries.length} countries from eBay (${uncategorized.length} uncategorized added to その他)`);
+    } catch (e) {
+      console.warn('[Shipping] Country list fetch failed:', e);
+    }
+  },
+
+  async openSettingsModal() {
     this.loadSettings();
+    await this.fetchAllCountries();  // 全国コード取得 (初回のみ)
     this.currentDefaultType = 'Expedited';
     this.switchSettingsTab('defaults');
-    // datalist を populate(国名候補がサジェストされるように)
+    // datalist 用(特別設定編集モーダルで使う)
     const datalist = document.getElementById('shipCountryDatalist');
     if (datalist) {
-      datalist.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('') +
-        ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'].map(r => `<option value="${r}">(地域)</option>`).join('');
+      datalist.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('');
     }
     this.renderDefaultForm();
     this.renderSpecialRules();
