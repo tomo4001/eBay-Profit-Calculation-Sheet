@@ -6667,15 +6667,26 @@ Object.assign(Shipping, {
       `;
     });
 
+    // 元のDescription取得(API由来)
+    const rawDescription = (p._raw && p._raw.description) || '';
+
     document.getElementById('shipEditPolicyContent').innerHTML = `
       <div class="ship-modal-section">
-        <div class="ship-modal-section-title">📋 ポリシー情報(読み取り専用)</div>
-        <div style="font-size:13px; line-height:1.7;">
-          <div><strong>ポリシーID:</strong> <code style="background:#f3f4f6; padding:2px 6px; border-radius:3px; font-size:11px;">${p.id}</code></div>
-          <div><strong>名前:</strong> ${p.name}</div>
-          <div><strong>種別:</strong> ${tagSvc}${tagV}${tagS}${tagL}</div>
-          <div><strong>価格帯:</strong> ${(p.priceMin != null && p.priceMax != null) ? `$${p.priceMin}〜${p.priceMax}` : '-'}</div>
-          <div><strong>Domestic送料:</strong> $${p.domesticCost.toFixed(2)}</div>
+        <div class="ship-modal-section-title">📋 基本情報</div>
+        <div style="font-size:12px; color:#666; margin-bottom:10px;">
+          <strong>ポリシーID:</strong> <code style="background:#f3f4f6; padding:2px 6px; border-radius:3px; font-size:11px;">${p.id}</code><br>
+          <strong>種別:</strong> ${tagSvc}${tagV}${tagS}${tagL}
+          ${(p.priceMin != null && p.priceMax != null) ? ` / 価格帯: $${p.priceMin}〜${p.priceMax}` : ''}
+          / Domestic送料: $${p.domesticCost.toFixed(2)}
+        </div>
+
+        <div class="ship-field">
+          <label>ポリシー名</label>
+          <input type="text" id="shipEditPolicyName" value="${(p.name || '').replace(/"/g, '&quot;')}" maxlength="65" />
+        </div>
+        <div class="ship-field" style="align-items:flex-start;">
+          <label style="padding-top:6px;">Description<br><span style="font-weight:normal; font-size:11px; color:#888;">(説明・メモ用)</span></label>
+          <textarea id="shipEditPolicyDescription" rows="3" placeholder="例: FedEx・DHL・UPS 配送準備期間10日 230~260$ アメリカ関税込">${(rawDescription || '').replace(/</g, '&lt;')}</textarea>
         </div>
       </div>
 
@@ -6709,12 +6720,27 @@ Object.assign(Shipping, {
   saveEditedPolicy() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
+    // 名前
+    const nameEl = document.getElementById('shipEditPolicyName');
+    if (nameEl) {
+      const newName = nameEl.value.trim();
+      if (newName) p.name = newName;
+    }
+    // Description (raw に保持)
+    const descEl = document.getElementById('shipEditPolicyDescription');
+    if (descEl) {
+      if (!p._raw) p._raw = {};
+      p._raw.description = descEl.value;
+    }
+    // Handling Time
     const htEl = document.getElementById('shipEditPolicyHT');
     if (htEl) p.handlingTime = parseInt(htEl.value);
+    // Excluded countries
     p.excluded = this.editingPolicyExcluded.slice();
+
     this.closeModal('shipEditPolicyModal');
     this.renderList();
-    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 除外国 ${p.excluded.length}項目 / HT ${p.handlingTime}日`);
+    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前・説明・HT(${p.handlingTime}日)・除外国(${p.excluded.length}項目)`);
   },
 });
 </script>
