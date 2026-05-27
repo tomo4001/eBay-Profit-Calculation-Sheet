@@ -6157,6 +6157,12 @@ Object.assign(Shipping, {
     this.loadSettings();
     this.currentDefaultType = 'Expedited';
     this.switchSettingsTab('defaults');
+    // datalist を populate(国名候補がサジェストされるように)
+    const datalist = document.getElementById('shipCountryDatalist');
+    if (datalist) {
+      datalist.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('') +
+        ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'].map(r => `<option value="${r}">(地域)</option>`).join('');
+    }
     this.renderDefaultForm();
     this.renderSpecialRules();
     document.getElementById('shipSettingsModal').classList.add('active');
@@ -6220,12 +6226,15 @@ Object.assign(Shipping, {
             <div class="ship-country-chips" style="max-height:240px; overflow-y:auto;">${countriesHtml}</div>
           </div>
 
-          <div style="display:flex; gap:6px; margin-top:8px;">
-            <input type="text" id="shipDefNewExcluded" list="shipCountryDatalist" placeholder="国名 or 2文字コード or 地域名(Africa等) → Enter or +追加" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addDefaultExcluded();}" />
-            <button class="ship-btn-add-chip" onclick="Shipping.addDefaultExcluded()">+ 追加</button>
-          </div>
-          <div style="font-size:11px; color:#888; margin-top:6px;">
-            💡 国名(Russia)・2文字コード(RU)・地域名(Africa)のいずれもOK。
+          <div style="background:#eff6ff; border:2px solid #93c5fd; padding:12px 14px; border-radius:8px; margin-top:12px;">
+            <div style="font-size:12px; font-weight:700; color:#1e40af; margin-bottom:8px;">➕ 除外国を追加</div>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="shipDefNewExcluded" list="shipCountryDatalist" placeholder="国名(Russia/イラン)、2文字コード(RU)、または地域名(Africa)を入力" style="flex:1; padding:9px 12px; border:1px solid #93c5fd; border-radius:6px; font-size:13px; background:#fff;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addDefaultExcluded();}" />
+              <button class="ship-btn-add-chip" style="padding:9px 18px; font-size:13px;" onclick="Shipping.addDefaultExcluded()">+ 追加</button>
+            </div>
+            <div style="font-size:11px; color:#1e40af; margin-top:6px;">
+              💡 入力欄をクリックすると候補が出ます。Enter キーまたは「+追加」ボタンで追加。
+            </div>
           </div>
         </div>
       </div>
