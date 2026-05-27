@@ -1306,13 +1306,21 @@
   }
   .ship-chip {
     background: #fee2e2; color: #991b1b;
-    padding: 3px 10px; border-radius: 12px; font-size: 11px;
-    font-weight: 600; display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 12px; font-size: 12px;
+    font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
   }
   .ship-chip button {
-    background: none; border: none; color: #991b1b;
-    cursor: pointer; font-weight: bold; padding: 0; line-height: 1;
+    background: rgba(255,255,255,0.6); border: none; color: #991b1b;
+    cursor: pointer; font-weight: bold; padding: 0 5px; line-height: 1.2;
+    border-radius: 50%; font-size: 13px;
   }
+  .ship-chip button:hover { background: #991b1b; color: #fff; }
+  .ship-chip-region {
+    background: #fed7aa; color: #7c2d12;
+    font-weight: 700;
+  }
+  .ship-chip-region button { color: #7c2d12; }
+  .ship-chip-region button:hover { background: #7c2d12; color: #fff; }
 </style>
 </head>
 <body>
@@ -6170,6 +6178,21 @@ Object.assign(Shipping, {
   renderDefaultForm() {
     const d = this.defaults[this.currentDefaultType];
     const svc = this.currentDefaultType;
+    // 地域(Africa等)と個別国に分けて表示
+    const REGIONS = ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'];
+    const list = d.baseExcluded || [];
+    const regions = list.filter(c => REGIONS.includes(c));
+    const countries = list.filter(c => !REGIONS.includes(c)).sort((a, b) => {
+      const an = SHIP_COUNTRY_NAME[a] || a;
+      const bn = SHIP_COUNTRY_NAME[b] || b;
+      return an.localeCompare(bn);
+    });
+
+    const regionsHtml = regions.map(r => `<span class="ship-chip ship-chip-region">🌍 ${r} <button onclick="Shipping.removeDefaultExcluded('${r}')">×</button></span>`).join('');
+    const countriesHtml = countries.length > 0
+      ? countries.map(c => `<span class="ship-chip">${shipDisplayCountry(c)} <button onclick="Shipping.removeDefaultExcluded('${c}')">×</button></span>`).join('')
+      : '<span style="color:#9ca3af; font-size:12px;">(個別の国が登録されていません)</span>';
+
     document.getElementById('shipDefaultForm').innerHTML = `
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">📦 ${svc} のデフォルト</div>
@@ -6179,22 +6202,70 @@ Object.assign(Shipping, {
             ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${d.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
           </select>
         </div>
-        <div class="ship-field" style="align-items:flex-start;">
-          <label style="padding-top:6px;">Base 除外国<br><span style="font-weight:normal; font-size:11px; color:#888;">(全${(d.baseExcluded||[]).length}項目)</span></label>
-          <textarea id="shipDefBaseExcluded" rows="6" style="font-family:'SF Mono',Consolas,monospace; font-size:11px;">${(d.baseExcluded||[]).join(', ')}</textarea>
-        </div>
-        <div style="font-size:11px; color:#888; margin-top:6px;">
-          💡 国コード(2文字)と地域名(Africa等)をカンマ区切りで編集できます。
+
+        <div style="margin-top:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="font-size:12px; font-weight:700; color:#374151;">🌐 Base 除外(全 ${list.length} 項目: 地域 ${regions.length} + 個別国 ${countries.length})</div>
+          </div>
+
+          ${regions.length > 0 ? `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:11px; color:#666; margin-bottom:4px;">▼ 地域(範囲指定)</div>
+            <div class="ship-country-chips" style="background:#fef3c7;">${regionsHtml}</div>
+          </div>
+          ` : ''}
+
+          <div style="margin-bottom:10px;">
+            <div style="font-size:11px; color:#666; margin-bottom:4px;">▼ 個別の国(あいうえお順)</div>
+            <div class="ship-country-chips" style="max-height:240px; overflow-y:auto;">${countriesHtml}</div>
+          </div>
+
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <input type="text" id="shipDefNewExcluded" list="shipCountryDatalist" placeholder="国名 or 2文字コード or 地域名(Africa等) → Enter or +追加" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addDefaultExcluded();}" />
+            <button class="ship-btn-add-chip" onclick="Shipping.addDefaultExcluded()">+ 追加</button>
+          </div>
+          <div style="font-size:11px; color:#888; margin-top:6px;">
+            💡 国名(Russia)・2文字コード(RU)・地域名(Africa)のいずれもOK。
+          </div>
         </div>
       </div>
     `;
   },
+  addDefaultExcluded() {
+    const input = document.getElementById('shipDefNewExcluded');
+    const v = input.value.trim();
+    if (!v) return;
+    const REGIONS = ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'];
+    let code = v;
+    // 2文字コードチェック
+    if (v.length === 2 && SHIP_COUNTRY_NAME[v.toUpperCase()]) code = v.toUpperCase();
+    // 国名から逆引き
+    else {
+      const found = Object.entries(SHIP_COUNTRY_NAME).find(([c, n]) => n.toLowerCase() === v.toLowerCase());
+      if (found) code = found[0];
+      // 地域名チェック(大文字小文字対応)
+      const regFound = REGIONS.find(r => r.toLowerCase() === v.toLowerCase());
+      if (regFound) code = regFound;
+    }
+    const list = this.defaults[this.currentDefaultType].baseExcluded || [];
+    if (!list.includes(code)) list.push(code);
+    this.defaults[this.currentDefaultType].baseExcluded = list;
+    input.value = '';
+    this.renderDefaultForm();
+    setTimeout(() => document.getElementById('shipDefNewExcluded')?.focus(), 50);
+  },
+  removeDefaultExcluded(code) {
+    const list = this.defaults[this.currentDefaultType].baseExcluded || [];
+    this.defaults[this.currentDefaultType].baseExcluded = list.filter(c => c !== code);
+    this.renderDefaultForm();
+  },
   collectCurrentDefaultForm() {
-    const splitCsv = (s) => s.split(',').map(x => x.trim()).filter(x => x);
-    this.defaults[this.currentDefaultType] = {
-      handlingTime: parseInt(document.getElementById('shipDefHT').value),
-      baseExcluded: splitCsv(document.getElementById('shipDefBaseExcluded').value),
-    };
+    // チップ式UIなので、配列はすでに this.defaults に保持されている
+    // Handling Time だけ収集
+    const htEl = document.getElementById('shipDefHT');
+    if (htEl) {
+      this.defaults[this.currentDefaultType].handlingTime = parseInt(htEl.value);
+    }
   },
 
   // 特別設定
