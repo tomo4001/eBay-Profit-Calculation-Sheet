@@ -6177,29 +6177,36 @@ function shipDisplayCountry(code) {
   return SHIP_COUNTRY_NAME[code] ? `${code} (${SHIP_COUNTRY_NAME[code]})` : code;
 }
 
-// 国を地域グループ別に分類(チェックボックスUI用)
+// 国を地域グループ別に分類(チェックボックスUI用、ISO標準のマッピング)
+// 国名はeBay APIから動的取得して補完される
 const SHIP_COUNTRY_GROUPS = {
-  '🌍 地域指定 (一括除外)': {
+  '🌍 地域指定 (eBay の一括除外オプション)': {
     items: ['Africa','South America','Central America and Caribbean','APO/FPO','PO Box','US Protectorates'],
     isRegion: true
   },
   '🇪🇺 ヨーロッパ': {
-    items: ['AD','AL','BA','BG','BY','CY','DE','EE','GG','GI','HR','IS','JE','LT','LV','MD','ME','MK','MT','RO','RS','RU','SI','SJ','UA','VA']
+    items: ['AD','AL','AT','BA','BE','BG','BY','CH','CY','CZ','DE','DK','EE','ES','FI','FR','GB','GG','GI','GR','HR','HU','IE','IM','IS','IT','JE','LI','LT','LU','LV','MC','MD','ME','MK','MT','NL','NO','PL','PT','RO','RS','RU','SE','SI','SJ','SK','SM','UA','VA']
   },
   '🕌 中東': {
-    items: ['AE','BH','EG','IL','IQ','IR','JO','KW','LB','OM','QA','SA','SY','TR','YE']
+    items: ['AE','BH','EG','IL','IQ','IR','JO','KW','LB','OM','PS','QA','SA','SY','TR','YE']
   },
   '🌏 アジア': {
-    items: ['AF','AM','AZ','BD','BN','BT','CN','GE','IN','JP','KG','KH','KP','KZ','LA','LK','MN','MO','MV','NP','PK','TJ','TM']
+    items: ['AF','AM','AZ','BD','BN','BT','CN','GE','HK','ID','IN','JP','KG','KH','KP','KR','KZ','LA','LK','MM','MN','MO','MV','MY','NP','PH','PK','SG','TH','TJ','TM','TW','UZ','VN']
   },
   '🌊 オセアニア・太平洋': {
-    items: ['AS','AU','CK','FJ','FM','GU','KI','MH','NC','NR','NU','NZ','PF','PG','PW','SB','TO','TV','VU','WF','WS']
+    items: ['AS','AU','CK','CX','FJ','FM','GU','KI','MH','MP','NC','NF','NR','NU','NZ','PF','PG','PN','PW','SB','TK','TL','TO','TV','UM','VU','WF','WS']
   },
-  '🌎 北米・カリブ・中米(個別の国)': {
-    items: ['AI','BB','BM','CA','GL','GP','GT','HN','KY','MQ','MS','MX','PM','PR']
+  '🌎 北米 (Canada / Mexico)': {
+    items: ['CA','MX']
+  },
+  '🌎 中米・カリブ(個別の国)': {
+    items: ['AG','AI','AN','AW','BB','BL','BM','BQ','BS','BZ','CR','CU','CW','DM','DO','GD','GL','GP','GT','HN','HT','JM','KN','KY','LC','MF','MQ','MS','NI','PA','PM','PR','SV','SX','TC','TT','VC','VG','VI']
   },
   '🌎 南米(個別の国)': {
-    items: ['BR']
+    items: ['AR','BO','BR','CL','CO','EC','FK','GF','GY','PE','PY','SR','UY','VE']
+  },
+  '🌍 アフリカ(個別の国)': {
+    items: ['AO','BF','BI','BJ','BW','CD','CF','CG','CI','CM','CV','DJ','DZ','ER','ET','GA','GH','GM','GN','GQ','GW','KE','KM','LR','LS','LY','MA','MG','ML','MR','MU','MW','MZ','NA','NE','NG','RE','RW','SC','SD','SH','SL','SN','SO','SS','ST','SZ','TD','TG','TN','TZ','UG','YT','ZA','ZM','ZW']
   }
 };
 
