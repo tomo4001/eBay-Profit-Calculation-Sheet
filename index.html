@@ -6195,6 +6195,19 @@ function shipDisplayCountry(code) {
   return SHIP_COUNTRY_NAME[code] ? `${code} (${SHIP_COUNTRY_NAME[code]})` : code;
 }
 
+// Domestic 用シッピングサービスコード(eBay UI で選択可能なサービス、Hartuoさんが実際に使うもの)
+const SHIP_DOMESTIC_SERVICES = [
+  { code: 'US_ExpeditedSppedPAK',           label: 'eBay SpeedPAK Expedited',           days: '1-4'  },
+  { code: 'US_ExpressSpeedPAK',             label: 'eBay SpeedPAK Express',             days: '1-3'  },
+  { code: 'US_StandardSppedPAK',            label: 'eBay SpeedPAK Standard',            days: '5-9'  },
+  { code: 'US_EconomySppedPAK',             label: 'eBay SpeedPAK Economy',             days: '8-12' },
+  { code: 'ExpeditedShippingFromOutsideUS', label: 'Expedited Shipping from outside US', days: '1-4'  },
+  { code: 'StandardShippingFromOutsideUS',  label: 'Standard Shipping from outside US', days: '5-10' },
+  { code: 'EconomyShippingFromOutsideUS',   label: 'Economy Shipping from outside US',  days: '11-23' },
+  { code: 'ShippingMethodStandard',         label: 'Standard Shipping',                 days: '1-5'  },
+  { code: 'Other',                          label: 'Economy Shipping',                  days: '1-10' },
+];
+
 // 国を地域グループ別に分類(eBay UI と完全一致)
 // 国名はeBay APIから動的取得して補完される
 const SHIP_COUNTRY_GROUPS = {
@@ -6670,6 +6683,26 @@ Object.assign(Shipping, {
     // 元のDescription取得(API由来)
     const rawDescription = (p._raw && p._raw.description) || '';
 
+    // Domestic 設定を _raw から抽出
+    const rawShipping = (p._raw && p._raw.shippingOptions) || [];
+    const domesticOpt = rawShipping.find(o => o.optionType === 'DOMESTIC') || {};
+    const domSvc = (domesticOpt.shippingServices && domesticOpt.shippingServices[0]) || {};
+    const domCostType = domesticOpt.costType || 'FLAT_RATE';
+    const domServiceCode = domSvc.shippingServiceCode || '';
+    const domCostVal = parseFloat((domSvc.shippingCost && domSvc.shippingCost.value) || 0);
+    const domAddtlVal = parseFloat((domSvc.additionalShippingCost && domSvc.additionalShippingCost.value) || 0);
+
+    // Shipping Method 判定
+    const isFreight = (p._raw && p._raw.freightShipping) === true;
+    const isLocalPickup = (p._raw && p._raw.localPickup) === true;
+    const shippingMethodValue = isFreight ? 'FREIGHT' : (isLocalPickup ? 'NO_SHIPPING' : 'STANDARD');
+
+    // Domestic Service コード候補(現在のコードがマスタに無ければ追加)
+    const knownCodes = SHIP_DOMESTIC_SERVICES.map(s => s.code);
+    const allDomServices = knownCodes.includes(domServiceCode) || !domServiceCode
+      ? SHIP_DOMESTIC_SERVICES
+      : [...SHIP_DOMESTIC_SERVICES, { code: domServiceCode, label: domServiceCode + ' (現在の設定)', days: '?' }];
+
     document.getElementById('shipEditPolicyContent').innerHTML = `
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">📋 基本情報</div>
@@ -6687,6 +6720,56 @@ Object.assign(Shipping, {
         <div class="ship-field" style="align-items:flex-start;">
           <label style="padding-top:6px;">Description<br><span style="font-weight:normal; font-size:11px; color:#888;">(説明・メモ用)</span></label>
           <textarea id="shipEditPolicyDescription" rows="3" placeholder="例: FedEx・DHL・UPS 配送準備期間10日 230~260$ アメリカ関税込">${(rawDescription || '').replace(/</g, '&lt;')}</textarea>
+        </div>
+      </div>
+
+      <div class="ship-modal-section">
+        <div class="ship-modal-section-title">🚚 Shipping Method</div>
+        <div class="ship-field">
+          <label>Shipping Method</label>
+          <select id="shipEditShippingMethod">
+            <option value="STANDARD"     ${shippingMethodValue==='STANDARD'?'selected':''}>Standard shipping: Small to medium items</option>
+            <option value="FREIGHT"      ${shippingMethodValue==='FREIGHT'?'selected':''}>Freight: Large items that require special handling</option>
+            <option value="NO_SHIPPING"  ${shippingMethodValue==='NO_SHIPPING'?'selected':''}>No shipping. Local pickup only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ship-modal-section">
+        <div class="ship-modal-section-title">📦 Domestic Shipping(アメリカ向け)</div>
+        <div class="ship-field">
+          <label>Cost Type</label>
+          <select id="shipEditDomCostType">
+            <option value="FLAT_RATE"  ${domCostType==='FLAT_RATE'?'selected':''}>Flat: same cost regardless of buyer location</option>
+            <option value="CALCULATED" ${domCostType==='CALCULATED'?'selected':''}>Calculated: based on package size/weight</option>
+          </select>
+        </div>
+        <div class="ship-field">
+          <label>Primary Service</label>
+          <select id="shipEditDomServiceCode">
+            ${allDomServices.map(s => `<option value="${s.code}" ${s.code===domServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
+          </select>
+        </div>
+        <div class="ship-field">
+          <label>Shipping Cost</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span>$</span>
+            <input type="number" id="shipEditDomCost" step="0.01" value="${domCostVal.toFixed(2)}" style="width:120px;" />
+          </div>
+        </div>
+        <div class="ship-field">
+          <label>Each additional</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span>$</span>
+            <input type="number" id="shipEditDomAddtl" step="0.01" value="${domAddtlVal.toFixed(2)}" style="width:120px;" />
+            <span style="color:#666; font-size:11px;">(2個目以降の追加送料、関税分も含む)</span>
+          </div>
+        </div>
+        <div class="ship-field">
+          <label>Rate Table</label>
+          <select id="shipEditDomRateTable">
+            <option value="">None</option>
+          </select>
         </div>
       </div>
 
@@ -6735,12 +6818,48 @@ Object.assign(Shipping, {
     // Handling Time
     const htEl = document.getElementById('shipEditPolicyHT');
     if (htEl) p.handlingTime = parseInt(htEl.value);
+
+    // Shipping Method
+    const sm = document.getElementById('shipEditShippingMethod');
+    if (sm) {
+      if (!p._raw) p._raw = {};
+      p._raw.freightShipping = (sm.value === 'FREIGHT');
+      p._raw.localPickup = (sm.value === 'NO_SHIPPING');
+    }
+
+    // Domestic 設定
+    const ct = document.getElementById('shipEditDomCostType');
+    const sc = document.getElementById('shipEditDomServiceCode');
+    const dc = document.getElementById('shipEditDomCost');
+    const ac = document.getElementById('shipEditDomAddtl');
+    if (ct || sc || dc || ac) {
+      if (!p._raw) p._raw = {};
+      if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
+      let dom = p._raw.shippingOptions.find(o => o.optionType === 'DOMESTIC');
+      if (!dom) {
+        dom = { optionType: 'DOMESTIC', shippingServices: [{}] };
+        p._raw.shippingOptions.push(dom);
+      }
+      if (!dom.shippingServices || dom.shippingServices.length === 0) dom.shippingServices = [{}];
+      if (ct) dom.costType = ct.value;
+      if (sc) dom.shippingServices[0].shippingServiceCode = sc.value;
+      if (dc) {
+        const v = (parseFloat(dc.value) || 0).toFixed(2);
+        dom.shippingServices[0].shippingCost = { value: v, currency: 'USD' };
+        p.domesticCost = parseFloat(v);
+      }
+      if (ac) {
+        const v = (parseFloat(ac.value) || 0).toFixed(2);
+        dom.shippingServices[0].additionalShippingCost = { value: v, currency: 'USD' };
+      }
+    }
+
     // Excluded countries
     p.excluded = this.editingPolicyExcluded.slice();
 
     this.closeModal('shipEditPolicyModal');
     this.renderList();
-    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前・説明・HT(${p.handlingTime}日)・除外国(${p.excluded.length}項目)`);
+    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前/説明/Shipping Method/Domestic設定/HT(${p.handlingTime}日)/除外国(${p.excluded.length}項目)`);
   },
 });
 </script>
