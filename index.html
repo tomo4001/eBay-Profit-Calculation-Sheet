@@ -1372,6 +1372,12 @@
   }
   .ship-checkbox-item:hover { background: #eff6ff; }
   .ship-checkbox-item input { margin: 0; }
+  .ship-checkbox-item.covered {
+    background: #fef3c7;
+    cursor: not-allowed;
+  }
+  .ship-checkbox-item.covered:hover { background: #fef3c7; }
+  .ship-checkbox-item.covered input { cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -6304,23 +6310,54 @@ Object.assign(Shipping, {
     const svc = this.currentDefaultType;
     const excluded = new Set(d.baseExcluded || []);
 
+    // 地域→国の対応(地域がONなら、その地域の国も実質除外として扱う)
+    const REGION_TO_GROUP_NAME = {
+      'Africa': '🌍 アフリカ (55)',
+      'South America': '🌎 南米 (14)',
+      'Central America and Caribbean': '🌎 中米・カリブ (30)',
+    };
+    // ある国コードがどの地域に含まれるか判定
+    const isCoveredByRegion = (code) => {
+      for (const [region, groupName] of Object.entries(REGION_TO_GROUP_NAME)) {
+        if (excluded.has(region) && SHIP_COUNTRY_GROUPS[groupName]?.items.includes(code)) return true;
+      }
+      return false;
+    };
+
     let groupsHtml = '';
     Object.entries(SHIP_COUNTRY_GROUPS).forEach(([groupName, group], gIdx) => {
       const items = group.items;
-      const checkedCount = items.filter(c => excluded.has(c)).length;
+      const isRegionGroup = group.isRegion;
+
+      // カウント: 直接除外 + 地域経由で除外
+      const checkedItems = items.filter(c => excluded.has(c) || (!isRegionGroup && isCoveredByRegion(c)));
+      const checkedCount = checkedItems.length;
       const totalCount = items.length;
       const isAllChecked = checkedCount === totalCount;
       const isPartial = checkedCount > 0 && checkedCount < totalCount;
-      const isRegionGroup = group.isRegion;
 
       const itemsHtml = items.map(c => {
-        const isChecked = excluded.has(c);
-        const label = isRegionGroup
-          ? `<strong>${c}</strong>${c === 'Africa' || c === 'South America' || c === 'Central America and Caribbean' ? ' (地域全域)' : ''}`
-          : shipDisplayCountry(c);
+        const isDirectChecked = excluded.has(c);
+        const isCovered = !isRegionGroup && isCoveredByRegion(c);
+        const isChecked = isDirectChecked || isCovered;
+        const isRegionItem = isRegionGroup;
+
+        // 地域に覆われている国は disable + 視覚的に区別
+        const disabled = isCovered && !isDirectChecked ? 'disabled' : '';
+        const itemClass = isCovered && !isDirectChecked ? 'ship-checkbox-item covered' : 'ship-checkbox-item';
+
+        // ラベル
+        let label;
+        if (isRegionItem) {
+          label = `<strong>${c}</strong>${REGION_TO_GROUP_NAME[c] ? ` (${SHIP_COUNTRY_GROUPS[REGION_TO_GROUP_NAME[c]].items.length}カ国全部)` : ''}`;
+        } else {
+          label = shipDisplayCountry(c);
+          if (isCovered && !isDirectChecked) label += ' <span style="color:#9ca3af; font-size:10px;">(地域指定で除外中)</span>';
+        }
+
         return `
-          <label class="ship-checkbox-item">
-            <input type="checkbox" ${isChecked ? 'checked' : ''} data-code="${c}" onchange="Shipping.toggleDefaultExcluded('${c}', this.checked)" />
+          <label class="${itemClass}">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} ${disabled} data-code="${c}" onchange="Shipping.toggleDefaultExcluded('${c}', this.checked)" />
             <span>${label}</span>
           </label>
         `;
