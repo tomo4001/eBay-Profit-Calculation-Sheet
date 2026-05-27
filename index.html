@@ -1378,6 +1378,13 @@
   }
   .ship-checkbox-item.covered:hover { background: #fef3c7; }
   .ship-checkbox-item.covered input { cursor: not-allowed; }
+
+  .ship-edit-btn {
+    background: #fff; border: 1px solid #2563eb; color: #2563eb;
+    padding: 4px 10px; border-radius: 5px; cursor: pointer;
+    font-size: 11px; font-weight: 600;
+  }
+  .ship-edit-btn:hover { background: #2563eb; color: #fff; }
 </style>
 </head>
 <body>
@@ -6050,6 +6057,7 @@ const Shipping = {
         <th>価格帯</th>
         <th class="ship-num">Domestic送料</th>
         <th>除外国</th>
+        <th style="width:60px;"></th>
       </tr></thead><tbody>`;
 
     sorted.forEach(p => {
@@ -6074,6 +6082,7 @@ const Shipping = {
         <td>${priceRange}</td>
         <td class="ship-num">$${p.domesticCost.toFixed(2)}</td>
         <td><span class="${exClass}" title="${p.excluded.join(', ')}">${p.excluded.length}</span></td>
+        <td><button class="ship-edit-btn" onclick="Shipping.openEditPolicyModal('${p.id}')">編集</button></td>
       </tr>`;
     });
 
@@ -6573,6 +6582,140 @@ Object.assign(Shipping, {
     this.closeModal('shipSettingsModal');
     alert('✓ 設定を保存しました');
   },
+
+  // =====================================================================
+  // ✏️ 個別ポリシー編集 (Phase 2-D)
+  // =====================================================================
+  editingPolicyId: null,
+  editingPolicyExcluded: [], // 編集中の除外国
+
+  openEditPolicyModal(id) {
+    const p = this.policies.find(x => x.id === id);
+    if (!p) return;
+    this.editingPolicyId = id;
+    this.editingPolicyExcluded = (p.excluded || []).slice();
+    this.renderEditPolicyForm();
+    document.getElementById('shipEditPolicyModal').classList.add('active');
+  },
+
+  renderEditPolicyForm() {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) return;
+
+    // 種別バッジ
+    const tagSvc =
+      p.service === 'Expedited' ? '<span class="ship-tag exp">Expedited</span>' :
+      p.service === 'Economy'   ? '<span class="ship-tag eco">Economy</span>' :
+      p.service === 'Standard'  ? '<span class="ship-tag std">Standard</span>' :
+                                  '<span class="ship-tag leg">Other</span>';
+    const tagV = p.vero ? '<span class="ship-tag vero">VeRO</span>' : '';
+    const tagS = p.special ? `<span class="ship-tag spec">${p.special}</span>` : '';
+    const tagL = p.isLegacy && p.service !== 'Other' ? '<span class="ship-tag leg">Legacy</span>' : '';
+
+    // 除外国チェックボックス UI
+    const excludedSet = new Set(this.editingPolicyExcluded);
+    const REGION_TO_GROUP_NAME = {
+      'Africa': '🌍 アフリカ (55)',
+      'South America': '🌎 南米 (14)',
+      'Central America and Caribbean': '🌎 中米・カリブ (30)',
+    };
+    const isCoveredByRegion = (code) => {
+      for (const [region, groupName] of Object.entries(REGION_TO_GROUP_NAME)) {
+        if (excludedSet.has(region) && SHIP_COUNTRY_GROUPS[groupName]?.items.includes(code)) return true;
+      }
+      return false;
+    };
+    let groupsHtml = '';
+    Object.entries(SHIP_COUNTRY_GROUPS).forEach(([groupName, group], gIdx) => {
+      const items = group.items;
+      const isRegionGroup = group.isRegion;
+      const checkedItems = items.filter(c => excludedSet.has(c) || (!isRegionGroup && isCoveredByRegion(c)));
+      const checkedCount = checkedItems.length;
+      const totalCount = items.length;
+      const isAllChecked = checkedCount === totalCount;
+      const isPartial = checkedCount > 0 && checkedCount < totalCount;
+
+      const itemsHtml = items.map(c => {
+        const isDirectChecked = excludedSet.has(c);
+        const isCovered = !isRegionGroup && isCoveredByRegion(c);
+        const isChecked = isDirectChecked || isCovered;
+        const disabled = isCovered && !isDirectChecked ? 'disabled' : '';
+        const itemClass = isCovered && !isDirectChecked ? 'ship-checkbox-item covered' : 'ship-checkbox-item';
+        let label;
+        if (isRegionGroup) {
+          label = `<strong>${c}</strong>${REGION_TO_GROUP_NAME[c] ? ` (${SHIP_COUNTRY_GROUPS[REGION_TO_GROUP_NAME[c]].items.length}カ国)` : ''}`;
+        } else {
+          label = shipDisplayCountry(c);
+          if (isCovered && !isDirectChecked) label += ' <span style="color:#9ca3af; font-size:10px;">(地域指定で除外中)</span>';
+        }
+        return `
+          <label class="${itemClass}">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} ${disabled} onchange="Shipping.toggleEditPolicyExcluded('${c}', this.checked)" />
+            <span>${label}</span>
+          </label>
+        `;
+      }).join('');
+
+      groupsHtml += `
+        <details class="ship-country-group" ${isPartial ? 'open' : ''}>
+          <summary>
+            <span class="ship-country-group-name">${groupName}</span>
+            <span class="ship-country-group-count ${isAllChecked ? 'all' : isPartial ? 'partial' : 'none'}">${checkedCount}/${totalCount} 除外</span>
+          </summary>
+          <div class="ship-checkbox-grid">${itemsHtml}</div>
+        </details>
+      `;
+    });
+
+    document.getElementById('shipEditPolicyContent').innerHTML = `
+      <div class="ship-modal-section">
+        <div class="ship-modal-section-title">📋 ポリシー情報(読み取り専用)</div>
+        <div style="font-size:13px; line-height:1.7;">
+          <div><strong>ポリシーID:</strong> <code style="background:#f3f4f6; padding:2px 6px; border-radius:3px; font-size:11px;">${p.id}</code></div>
+          <div><strong>名前:</strong> ${p.name}</div>
+          <div><strong>種別:</strong> ${tagSvc}${tagV}${tagS}${tagL}</div>
+          <div><strong>価格帯:</strong> ${(p.priceMin != null && p.priceMax != null) ? `$${p.priceMin}〜${p.priceMax}` : '-'}</div>
+          <div><strong>Domestic送料:</strong> $${p.domesticCost.toFixed(2)}</div>
+        </div>
+      </div>
+
+      <div class="ship-modal-section">
+        <div class="ship-modal-section-title">⏱️ Handling Time</div>
+        <div class="ship-field">
+          <label>ハンドリングタイム</label>
+          <select id="shipEditPolicyHT">
+            ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${p.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="ship-modal-section">
+        <div class="ship-modal-section-title">🌐 除外国 (チェックで除外)</div>
+        <div style="font-size:11px; color:#888; margin-bottom:8px;">現在 <strong>${this.editingPolicyExcluded.length}</strong> 項目除外中</div>
+        ${groupsHtml}
+      </div>
+    `;
+  },
+
+  toggleEditPolicyExcluded(code, checked) {
+    if (checked) {
+      if (!this.editingPolicyExcluded.includes(code)) this.editingPolicyExcluded.push(code);
+    } else {
+      this.editingPolicyExcluded = this.editingPolicyExcluded.filter(c => c !== code);
+    }
+    this.renderEditPolicyForm();
+  },
+
+  saveEditedPolicy() {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) return;
+    const htEl = document.getElementById('shipEditPolicyHT');
+    if (htEl) p.handlingTime = parseInt(htEl.value);
+    p.excluded = this.editingPolicyExcluded.slice();
+    this.closeModal('shipEditPolicyModal');
+    this.renderList();
+    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 除外国 ${p.excluded.length}項目 / HT ${p.handlingTime}日`);
+  },
 });
 </script>
 
@@ -6612,6 +6755,21 @@ Object.assign(Shipping, {
     <div class="ship-modal-footer">
       <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipSettingsModal')">閉じる</button>
       <button class="ship-btn-save" onclick="Shipping.saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ✏️ 個別ポリシー編集モーダル ===== -->
+<div class="ship-modal-overlay" id="shipEditPolicyModal">
+  <div class="ship-modal" style="max-width: 900px;">
+    <h2>✏️ ポリシー編集</h2>
+    <div id="shipEditPolicyContent"></div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipEditPolicyModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">保存(ローカル)</button>
+    </div>
+    <div style="font-size:11px; color:#888; margin-top:8px;">
+      💡 「保存」はローカルメモリだけに反映。eBayへの書き込みは Phase 2-G で実装予定。
     </div>
   </div>
 </div>
