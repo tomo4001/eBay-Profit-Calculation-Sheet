@@ -6150,11 +6150,11 @@ const SHIP_EXPEDITED_DEFAULT_EXCLUDED = [
   'PK','PW','PG','QA','RO','RU','PM','SA','RS','SI','SB','LK','SJ','TJ',
   'TO','TR','TM','TV','UA','VU','VA','WF','WS','YE'
 ];
-// Economy デフォルト除外35項目(地域4+個別31)
+// Economy デフォルト除外34項目(地域4+個別30、KP/北朝鮮はeBay UIに無いため削除)
 const SHIP_ECONOMY_DEFAULT_EXCLUDED = [
   'Africa', 'South America', 'APO/FPO', 'US Protectorates',
   'AF','AS','AD','AI','AZ','BB','BM','BA','BY','KY','CN','FJ','GE','GP',
-  'GT','HN','JP','MQ','MD','MS','NC','NU','KP','PR','RU','PM','SJ','TM',
+  'GT','HN','JP','MQ','MD','MS','NC','NU','PR','RU','PM','SJ','TM',
   'UA','WF','YE'
 ];
 
@@ -6227,8 +6227,8 @@ Object.assign(Shipping, {
     Standard:  { baseExcluded: SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(), handlingTime: 15 },
   },
   specialRules: [
-    { id: 'rule_me_expedited', name: '🕊️ 中東情勢(Expedited/Standard 向け)', description: 'FedEx/DHL/UPS の戦争による一時停止国', countries: ['AE','SA','QA','KW','BH','OM','JO','LB','SY','IQ'], targetServices: ['Expedited','Standard'], active: true },
-    { id: 'rule_me_economy',   name: '🕊️ 中東情勢(Economy 向け)',           description: '日本郵便の戦争による一時停止国',          countries: ['AE','IL','IQ','IR','EG','OM','QA','KW','SA','TR','BH','JO','LB'], targetServices: ['Economy'], active: true },
+    { id: 'rule_me_expedited', name: '🕊️ 中東情勢(Expedited/Standard 向け)', description: 'FedEx/DHL/UPS の戦争による一時停止国(SyriaはeBay UIに無いため除外)', countries: ['AE','SA','QA','KW','BH','OM','JO','LB','IQ'], targetServices: ['Expedited','Standard'], active: true },
+    { id: 'rule_me_economy',   name: '🕊️ 中東情勢(Economy 向け)',           description: '日本郵便の戦争による一時停止国(IranはeBay UIに無いため除外)', countries: ['AE','IL','IQ','EG','OM','QA','KW','SA','TR','BH','JO','LB'], targetServices: ['Economy'], active: true },
   ],
   currentDefaultType: 'Expedited',
   editingRuleId: null,
@@ -6253,25 +6253,15 @@ Object.assign(Shipping, {
       const res = await fetch('/api/ebay-country-codes');
       const data = await res.json();
       if (!data.ok || !data.countries) return;
-      // SHIP_COUNTRY_NAME に未登録の国を追加
+      // SHIP_COUNTRY_NAME に未登録の国名を補完(表示用のみ)
+      // 注: グループへの自動追加はしない(eBay UI に出ない国は手動で対象外)
       data.countries.forEach(c => {
         if (c.code && c.name && !SHIP_COUNTRY_NAME[c.code]) {
           SHIP_COUNTRY_NAME[c.code] = c.name;
         }
       });
-      // SHIP_COUNTRY_GROUPS の各グループに、まだ未分類の国を追加
-      const allKnown = new Set();
-      Object.values(SHIP_COUNTRY_GROUPS).forEach(g => g.items.forEach(i => allKnown.add(i)));
-      // 未分類 = SHIP_COUNTRY_NAME にあるが既存グループに無い国
-      const uncategorized = Object.keys(SHIP_COUNTRY_NAME).filter(c => !allKnown.has(c)).sort((a, b) => {
-        const an = SHIP_COUNTRY_NAME[a]; const bn = SHIP_COUNTRY_NAME[b];
-        return an.localeCompare(bn);
-      });
-      if (uncategorized.length > 0 && !SHIP_COUNTRY_GROUPS['🌐 その他']) {
-        SHIP_COUNTRY_GROUPS['🌐 その他'] = { items: uncategorized };
-      }
       this.countriesFetched = true;
-      console.log(`[Shipping] Loaded ${data.countries.length} countries from eBay (${uncategorized.length} uncategorized added to その他)`);
+      console.log(`[Shipping] Loaded ${data.countries.length} country names from eBay (display only)`);
     } catch (e) {
       console.warn('[Shipping] Country list fetch failed:', e);
     }
