@@ -2463,6 +2463,7 @@
         <div class="ship-header-info">全 <span id="shipTotalCount">-</span> 件(表示 <span id="shipFilteredCount">-</span>) / 最終取得: <span id="shipLastFetch">未取得</span></div>
       </div>
       <div style="display:flex; gap:8px;">
+        <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
@@ -7847,6 +7848,162 @@ Object.assign(Shipping, {
     this.renderEditIntlServices();
   },
 
+  // =====================================================================
+  // ➕ 新規ポリシー作成 (Phase 2-E)
+  // =====================================================================
+  isCreatingNew: false,  // true の時、saveEditedPolicy は新規追加モードで動く
+
+  openCreatePolicyChooser() {
+    document.getElementById('shipCreateChooserModal').classList.add('active');
+  },
+
+  // ルートA: ゼロから新規作成
+  startCreateFromScratch() {
+    this.closeModal('shipCreateChooserModal');
+
+    // デフォルトのサービス種別を Expedited として、defaults を雛形に
+    const svc = 'Expedited';
+    const def = this.defaults[svc] || {};
+    const newId = 'local_new_' + Date.now();
+
+    // 空のポリシーオブジェクトを生成
+    const newPolicy = {
+      id: newId,
+      name: '',
+      service: svc,
+      vero: false,
+      special: null,
+      isLegacy: false,
+      handlingTime: def.handlingTime || 10,
+      priceMin: null,
+      priceMax: null,
+      domesticCost: 0,
+      excluded: (def.baseExcluded || []).slice(),
+      shippingOptionsCount: 1,
+      _isNew: true,
+      _raw: {
+        name: '',
+        description: '',
+        marketplaceId: 'EBAY_US',
+        categoryTypes: [{ name: 'ALL_EXCLUDING_MOTORS_VEHICLES', default: true }],
+        handlingTime: { value: def.handlingTime || 10, unit: 'DAY' },
+        shippingMethod: def.shippingMethod || 'STANDARD',
+        freightShipping: false,
+        localPickup: false,
+        shipToLocations: {
+          regionIncluded: [{ regionName: 'Worldwide' }],
+          regionExcluded: (def.baseExcluded || []).map(c => ({ regionName: c })),
+        },
+        shippingOptions: [
+          {
+            optionType: 'DOMESTIC',
+            costType: def.domCostType || 'FLAT_RATE',
+            shippingServices: [{
+              shippingCarrierCode: 'GENERIC',
+              shippingServiceCode: def.domServiceCode || '',
+              shippingCost: { value: '0.00', currency: 'USD' },
+              additionalShippingCost: { value: '0.00', currency: 'USD' },
+            }],
+          },
+          {
+            optionType: 'INTERNATIONAL',
+            costType: 'FLAT_RATE',
+            shippingServices: [{
+              shippingCarrierCode: 'GENERIC',
+              shippingServiceCode: def.intlServiceCode || '',
+              shippingCost: { value: String(def.intlCost || 0).padStart(4,'0'), currency: 'USD' },
+              additionalShippingCost: { value: String(def.intlAddtlCost || 0).padStart(4,'0'), currency: 'USD' },
+              shipToLocations: {
+                regionIncluded: (def.destinations || []).map(d => ({ regionName: d })),
+              }
+            }],
+          },
+        ],
+      },
+    };
+
+    // ポリシー配列に追加(編集モーダルでこのIDで開く)
+    this.policies.push(newPolicy);
+    this.isCreatingNew = true;
+    this.openEditPolicyModal(newId);
+
+    // タイトル変更
+    setTimeout(() => {
+      const titleEl = document.querySelector('#shipEditPolicyModal h2');
+      if (titleEl) titleEl.innerHTML = '➕ 新規ポリシーを作成 <span style="font-size:12px; color:#16a34a; font-weight:normal;">(ゼロから)</span>';
+    }, 50);
+  },
+
+  // ルートB: 既存ポリシーを選んで複製
+  openCloneSourcePicker() {
+    this.closeModal('shipCreateChooserModal');
+    document.getElementById('shipClonePickerSearch').value = '';
+    this.renderClonePicker();
+    document.getElementById('shipCloneSourcePickerModal').classList.add('active');
+  },
+
+  renderClonePicker() {
+    const q = (document.getElementById('shipClonePickerSearch').value || '').toLowerCase();
+    const list = this.policies.filter(p => !p._isNew && (!q || p.name.toLowerCase().includes(q)));
+    const el = document.getElementById('shipClonePickerList');
+    if (list.length === 0) {
+      el.innerHTML = '<div style="padding:30px; text-align:center; color:#888;">該当するポリシーがありません</div>';
+      return;
+    }
+    el.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:12px;">
+      <thead style="position:sticky; top:0; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
+        <tr>
+          <th style="padding:8px; text-align:left;">ポリシー名</th>
+          <th style="padding:8px; width:80px;">種別</th>
+          <th style="padding:8px; width:90px;">価格帯</th>
+          <th style="padding:8px; width:90px; text-align:right;">送料</th>
+          <th style="padding:8px; width:90px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.map(p => `
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px;">${p.name}</td>
+            <td style="padding:8px;">${p.service}${p.vero?' (VeRO)':''}</td>
+            <td style="padding:8px;">${(p.priceMin != null && p.priceMax != null) ? '$'+p.priceMin+'〜'+p.priceMax : '-'}</td>
+            <td style="padding:8px; text-align:right; font-family:monospace;">$${p.domesticCost.toFixed(2)}</td>
+            <td style="padding:8px; text-align:right;"><button class="ship-btn-save" style="padding:4px 12px; font-size:11px;" onclick="Shipping.startCreateFromClone('${p.id}')">この内容で複製</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+  },
+
+  // 既存ポリシーから複製して新規作成モードへ
+  startCreateFromClone(sourceId) {
+    const source = this.policies.find(x => x.id === sourceId);
+    if (!source) { alert('ソースポリシーが見つかりません'); return; }
+
+    this.closeModal('shipCloneSourcePickerModal');
+
+    // ディープコピー + 新規ID + 名前にコピー印
+    const newId = 'local_new_' + Date.now();
+    const cloned = JSON.parse(JSON.stringify(source));
+    cloned.id = newId;
+    cloned.name = source.name + ' (コピー)';
+    cloned._isNew = true;
+    cloned._clonedFromId = sourceId;
+    cloned._clonedFromName = source.name;
+    if (cloned._raw) {
+      cloned._raw.name = cloned.name;
+      delete cloned._raw.fulfillmentPolicyId;
+    }
+
+    this.policies.push(cloned);
+    this.isCreatingNew = true;
+    this.openEditPolicyModal(newId);
+
+    setTimeout(() => {
+      const titleEl = document.querySelector('#shipEditPolicyModal h2');
+      if (titleEl) titleEl.innerHTML = `➕ 新規ポリシーを作成 <span style="font-size:12px; color:#2563eb; font-weight:normal;">(コピー元: ${source.name})</span>`;
+    }, 50);
+  },
+
   toggleEditPolicyExcluded(code, checked) {
     if (checked) {
       if (!this.editingPolicyExcluded.includes(code)) this.editingPolicyExcluded.push(code);
@@ -8066,6 +8223,20 @@ Object.assign(Shipping, {
     if (!p) return;
     if (!p._raw) p._raw = {};
 
+    // 新規作成モードの場合は必須項目チェック
+    if (this.isCreatingNew) {
+      const newName = (document.getElementById('shipEditPolicyName')?.value || '').trim();
+      if (!newName) {
+        alert('⚠️ 新規作成の場合は「ポリシー名」が必須です。\n例: "Expedited 230~260$" のように、サービス種別+価格レンジ+$ を含めると価格帯が自動抽出されます。');
+        return;
+      }
+      // 同名重複チェック(自分以外)
+      const dup = this.policies.find(x => x.id !== p.id && x.name === newName);
+      if (dup) {
+        if (!confirm(`同じ名前のポリシーが既に存在します:\n"${dup.name}"\n\nそれでも作成しますか?`)) return;
+      }
+    }
+
     // ----- 名前 -----
     const nameEl = document.getElementById('shipEditPolicyName');
     if (nameEl) {
@@ -8168,11 +8339,18 @@ Object.assign(Shipping, {
     p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
 
     // ----- 後処理 -----
+    const wasCreating = this.isCreatingNew;
+    if (wasCreating) {
+      // 新規作成完了マークを残しつつ、_isNew は外す(以降は普通の編集対象)
+      p._isNew = false;
+      this.isCreatingNew = false;
+    }
+
     this.closeModal('shipEditPolicyModal');
     this.savePoliciesCache();
     this.renderList();
 
-    // 保存内容のサマリを control colored toast 風で(alert は使うが情報量を絞る)
+    // 保存内容のサマリ
     const summaryLines = [
       `名前: ${p.name}`,
       `HT: ${p.handlingTime}日`,
@@ -8180,7 +8358,21 @@ Object.assign(Shipping, {
       `International: ${this.editingIntlServices.length}サービス`,
       `除外国: ${p.excluded.length}項目`,
     ].join(' / ');
-    alert(`✓ ローカル保存しました\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
+    const prefix = wasCreating ? '✓ 新規ポリシーを作成しました' : '✓ ローカル保存しました';
+    alert(`${prefix}\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
+  },
+
+  // 編集モーダルを閉じる時、新規作成中ならポリシー配列から除去(キャンセル扱い)
+  cancelEditPolicy() {
+    if (this.isCreatingNew && this.editingPolicyId) {
+      // 確認
+      if (!confirm('新規作成中のポリシーが破棄されます。よろしいですか?')) return;
+      // ポリシー配列から削除
+      this.policies = this.policies.filter(p => p.id !== this.editingPolicyId);
+      this.isCreatingNew = false;
+    }
+    this.closeModal('shipEditPolicyModal');
+    this.renderList();
   },
 });
 </script>
@@ -8292,6 +8484,44 @@ Object.assign(Shipping, {
 </div>
 
 <!-- ===== ✏️ 個別ポリシー編集モーダル ===== -->
+<!-- ===== ➕ 新規ポリシー作成 ルート選択モーダル ===== -->
+<div class="ship-modal-overlay" id="shipCreateChooserModal">
+  <div class="ship-modal" style="max-width: 640px;">
+    <h2>➕ 新規ポリシーをどう作りますか?</h2>
+    <p style="font-size:13px; color:#666; margin-top:0;">2つのルートから選んでください。後からどちらでも編集可能です。</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px;">
+      <button onclick="Shipping.startCreateFromScratch()" style="background:#fff; border:2px solid #16a34a; border-radius:10px; padding:24px 18px; cursor:pointer; text-align:left; font-family:inherit; transition:all 0.15s;" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='#fff'">
+        <div style="font-size:32px; line-height:1; margin-bottom:10px;">📋</div>
+        <div style="font-weight:700; font-size:15px; color:#166534; margin-bottom:6px;">ゼロから新規作成</div>
+        <div style="font-size:12px; color:#4b5563; line-height:1.5;">サービス種別(Expedited等)とデフォルト除外国/HT などを自動適用した空のフォームを開きます。価格レンジや送料を入力して保存。</div>
+      </button>
+      <button onclick="Shipping.openCloneSourcePicker()" style="background:#fff; border:2px solid #2563eb; border-radius:10px; padding:24px 18px; cursor:pointer; text-align:left; font-family:inherit; transition:all 0.15s;" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#fff'">
+        <div style="font-size:32px; line-height:1; margin-bottom:10px;">📑</div>
+        <div style="font-weight:700; font-size:15px; color:#1e40af; margin-bottom:6px;">既存ポリシーをコピー</div>
+        <div style="font-size:12px; color:#4b5563; line-height:1.5;">既存の127件から1つ選んで複製し、ベースに修正。元のポリシーは変更されません。価格レンジを少し変えた新規追加に便利。</div>
+      </button>
+    </div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipCreateChooserModal')">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 📑 既存ポリシー選択モーダル(コピー元) ===== -->
+<div class="ship-modal-overlay" id="shipCloneSourcePickerModal">
+  <div class="ship-modal" style="max-width: 800px;">
+    <h2>📑 コピー元のポリシーを選択</h2>
+    <div class="ship-field" style="margin-bottom:10px;">
+      <label>🔍 検索</label>
+      <input type="text" id="shipClonePickerSearch" placeholder="ポリシー名で検索…" oninput="Shipping.renderClonePicker()" />
+    </div>
+    <div id="shipClonePickerList" style="max-height:440px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px;"></div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipCloneSourcePickerModal')">キャンセル</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 🌍 マスター率を全ポリシーに適用 モーダル ===== -->
 <div class="ship-modal-overlay" id="shipMasterRateApplyModal">
   <div class="ship-modal" style="max-width: 900px;">
@@ -8312,7 +8542,7 @@ Object.assign(Shipping, {
     <h2>✏️ ポリシー編集</h2>
     <div id="shipEditPolicyContent"></div>
     <div class="ship-modal-footer">
-      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipEditPolicyModal')">キャンセル</button>
+      <button class="ship-btn-cancel" onclick="Shipping.cancelEditPolicy()">キャンセル</button>
       <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">✓ ローカルに保存</button>
     </div>
     <div style="font-size:11px; color:#888; margin-top:8px;">
