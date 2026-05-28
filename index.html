@@ -6913,9 +6913,9 @@ Object.assign(Shipping, {
         `<option value="${o.code}" ${o.code===s.serviceCode?'selected':''}>${o.label} — ${o.days} business days</option>`
       ).join('');
       const destChecks = SHIP_INTL_DESTINATIONS.map(d => `
-        <label class="ship-dest-item">
-          <span class="ship-dest-label">${d.label}</span>
-          <input type="checkbox" ${s.destinations.includes(d.code)?'checked':''} onchange="Shipping.toggleIntlServiceDest(${idx}, '${d.code}', this.checked)" />
+        <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; color:#1f2937; font-weight:normal; cursor:pointer; margin:0;">
+          <span style="flex:1 1 auto; min-width:0; font-weight:500; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.label}</span>
+          <input type="checkbox" ${s.destinations.includes(d.code)?'checked':''} style="margin:0; flex:0 0 auto; cursor:pointer;" onchange="Shipping.toggleIntlServiceDest(${idx}, '${d.code}', this.checked)" />
         </label>
       `).join('');
       const labelTxt = idx === 0 ? 'Primary Service' : `Additional Service #${idx}`;
