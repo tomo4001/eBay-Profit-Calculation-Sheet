@@ -1385,6 +1385,32 @@
     font-size: 11px; font-weight: 600;
   }
   .ship-edit-btn:hover { background: #2563eb; color: #fff; }
+
+  /* Destinations 専用グリッド(13地域がきちんと整列) */
+  .ship-dest-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px 12px;
+    padding: 12px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+  }
+  .ship-dest-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+  }
+  .ship-dest-item:hover { background: #eff6ff; border-color: #93c5fd; }
+  .ship-dest-item input { margin: 0; flex-shrink: 0; }
+  .ship-dest-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 700px) {
+    .ship-dest-grid { grid-template-columns: repeat(2, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -6864,7 +6890,7 @@ Object.assign(Shipping, {
         `<option value="${o.code}" ${o.code===s.serviceCode?'selected':''}>${o.label} — ${o.days} business days</option>`
       ).join('');
       const destChecks = SHIP_INTL_DESTINATIONS.map(d => `
-        <label class="ship-checkbox-item" style="font-size:12px;">
+        <label class="ship-dest-item">
           <input type="checkbox" ${s.destinations.includes(d.code)?'checked':''} onchange="Shipping.toggleIntlServiceDest(${idx}, '${d.code}', this.checked)" />
           <span>${d.label}</span>
         </label>
@@ -6892,7 +6918,7 @@ Object.assign(Shipping, {
           </div>
           <div class="ship-field" style="align-items:flex-start;">
             <label style="padding-top:6px;">Destinations<br><span style="font-weight:normal; font-size:11px; color:#888;">(発送先13地域)</span></label>
-            <div class="ship-checkbox-grid" style="max-height:none;">${destChecks}</div>
+            <div class="ship-dest-grid">${destChecks}</div>
           </div>
         </div>
       `;
