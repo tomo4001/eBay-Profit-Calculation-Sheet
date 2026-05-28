@@ -8064,37 +8064,64 @@ Object.assign(Shipping, {
   saveEditedPolicy() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
-    // 名前
+    if (!p._raw) p._raw = {};
+
+    // ----- 名前 -----
     const nameEl = document.getElementById('shipEditPolicyName');
     if (nameEl) {
       const newName = nameEl.value.trim();
-      if (newName) p.name = newName;
+      if (newName) {
+        p.name = newName;
+        p._raw.name = newName;
+        // 名前から価格レンジを再抽出
+        const rangeMatch = newName.match(/(\d+(?:\.\d+)?)[~\-](\d+(?:\.\d+)?)\$/);
+        if (rangeMatch) {
+          p.priceMin = parseFloat(rangeMatch[1]);
+          p.priceMax = parseFloat(rangeMatch[2]);
+        } else {
+          p.priceMin = null;
+          p.priceMax = null;
+        }
+        // VeRO 判定も名前ベースで更新
+        const n = newName.toLowerCase();
+        p.vero = n.includes('vero');
+        // サービス判定も
+        let service = 'Other';
+        if (n.startsWith('expedited')) service = 'Expedited';
+        else if (n.startsWith('economy')) service = 'Economy';
+        else if (n.startsWith('standard')) service = 'Standard';
+        p.service = service;
+      }
     }
-    // Description (raw に保持)
-    const descEl = document.getElementById('shipEditPolicyDescription');
-    if (descEl) {
-      if (!p._raw) p._raw = {};
-      p._raw.description = descEl.value;
-    }
-    // Handling Time
-    const htEl = document.getElementById('shipEditPolicyHT');
-    if (htEl) p.handlingTime = parseInt(htEl.value);
 
-    // Shipping Method
+    // ----- Description -----
+    const descEl = document.getElementById('shipEditPolicyDescription');
+    if (descEl) p._raw.description = descEl.value;
+
+    // ----- Handling Time (p と _raw 両方に保存) -----
+    const htEl = document.getElementById('shipEditPolicyHT');
+    if (htEl) {
+      const ht = parseInt(htEl.value);
+      p.handlingTime = ht;
+      p._raw.handlingTime = { value: ht, unit: 'DAY' };
+    }
+
+    // ----- Shipping Method -----
     const sm = document.getElementById('shipEditShippingMethod');
     if (sm) {
-      if (!p._raw) p._raw = {};
+      // 旧形式(freightShipping/localPickup)と新形式(shippingMethod) の両方を保存
+      // → 旧形式は eBay PUT 時に必要 / 新形式は バッジ比較で使う
+      p._raw.shippingMethod = sm.value;
       p._raw.freightShipping = (sm.value === 'FREIGHT');
       p._raw.localPickup = (sm.value === 'NO_SHIPPING');
     }
 
-    // Domestic 設定
+    // ----- Domestic 設定 -----
     const ct = document.getElementById('shipEditDomCostType');
     const sc = document.getElementById('shipEditDomServiceCode');
     const dc = document.getElementById('shipEditDomCost');
     const ac = document.getElementById('shipEditDomAddtl');
     if (ct || sc || dc || ac) {
-      if (!p._raw) p._raw = {};
       if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
       let dom = p._raw.shippingOptions.find(o => o.optionType === 'DOMESTIC');
       if (!dom) {
@@ -8115,9 +8142,8 @@ Object.assign(Shipping, {
       }
     }
 
-    // International 設定
+    // ----- International 設定 -----
     if (this.editingIntlServices.length >= 0) {
-      if (!p._raw) p._raw = {};
       if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
       // 既存の INTERNATIONAL を更新 or 新規
       let intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
@@ -8136,13 +8162,25 @@ Object.assign(Shipping, {
       }));
     }
 
-    // Excluded countries
+    // ----- Excluded countries (p と _raw 両方に保存) -----
     p.excluded = this.editingPolicyExcluded.slice();
+    if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
+    p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
 
+    // ----- 後処理 -----
     this.closeModal('shipEditPolicyModal');
     this.savePoliciesCache();
     this.renderList();
-    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前/説明/Shipping Method/Domestic/International(${this.editingIntlServices.length}サービス)/HT(${p.handlingTime}日)/除外国(${p.excluded.length}項目)`);
+
+    // 保存内容のサマリを control colored toast 風で(alert は使うが情報量を絞る)
+    const summaryLines = [
+      `名前: ${p.name}`,
+      `HT: ${p.handlingTime}日`,
+      `Domestic送料: $${p.domesticCost.toFixed(2)}`,
+      `International: ${this.editingIntlServices.length}サービス`,
+      `除外国: ${p.excluded.length}項目`,
+    ].join(' / ');
+    alert(`✓ ローカル保存しました\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
   },
 });
 </script>
@@ -8275,10 +8313,10 @@ Object.assign(Shipping, {
     <div id="shipEditPolicyContent"></div>
     <div class="ship-modal-footer">
       <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipEditPolicyModal')">キャンセル</button>
-      <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">保存(ローカル)</button>
+      <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">✓ ローカルに保存</button>
     </div>
     <div style="font-size:11px; color:#888; margin-top:8px;">
-      💡 「保存」はローカルメモリだけに反映。eBayへの書き込みは Phase 2-G で実装予定。
+      💡 「保存」はローカル(画面 + キャッシュ)のみに反映されます。eBay 本体への書き込みは <strong>Phase 2-G(最終段階)</strong> で実装します。
     </div>
   </div>
 </div>
