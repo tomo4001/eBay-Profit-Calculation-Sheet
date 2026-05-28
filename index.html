@@ -6195,6 +6195,41 @@ function shipDisplayCountry(code) {
   return SHIP_COUNTRY_NAME[code] ? `${code} (${SHIP_COUNTRY_NAME[code]})` : code;
 }
 
+// International 用シッピングサービスコード
+const SHIP_INTERNATIONAL_SERVICES = [
+  { code: 'ExpeditedInternational',          label: 'Expedited International Shipping',  days: '7-15' },
+  { code: 'StandardInternational',           label: 'Standard International Shipping',   days: '11-20' },
+  { code: 'OtherInternational',              label: 'Economy International Shipping',    days: '13-23' },
+  { code: 'US_IntlExpeditedSppedPAK',        label: 'eBay SpeedPAK Expedited',           days: '1-4'  },
+  { code: 'US_IntlExpressSpeedPAK',          label: 'eBay SpeedPAK Express',             days: '1-3'  },
+  { code: 'US_IntlStandardSppedPAK',         label: 'eBay SpeedPAK Standard',            days: '5-12' },
+  { code: 'US_IntlEconomySppedPAK',          label: 'eBay SpeedPAK Economy',             days: '6-15' },
+  { code: 'FedExInternationalEconomy',       label: 'FedEx International Economy',       days: '?'    },
+  { code: 'FedExInternationalPriority',      label: 'FedEx International Priority',      days: '?'    },
+  { code: 'UPSWorldWideExpedited',           label: 'UPS Worldwide Expedited',           days: '2-5'  },
+  { code: 'UPSWorldWideExpress',             label: 'UPS Worldwide Express',             days: '1-2'  },
+  { code: 'UPSWorldwideSaver',               label: 'UPS Worldwide Saver',               days: '1-3'  },
+  { code: 'USPSPriorityMailInternational',   label: 'USPS Priority Mail International',  days: '6-25' },
+  { code: 'USPSExpressMailInternational',    label: 'USPS Priority Mail Express International', days: '3-5' },
+];
+
+// International 13 Destinations(eBay UI 並び順)
+const SHIP_INTL_DESTINATIONS = [
+  { code: 'Americas', label: 'North and South America' },
+  { code: 'Europe',   label: 'Europe (including UK)'  },
+  { code: 'Asia',     label: 'Asia'                    },
+  { code: 'CA',       label: 'Canada'                  },
+  { code: 'GB',       label: 'United Kingdom'          },
+  { code: 'CN',       label: 'China'                   },
+  { code: 'MX',       label: 'Mexico'                  },
+  { code: 'DE',       label: 'Germany'                 },
+  { code: 'JP',       label: 'Japan'                   },
+  { code: 'BR',       label: 'Brazil'                  },
+  { code: 'FR',       label: 'France'                  },
+  { code: 'AU',       label: 'Australia'               },
+  { code: 'RU',       label: 'Russian Federation'      },
+];
+
 // Domestic 用シッピングサービスコード(eBay UI で選択可能なサービス、Hartuoさんが実際に使うもの)
 const SHIP_DOMESTIC_SERVICES = [
   { code: 'US_ExpeditedSppedPAK',           label: 'eBay SpeedPAK Expedited',           days: '1-4'  },
@@ -6601,12 +6636,24 @@ Object.assign(Shipping, {
   // =====================================================================
   editingPolicyId: null,
   editingPolicyExcluded: [], // 編集中の除外国
+  editingIntlServices: [],   // 編集中の International services
 
   openEditPolicyModal(id) {
     const p = this.policies.find(x => x.id === id);
     if (!p) return;
     this.editingPolicyId = id;
     this.editingPolicyExcluded = (p.excluded || []).slice();
+    // International services を抽出してコピー
+    const rawShipping = (p._raw && p._raw.shippingOptions) || [];
+    const intlOpt = rawShipping.find(o => o.optionType === 'INTERNATIONAL');
+    this.editingIntlServices = intlOpt && intlOpt.shippingServices
+      ? intlOpt.shippingServices.map(s => ({
+          serviceCode: s.shippingServiceCode || '',
+          cost: parseFloat((s.shippingCost && s.shippingCost.value) || 0),
+          addtlCost: parseFloat((s.additionalShippingCost && s.additionalShippingCost.value) || 0),
+          destinations: ((s.shipToLocations && s.shipToLocations.regionIncluded) || []).map(r => r.regionName)
+        }))
+      : [];
     this.renderEditPolicyForm();
     document.getElementById('shipEditPolicyModal').classList.add('active');
   },
@@ -6774,6 +6821,12 @@ Object.assign(Shipping, {
       </div>
 
       <div class="ship-modal-section">
+        <div class="ship-modal-section-title">🌐 International Shipping(国際発送)</div>
+        <div id="shipEditIntlServicesContainer"></div>
+        <button class="ship-btn-add" style="margin-top:8px;" onclick="Shipping.addEditIntlService()">+ Add Service(別の国に別の送料を設定)</button>
+      </div>
+
+      <div class="ship-modal-section">
         <div class="ship-modal-section-title">⏱️ Handling Time</div>
         <div class="ship-field">
           <label>ハンドリングタイム</label>
@@ -6789,6 +6842,78 @@ Object.assign(Shipping, {
         ${groupsHtml}
       </div>
     `;
+
+    // International services を描画
+    this.renderEditIntlServices();
+  },
+
+  renderEditIntlServices() {
+    const container = document.getElementById('shipEditIntlServicesContainer');
+    if (!container) return;
+    if (this.editingIntlServices.length === 0) {
+      container.innerHTML = '<div style="color:#888; font-size:12px; padding:8px; background:#fafafa; border-radius:6px;">International サービスがありません。「+ Add Service」で追加してください。</div>';
+      return;
+    }
+    container.innerHTML = this.editingIntlServices.map((s, idx) => {
+      // 候補に現在のコードを含めるための調整
+      const known = SHIP_INTERNATIONAL_SERVICES.map(x => x.code);
+      const services = known.includes(s.serviceCode) || !s.serviceCode
+        ? SHIP_INTERNATIONAL_SERVICES
+        : [...SHIP_INTERNATIONAL_SERVICES, { code: s.serviceCode, label: s.serviceCode + ' (現在の設定)', days: '?' }];
+      const serviceOpts = services.map(o =>
+        `<option value="${o.code}" ${o.code===s.serviceCode?'selected':''}>${o.label} — ${o.days} business days</option>`
+      ).join('');
+      const destChecks = SHIP_INTL_DESTINATIONS.map(d => `
+        <label class="ship-checkbox-item" style="font-size:12px;">
+          <input type="checkbox" ${s.destinations.includes(d.code)?'checked':''} onchange="Shipping.toggleIntlServiceDest(${idx}, '${d.code}', this.checked)" />
+          <span>${d.label}</span>
+        </label>
+      `).join('');
+      const labelTxt = idx === 0 ? 'Primary Service' : `Additional Service #${idx}`;
+      return `
+        <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px 14px; margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:12px; font-weight:700; color:#4b5563;">
+            <span>🌐 ${labelTxt}</span>
+            ${this.editingIntlServices.length > 1 ? `<button class="ship-btn-cancel" style="padding:3px 10px; font-size:11px;" onclick="Shipping.removeEditIntlService(${idx})">削除</button>` : ''}
+          </div>
+          <div class="ship-field">
+            <label>Service</label>
+            <select onchange="Shipping.editingIntlServices[${idx}].serviceCode = this.value">${serviceOpts}</select>
+          </div>
+          <div class="ship-field">
+            <label>Shipping Cost</label>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <span>$</span>
+              <input type="number" step="0.01" value="${s.cost}" style="width:100px;" oninput="Shipping.editingIntlServices[${idx}].cost = parseFloat(this.value)||0" />
+              <span style="margin-left:14px; color:#666; font-size:11px;">Each additional:</span>
+              <span>$</span>
+              <input type="number" step="0.01" value="${s.addtlCost}" style="width:100px;" oninput="Shipping.editingIntlServices[${idx}].addtlCost = parseFloat(this.value)||0" />
+            </div>
+          </div>
+          <div class="ship-field" style="align-items:flex-start;">
+            <label style="padding-top:6px;">Destinations<br><span style="font-weight:normal; font-size:11px; color:#888;">(発送先13地域)</span></label>
+            <div class="ship-checkbox-grid" style="max-height:none;">${destChecks}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+  toggleIntlServiceDest(idx, code, checked) {
+    const s = this.editingIntlServices[idx];
+    if (!s) return;
+    if (checked && !s.destinations.includes(code)) s.destinations.push(code);
+    else if (!checked) s.destinations = s.destinations.filter(d => d !== code);
+  },
+  addEditIntlService() {
+    this.editingIntlServices.push({
+      serviceCode: SHIP_INTERNATIONAL_SERVICES[0].code,
+      cost: 0, addtlCost: 0, destinations: []
+    });
+    this.renderEditIntlServices();
+  },
+  removeEditIntlService(idx) {
+    this.editingIntlServices.splice(idx, 1);
+    this.renderEditIntlServices();
   },
 
   toggleEditPolicyExcluded(code, checked) {
@@ -6854,12 +6979,33 @@ Object.assign(Shipping, {
       }
     }
 
+    // International 設定
+    if (this.editingIntlServices.length >= 0) {
+      if (!p._raw) p._raw = {};
+      if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
+      // 既存の INTERNATIONAL を更新 or 新規
+      let intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
+      if (!intl) {
+        intl = { optionType: 'INTERNATIONAL', costType: 'FLAT_RATE' };
+        p._raw.shippingOptions.push(intl);
+      }
+      intl.shippingServices = this.editingIntlServices.map(s => ({
+        shippingCarrierCode: 'GENERIC',
+        shippingServiceCode: s.serviceCode,
+        shippingCost:           { value: (s.cost || 0).toFixed(2),     currency: 'USD' },
+        additionalShippingCost: { value: (s.addtlCost || 0).toFixed(2), currency: 'USD' },
+        shipToLocations: {
+          regionIncluded: (s.destinations || []).map(d => ({ regionName: d }))
+        }
+      }));
+    }
+
     // Excluded countries
     p.excluded = this.editingPolicyExcluded.slice();
 
     this.closeModal('shipEditPolicyModal');
     this.renderList();
-    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前/説明/Shipping Method/Domestic設定/HT(${p.handlingTime}日)/除外国(${p.excluded.length}項目)`);
+    alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前/説明/Shipping Method/Domestic/International(${this.editingIntlServices.length}サービス)/HT(${p.handlingTime}日)/除外国(${p.excluded.length}項目)`);
   },
 });
 </script>
