@@ -2170,9 +2170,9 @@
           <span class="unit"></span>
         </div>
         <div class="setting-row tariff-highlight" style="grid-template-columns: 1fr auto auto auto;">
-          <label for="tariffRate">DDP対応（関税率等）</label>
+          <label for="tariffRate">DDP対応（関税率）<br><span style="font-size:10px; color:#888; font-weight:normal;">🔗 マスター送料率と連動</span></label>
           <span id="ddpStatusBadge" style="display:inline-block; padding:2px 8px; font-size:11px; border-radius:4px; background:#2e7d32; color:#fff; white-space:nowrap; font-weight:600;">🇺🇸 適用中</span>
-          <input type="number" id="tariffRate" step="0.01" min="0" max="100" />
+          <input type="number" id="tariffRate" step="0.01" min="0" max="100" readonly title="この値はマスター送料率と同期されます。送料レンジ表の上にあるマスター率を変更してください。" style="background:#f3f4f6; color:#6b7280; cursor:not-allowed;" />
           <span class="unit">%</span>
         </div>
         <div class="setting-row">
@@ -2187,11 +2187,12 @@
         </div>
       </div>
       <details>
-        <summary>DDP対応（関税率等）について</summary>
+        <summary>DDP対応（関税率）について</summary>
         <div class="help">
           <strong>アメリカ向けのみ</strong>適用されます。発送国がアメリカ以外の場合、関税は0として計算され、calcX_optimal のしきい値も無効化されます(送料率制約なし)。<br>
-          このアプリでは「DDP対応（関税率等）」が <strong>calcX_optimal の関税率しきい値</strong> も兼ねます。<br>
-          送料が販売価格の <code>(関税率)%</code> 以上になるよう X が選ばれます。
+          このアプリでは「DDP関税率」が <strong>calcX_optimal の関税率しきい値</strong> も兼ねます。<br>
+          送料が販売価格の <code>(関税率)%</code> 以上になるよう X が選ばれます。<br><br>
+          🔗 <strong>マスター送料率と同じ値で連動</strong>します。送料レンジ表の上の「🌍 マスター送料率」を変更すると、こちらも自動で同じ値になります。両者は同一の概念(eBay DDP 関税分を送料に含める比率)なので、別々に管理する必要はありません。
         </div>
       </details>
     </div>
@@ -2412,7 +2413,8 @@
         <span style="font-weight:600;">%</span>
       </div>
       <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
-        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。シッピングポリシーのデフォルト計算にもこの値が使われます。
+        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。<br>
+        🔗 <strong>DDP関税率(下の設定欄)・シッピングポリシーのデフォルト</strong> もこの値と連動します。 ここを変えれば3箇所すべてが同じ%になります。
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn" id="applyMasterRate" style="padding:5px 12px; font-size:12px;">✓ レンジ表 全行に再適用</button>
@@ -2924,7 +2926,7 @@ function applyMasterRateToRanges() {
   recalc();
   saveState();
 }
-// マスター率をシッピング側のストレージとオブジェクトに同期
+// マスター率をシッピング側のストレージとオブジェクトに同期 + DDP関税率にも反映
 function syncMasterRateToShipping() {
   const v = getMasterShipRate();
   // Shipping は const 宣言のため TDZ 期間中(init初期化中)は typeof でも例外になる。
@@ -2933,6 +2935,16 @@ function syncMasterRateToShipping() {
     if (typeof Shipping !== 'undefined') Shipping.masterRate = v;
   } catch (e) { /* Shipping 未初期化: localStorage 経由で同期される */ }
   try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
+
+  // 🔗 DDP関税率 (#tariffRate) にも同期(マスター率と一元化)
+  const tariffEl = document.getElementById('tariffRate');
+  if (tariffEl && parseFloat(tariffEl.value) !== v) {
+    tariffEl.value = v;
+    // 利益計算も再実行
+    if (typeof recalc === 'function') {
+      try { recalc(); } catch (e) {}
+    }
+  }
 }
 
 // ============================================================
@@ -5979,6 +5991,10 @@ function init() {
   if (saved && saved.tariff != null && (!saved.settings || saved.settings.tariff == null)) {
     document.getElementById('tariffRate').value = saved.tariff;
   }
+
+  // 🔗 マスター率と DDP関税率を一元化: 必ずマスター率の値で tariffRate を上書き
+  const tariffEl2 = document.getElementById('tariffRate');
+  if (tariffEl2) tariffEl2.value = mr;
 
   if (saved && saved.rivalPrice) {
     document.getElementById('rivalPrice').value = saved.rivalPrice;
