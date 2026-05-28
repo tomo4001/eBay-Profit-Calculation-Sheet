@@ -2870,8 +2870,14 @@ function getCurrentSettings() {
   return settings;
 }
 function saveState() {
+  const currentRanges = getCurrentRanges();
+  // 安全網: ランジが空の場合(=tbodyがまだレンダー前)、上書き保存しない
+  if (!currentRanges || currentRanges.length === 0) {
+    console.warn('[saveState] レンジが空のため保存を中止しました(既存の保存値を保護)');
+    return;
+  }
   const state = {
-    ranges: getCurrentRanges(),
+    ranges: currentRanges,
     settings: getCurrentSettings(),
     masterShipRate: getMasterShipRate(),
     rivalPrice: document.getElementById('rivalPrice').value,
@@ -5951,10 +5957,15 @@ function init() {
   // localStorage('shipping_master_rate_v1') に既に正しい値があるので、
   // Shipping.loadSettings() が後で読み出して同期する。
 
-  if (saved && saved.ranges) {
+  // 保存済みレンジが「配列でかつ1行以上ある」場合のみ復元。
+  // (以前の不具合で空配列が保存されたケースに対する安全網)
+  if (saved && Array.isArray(saved.ranges) && saved.ranges.length > 0) {
     renderRanges(saved.ranges);
   } else {
     renderRanges(DEFAULT_RANGES);
+    if (saved && Array.isArray(saved.ranges) && saved.ranges.length === 0) {
+      console.warn('[init] 保存済みレンジが空だったため、既定 36行を復元しました');
+    }
   }
 
   // 設定の適用：保存値があればそれ、なければ既定値
