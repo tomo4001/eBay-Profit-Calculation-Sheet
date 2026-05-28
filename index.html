@@ -1223,9 +1223,15 @@
     gap: 12px; margin-bottom: 10px; align-items: center;
   }
   .ship-field label { font-size: 12px; font-weight: 600; color: #374151; }
-  .ship-field input, .ship-field select, .ship-field textarea {
+  .ship-field input:not([type="checkbox"]):not([type="radio"]),
+  .ship-field select,
+  .ship-field textarea {
     padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px;
     font-size: 13px; width: 100%; font-family: inherit;
+  }
+  .ship-field input[type="checkbox"],
+  .ship-field input[type="radio"] {
+    width: auto; padding: 0; margin: 0;
   }
 
   .ship-settings-tabs {
