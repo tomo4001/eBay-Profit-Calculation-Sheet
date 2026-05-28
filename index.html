@@ -2403,9 +2403,25 @@
     <h2>送料レンジ表
       <span class="save-indicator" id="saveIndicator">保存しました</span>
     </h2>
+
+    <!-- 🌍 マスター送料率 (全体共通: レンジ表 + シッピングポリシー両方に適用) -->
+    <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:12px 14px; margin-bottom:14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
+      <div style="font-weight:700; color:#1e3a8a; font-size:14px;">🌍 マスター送料率</div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="number" id="masterShipRate" step="0.1" value="25" style="width:80px; padding:5px 8px; border:1px solid #93c5fd; border-radius:5px; font-size:13px;" />
+        <span style="font-weight:600;">%</span>
+      </div>
+      <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
+        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算され、シッピングポリシーのデフォルト送料計算にも適用されます。
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" id="applyMasterRate" style="padding:5px 12px; font-size:12px;">✓ 全行に再適用</button>
+      </div>
+    </div>
+
     <p style="margin: 0 0 12px; color:#666; font-size:13px;">
       販売価格X が「下限〜上限」の範囲に収まるとき、対応する「送料」が選ばれます。<br>
-      表のセルを直接編集できます（編集すると自動保存）。
+      表のセルを直接編集できます（編集すると自動保存）。マスター率を変更すると全行の送料が再計算されます。
     </p>
 
     <table class="range-table" id="rangeTable">
@@ -2857,6 +2873,7 @@ function saveState() {
   const state = {
     ranges: getCurrentRanges(),
     settings: getCurrentSettings(),
+    masterShipRate: getMasterShipRate(),
     rivalPrice: document.getElementById('rivalPrice').value,
     purchasePrice: document.getElementById('purchasePrice').value,
     actualWeight: document.getElementById('actualWeight').value,
@@ -2866,6 +2883,42 @@ function saveState() {
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   flashSaved();
+}
+
+// 🌍 マスター送料率: 全レンジ + シッピングポリシーで共通使用
+function getMasterShipRate() {
+  const el = document.getElementById('masterShipRate');
+  const v = el ? parseFloat(el.value) : 25;
+  return isNaN(v) ? 25 : v;
+}
+function setMasterShipRate(v) {
+  const el = document.getElementById('masterShipRate');
+  if (el) el.value = v;
+  // シッピングポリシー側にも同期
+  if (typeof Shipping !== 'undefined') {
+    Shipping.masterRate = v;
+    try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
+  }
+}
+// 全レンジ行の送料 = 上限 × マスター率% に再計算
+function applyMasterRateToRanges() {
+  const rate = getMasterShipRate() / 100;
+  const ranges = getCurrentRanges();
+  ranges.forEach(row => {
+    const upper = parseFloat(row[1]) || 0;
+    row[2] = Math.round(upper * rate * 100) / 100;  // 2桁
+  });
+  renderRanges(ranges);
+  // シッピング側にも同期
+  syncMasterRateToShipping();
+  recalc();
+  saveState();
+}
+// マスター率をシッピング側のストレージとオブジェクトに同期
+function syncMasterRateToShipping() {
+  const v = getMasterShipRate();
+  if (typeof Shipping !== 'undefined') Shipping.masterRate = v;
+  try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
 }
 
 // ============================================================
@@ -5760,9 +5813,29 @@ function attachEvents() {
   document.getElementById('catSearch').addEventListener('input', (e) => {
     renderCatTable(e.target.value);
   });
-  // レンジ表編集
+  // 🌍 マスター送料率: 変更で全行に再適用 / 「再適用」ボタン
+  const masterRateEl = document.getElementById('masterShipRate');
+  if (masterRateEl) {
+    masterRateEl.addEventListener('change', () => applyMasterRateToRanges());
+    // 入力中にも同期は反映(レンジ再計算は change まで待つ)
+    masterRateEl.addEventListener('input', () => syncMasterRateToShipping());
+  }
+  const applyBtn = document.getElementById('applyMasterRate');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => applyMasterRateToRanges());
+  }
+
+  // レンジ表編集 (上限を変えたら、そのセルの送料も即座にマスター率で再計算)
   document.getElementById('rangeBody').addEventListener('input', (e) => {
     if (e.target.matches('input[type="number"]')) {
+      // 「上限 ($)」列を編集した場合は、その行の送料を再計算
+      if (e.target.getAttribute('data-col') === '1') {
+        const tr = e.target.closest('tr');
+        const upper = parseFloat(e.target.value) || 0;
+        const rate = getMasterShipRate() / 100;
+        const shipCell = tr.querySelector('input[data-col="2"]');
+        if (shipCell) shipCell.value = Math.round(upper * rate * 100) / 100;
+      }
       recalc();
       saveState();
     }
@@ -5857,6 +5930,21 @@ function applySettings(settings) {
 // ============================================================
 function init() {
   const saved = loadState();
+
+  // 🌍 マスター送料率を最初に復元(レンジ復元時に新しい上限変更で正しく動くように)
+  // 優先順: 利益計算側の保存値 → シッピング側の保存値 → 既定 25
+  let mr = (saved && typeof saved.masterShipRate === 'number') ? saved.masterShipRate : null;
+  if (mr == null) {
+    try {
+      const v = parseFloat(localStorage.getItem('shipping_master_rate_v1'));
+      if (!isNaN(v)) mr = v;
+    } catch (e) {}
+  }
+  if (mr == null) mr = 25;
+  const mrEl = document.getElementById('masterShipRate');
+  if (mrEl) mrEl.value = mr;
+  if (typeof Shipping !== 'undefined') Shipping.masterRate = mr;
+
   if (saved && saved.ranges) {
     renderRanges(saved.ranges);
   } else {
@@ -6787,15 +6875,14 @@ Object.assign(Shipping, {
     });
 
     document.getElementById('shipDefaultForm').innerHTML = `
-      <div class="ship-modal-section">
-        <div class="ship-modal-section-title">🌍 全サービス共通(マスター)</div>
-        <div class="ship-field">
-          <label>送料率(マスター)</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input type="number" id="shipDefMasterRate" step="0.1" value="${this.masterRate}" style="width:90px;" />
-            <span>%</span>
-            <span style="color:#666; font-size:11px;">(価格レンジ上限 × この%) = Domestic 送料</span>
-          </div>
+      <div class="ship-modal-section" style="background:#f9fafb; border:1px dashed #d1d5db;">
+        <div class="ship-modal-section-title">🌍 マスター送料率(全サービス共通)</div>
+        <div style="display:flex; gap:10px; align-items:center; font-size:13px;">
+          <strong style="color:#1e3a8a;">${this.masterRate}%</strong>
+          <span style="color:#666; font-size:11px;">(価格レンジ上限 × この%) = Domestic 送料 / 全シッピングサービスに適用</span>
+        </div>
+        <div style="font-size:11px; color:#888; margin-top:6px;">
+          ⚙️ 変更するには「利益計算」タブの<strong>送料レンジ表</strong>の上部の入力欄を編集してください。レンジ表とポリシーの両方に同時反映されます。
         </div>
       </div>
 
@@ -6951,12 +7038,12 @@ Object.assign(Shipping, {
     const v = (id) => document.getElementById(id)?.value;
     const checked = (id) => document.getElementById(id)?.checked;
 
-    // 🌍 マスター送料率 (全サービス共通)
-    const mr = v('shipDefMasterRate');
-    if (mr != null && mr !== '') {
-      const num = parseFloat(mr);
-      if (!isNaN(num)) this.masterRate = num;
-    }
+    // 🌍 マスター送料率は「利益計算 > 送料レンジ表」上部で管理(ここでは収集しない)
+    // ただし、レンジ表側で更新された最新値を反映するため localStorage から読み直す
+    try {
+      const v = parseFloat(localStorage.getItem('shipping_master_rate_v1'));
+      if (!isNaN(v)) this.masterRate = v;
+    } catch (e) {}
 
     // 📦 サービス毎の項目
     if (v('shipDefShippingMethod'))  d.shippingMethod  = v('shipDefShippingMethod');
@@ -7110,7 +7197,7 @@ Object.assign(Shipping, {
     try {
       localStorage.setItem(SHIP_STORAGE_DEFAULTS, JSON.stringify(this.defaults));
       localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules));
-      localStorage.setItem(SHIP_STORAGE_MASTER_RATE, String(this.masterRate));
+      // マスター送料率は利益計算タブの送料レンジ表で管理されるため、ここでは保存しない
     } catch (e) {}
     this.closeModal('shipSettingsModal');
     // バッジ・フィルタを再計算するため一覧再描画
