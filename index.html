@@ -1146,6 +1146,39 @@
     background: #fee2e2; color: #991b1b; font-size: 10px; font-weight: 700;
   }
   .ship-excluded-badge.zero { background: #f3f4f6; color: #9ca3af; }
+  .ship-status-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 700; white-space: nowrap; cursor: help;
+  }
+  .ship-status-badge.ok   { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .ship-status-badge.diff { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .ship-status-badge.skip { background: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb; }
+
+  /* 編集モーダルでデフォルト差分のあるフィールドを強調 */
+  .ship-field.is-diff {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin: 0 -10px 6px -10px;
+  }
+  .ship-field-diff-banner {
+    font-size: 11px; color: #92400e; background: #fef3c7;
+    padding: 4px 10px; border-radius: 4px; margin-top: 4px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .ship-field-reset {
+    background: #fff; border: 1px solid #f59e0b; color: #92400e;
+    padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
+    font-weight: 600;
+  }
+  .ship-field-reset:hover { background: #fde68a; }
+  .ship-section-diff-banner {
+    background: #fef3c7; border: 1px solid #fcd34d;
+    padding: 8px 12px; border-radius: 6px; margin-bottom: 10px;
+    font-size: 12px; color: #92400e; display: flex; align-items: center; gap: 10px;
+  }
+  .ship-section-diff-banner strong { color: #78350f; }
 
   .ship-loading {
     text-align: center; padding: 60px 20px; color: #6b7280;
@@ -2439,6 +2472,14 @@
         </select>
       </div>
       <div class="ship-toolbar-field">
+        <label>状態</label>
+        <select id="shipFilterStatus" onchange="Shipping.renderList()">
+          <option value="">全て</option>
+          <option value="default">✓ デフォルト通り</option>
+          <option value="diff">✏️ 個別設定あり</option>
+        </select>
+      </div>
+      <div class="ship-toolbar-field">
         <label>並び順</label>
         <select id="shipSortKey" onchange="Shipping.renderList()">
           <option value="serviceThenPrice">サービス → 価格帯(昇順)</option>
@@ -2448,6 +2489,8 @@
           <option value="costDesc">送料(降順)</option>
           <option value="name">ポリシー名(あいうえお順)</option>
           <option value="excludedDesc">除外国数(降順)</option>
+          <option value="diffDesc">個別設定の差分(多い順)</option>
+          <option value="diffAsc">個別設定の差分(少ない順)</option>
         </select>
       </div>
     </div>
@@ -6090,6 +6133,116 @@ const Shipping = {
     };
   },
 
+  // ---------------------------------------------------------------------
+  // 個別ポリシーが「デフォルト通り」か「個別設定あり」かを判定
+  //   返り値: { isDefault, diffCount, diffs: [{field,label,def,cur}], compared }
+  // ---------------------------------------------------------------------
+  evaluatePolicyDefaults(p) {
+    if (!p || !p._raw) return { isDefault: true, diffCount: 0, diffs: [], compared: 0 };
+    // デフォルト設定が無いサービス(Other/Legacy)は判定対象外
+    const def = this.defaults[p.service];
+    if (!def) return { isDefault: true, diffCount: 0, diffs: [], compared: 0, skip: true };
+
+    const raw = p._raw;
+    const diffs = [];
+    let compared = 0;
+
+    // 1) Handling Time
+    const ht = p.handlingTime;
+    if (ht != null && def.handlingTime != null) {
+      compared++;
+      if (parseInt(ht) !== parseInt(def.handlingTime)) {
+        diffs.push({ field: 'handlingTime', label: 'Handling Time', def: def.handlingTime+'d', cur: ht+'d' });
+      }
+    }
+
+    // 2) Shipping Method (policy level)
+    if (raw.shippingMethod && def.shippingMethod) {
+      compared++;
+      if (raw.shippingMethod !== def.shippingMethod) {
+        diffs.push({ field: 'shippingMethod', label: 'Shipping Method', def: def.shippingMethod, cur: raw.shippingMethod });
+      }
+    }
+
+    // 3) Domestic 設定
+    const opts = raw.shippingOptions || [];
+    const dom = opts.find(o => o.optionType === 'DOMESTIC');
+    if (dom) {
+      if (dom.costType && def.domCostType) {
+        compared++;
+        if (dom.costType !== def.domCostType) {
+          diffs.push({ field: 'domCostType', label: 'Domestic Cost Type', def: def.domCostType, cur: dom.costType });
+        }
+      }
+      const domSvc = (dom.shippingServices && dom.shippingServices[0]) || null;
+      if (domSvc && domSvc.shippingServiceCode && def.domServiceCode) {
+        compared++;
+        if (domSvc.shippingServiceCode !== def.domServiceCode) {
+          diffs.push({ field: 'domServiceCode', label: 'Domestic Service', def: def.domServiceCode, cur: domSvc.shippingServiceCode });
+        }
+      }
+    }
+
+    // 4) International 設定
+    const intl = opts.find(o => o.optionType === 'INTERNATIONAL');
+    if (intl) {
+      const intlSvc = (intl.shippingServices && intl.shippingServices[0]) || null;
+      if (intlSvc && intlSvc.shippingServiceCode && def.intlServiceCode) {
+        compared++;
+        if (intlSvc.shippingServiceCode !== def.intlServiceCode) {
+          diffs.push({ field: 'intlServiceCode', label: 'International Service', def: def.intlServiceCode, cur: intlSvc.shippingServiceCode });
+        }
+      }
+      if (intlSvc && intlSvc.shippingCost && intlSvc.shippingCost.value != null && def.intlCost != null) {
+        compared++;
+        const curCost = parseFloat(intlSvc.shippingCost.value);
+        if (Math.abs(curCost - parseFloat(def.intlCost)) > 0.001) {
+          diffs.push({ field: 'intlCost', label: 'Intl 送料', def: '$'+def.intlCost, cur: '$'+curCost });
+        }
+      }
+      // Destinations
+      if (def.destinations) {
+        compared++;
+        const curDest = ((intlSvc && intlSvc.shipToLocations && intlSvc.shipToLocations.regionIncluded) || []).map(r => r.regionName).sort();
+        const defDest = (def.destinations || []).slice().sort();
+        if (curDest.join('|') !== defDest.join('|')) {
+          const onlyInCur = curDest.filter(c => !defDest.includes(c));
+          const onlyInDef = defDest.filter(c => !curDest.includes(c));
+          const summary = [];
+          if (onlyInDef.length) summary.push('不足:'+onlyInDef.join(','));
+          if (onlyInCur.length) summary.push('追加:'+onlyInCur.join(','));
+          diffs.push({ field: 'destinations', label: 'Destinations', def: defDest.length+'地域', cur: summary.join(' / ') || curDest.length+'地域' });
+        }
+      }
+    }
+
+    // 5) 除外国 (baseExcluded + VeROなら Europe)
+    if (def.baseExcluded) {
+      compared++;
+      const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
+      const expected = Array.from(new Set([...(def.baseExcluded||[]), ...veroAdds])).sort();
+      const cur = (p.excluded || []).slice().sort();
+      if (cur.join('|') !== expected.join('|')) {
+        const onlyInCur = cur.filter(c => !expected.includes(c));
+        const onlyInDef = expected.filter(c => !cur.includes(c));
+        diffs.push({
+          field: 'excluded',
+          label: '除外国',
+          def: expected.length+'項目',
+          cur: `${cur.length}項目 (不足${onlyInDef.length} / 追加${onlyInCur.length})`,
+          extra: { onlyInDef, onlyInCur }
+        });
+      }
+    }
+
+    return {
+      isDefault: diffs.length === 0,
+      diffCount: diffs.length,
+      diffs,
+      compared,
+    };
+  },
+
   // リスト描画(検索・フィルタ・ソート対応)
   renderList() {
     const content = document.getElementById('shipContent');
@@ -6106,6 +6259,7 @@ const Shipping = {
     const q = (document.getElementById('shipSearchBox')?.value || '').toLowerCase();
     const svc = document.getElementById('shipFilterService')?.value || '';
     const cls = document.getElementById('shipFilterClass')?.value || '';
+    const status = document.getElementById('shipFilterStatus')?.value || '';
     const sortKey = document.getElementById('shipSortKey')?.value || 'serviceThenPrice';
 
     let list = this.policies.slice();
@@ -6117,8 +6271,24 @@ const Shipping = {
     if (cls === 'legacy')       list = list.filter(p => p.isLegacy);
     if (cls === 'bulkEligible') list = list.filter(p => !p.special && !p.isLegacy);
 
+    // 状態フィルタ(デフォルト/個別設定)
+    if (status) {
+      list = list.filter(p => {
+        const ev = this.evaluatePolicyDefaults(p);
+        if (ev.skip) return false; // 比較対象外は除外
+        if (status === 'default') return ev.isDefault;
+        if (status === 'diff')    return !ev.isDefault;
+        return true;
+      });
+    }
+
     // ソート
     const order = { Expedited: 0, Economy: 1, Standard: 2, Other: 9 };
+    const diffCache = new Map();
+    const getDiff = (p) => {
+      if (!diffCache.has(p.id)) diffCache.set(p.id, this.evaluatePolicyDefaults(p));
+      return diffCache.get(p.id);
+    };
     const sorted = list.sort((a, b) => {
       switch (sortKey) {
         case 'priceAsc':    return (a.priceMin || 0) - (b.priceMin || 0);
@@ -6127,6 +6297,8 @@ const Shipping = {
         case 'costDesc':    return b.domesticCost - a.domesticCost;
         case 'name':        return a.name.localeCompare(b.name);
         case 'excludedDesc': return b.excluded.length - a.excluded.length;
+        case 'diffDesc':    return getDiff(b).diffCount - getDiff(a).diffCount;
+        case 'diffAsc':     return getDiff(a).diffCount - getDiff(b).diffCount;
         case 'serviceThenPrice':
         default:
           return (order[a.service] - order[b.service]) ||
@@ -6139,11 +6311,16 @@ const Shipping = {
     const filteredEl = document.getElementById('shipFilteredCount');
     if (filteredEl) filteredEl.textContent = sorted.length;
 
+    // 全件のデフォルト判定を事前計算
+    const evalMap = {};
+    sorted.forEach(p => { evalMap[p.id] = this.evaluatePolicyDefaults(p); });
+
     let html = `<div class="ship-table-wrap"><table class="ship-table">
       <thead><tr>
         <th style="width:30px;"><input type="checkbox" id="shipSelectAll" onchange="Shipping.toggleSelectAll(this.checked)" /></th>
         <th>ポリシー名</th>
         <th>種別</th>
+        <th>状態</th>
         <th>HT</th>
         <th>価格帯</th>
         <th class="ship-num">Domestic送料</th>
@@ -6165,10 +6342,24 @@ const Shipping = {
       const priceRange = (p.priceMin != null && p.priceMax != null) ? `$${p.priceMin}〜${p.priceMax}` : '-';
       const isChecked = this.selected.has(p.id);
       const selectedClass = isChecked ? ' selected' : '';
+
+      // 状態バッジ
+      const ev = evalMap[p.id];
+      let statusBadge;
+      if (ev.skip) {
+        statusBadge = '<span class="ship-status-badge skip" title="デフォルトが定義されていないサービス種別">—</span>';
+      } else if (ev.isDefault) {
+        statusBadge = '<span class="ship-status-badge ok">✓ デフォルト</span>';
+      } else {
+        const tip = ev.diffs.map(d => `${d.label}: ${d.cur} (def: ${d.def})`).join('\n');
+        statusBadge = `<span class="ship-status-badge diff" title="${tip.replace(/"/g,'&quot;')}">✏️ 個別設定 (${ev.diffCount})</span>`;
+      }
+
       html += `<tr class="${rowClass}${selectedClass}" data-pid="${p.id}">
         <td><input type="checkbox" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleSelect('${p.id}', this.checked)" /></td>
         <td class="ship-name">${p.name}</td>
         <td>${tagSvc}${tagV}${tagS}${tagL}</td>
+        <td>${statusBadge}</td>
         <td>${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
         <td>${priceRange}</td>
         <td class="ship-num">$${p.domesticCost.toFixed(2)}</td>
@@ -6230,8 +6421,9 @@ function onShippingTabOpen() {
 // =========================================================================
 // 📦 シッピング: デフォルト設定 + 特別設定 (Phase 2-C)
 // =========================================================================
-const SHIP_STORAGE_DEFAULTS = 'shipping_defaults_v1';
-const SHIP_STORAGE_RULES    = 'shipping_special_rules_v1';
+const SHIP_STORAGE_DEFAULTS    = 'shipping_defaults_v1';
+const SHIP_STORAGE_RULES       = 'shipping_special_rules_v1';
+const SHIP_STORAGE_MASTER_RATE = 'shipping_master_rate_v1';
 
 // eBay「Europe」グループの26カ国(VeRO時に一括除外)
 const SHIP_EUROPE_CODES = [
@@ -6370,12 +6562,52 @@ const SHIP_COUNTRY_GROUPS = {
   }
 };
 
+// 標準的な10 Destinations(全サービス共通の初期値)
+const SHIP_DEFAULT_DESTINATIONS = ['Americas','Asia','Europe','AU','CA','CN','DE','FR','GB','MX'];
+
 // デフォルト・特別設定をShippingオブジェクトに追加
 Object.assign(Shipping, {
+  // ========== 共通設定(全サービス共通) ==========
+  masterRate: 25,  // % - 送料率(価格レンジ上限 × この%)
+
+  // ========== サービス種別ごとのデフォルト ==========
   defaults: {
-    Expedited: { baseExcluded: SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(), handlingTime: 10 },
-    Economy:   { baseExcluded: SHIP_ECONOMY_DEFAULT_EXCLUDED.slice(),   handlingTime: 20 },
-    Standard:  { baseExcluded: SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(), handlingTime: 15 },
+    Expedited: {
+      shippingMethod:  'STANDARD',                  // 配送方式
+      domCostType:     'FLAT_RATE',                 // Domestic Cost Type
+      domServiceCode:  'US_ExpeditedSppedPAK',      // Domestic Primary Service
+      intlServiceCode: 'ExpeditedInternational',    // International Primary Service
+      intlCost:        0,                            // International 送料
+      intlAddtlCost:   0,                            // International 追加送料
+      destinations:    SHIP_DEFAULT_DESTINATIONS.slice(),
+      handlingTime:    10,
+      baseExcluded:    SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(),
+      veroAddRegions:  ['Europe'],                   // VeRO時に追加する地域(個別26カ国でなく地域指定)
+    },
+    Economy: {
+      shippingMethod:  'STANDARD',
+      domCostType:     'FLAT_RATE',
+      domServiceCode:  'US_EconomySppedPAK',
+      intlServiceCode: 'OtherInternational',
+      intlCost:        0,
+      intlAddtlCost:   0,
+      destinations:    SHIP_DEFAULT_DESTINATIONS.slice(),
+      handlingTime:    20,
+      baseExcluded:    SHIP_ECONOMY_DEFAULT_EXCLUDED.slice(),
+      veroAddRegions:  ['Europe'],
+    },
+    Standard: {
+      shippingMethod:  'STANDARD',
+      domCostType:     'FLAT_RATE',
+      domServiceCode:  'US_StandardSppedPAK',
+      intlServiceCode: 'StandardInternational',
+      intlCost:        0,
+      intlAddtlCost:   0,
+      destinations:    SHIP_DEFAULT_DESTINATIONS.slice(),
+      handlingTime:    15,
+      baseExcluded:    SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(),  // Standardは Expedited と同じ
+      veroAddRegions:  ['Europe'],
+    },
   },
   specialRules: [
     { id: 'rule_me_expedited', name: '🕊️ 中東情勢(Expedited/Standard 向け)', description: 'FedEx/DHL/UPS の戦争による一時停止国(SyriaはeBay UIに無いため除外)', countries: ['AE','SA','QA','KW','BH','OM','JO','LB','IQ'], targetServices: ['Expedited','Standard'], active: true },
@@ -6389,11 +6621,26 @@ Object.assign(Shipping, {
   loadSettings() {
     try {
       const d = localStorage.getItem(SHIP_STORAGE_DEFAULTS);
-      if (d) this.defaults = JSON.parse(d);
+      if (d) {
+        const parsed = JSON.parse(d);
+        // 既存の defaults とマージ(新規追加フィールドがある場合に備えて)
+        ['Expedited','Economy','Standard'].forEach(svc => {
+          if (parsed[svc]) {
+            this.defaults[svc] = Object.assign({}, this.defaults[svc], parsed[svc]);
+          }
+        });
+      }
     } catch (e) {}
     try {
       const r = localStorage.getItem(SHIP_STORAGE_RULES);
       if (r) this.specialRules = JSON.parse(r);
+    } catch (e) {}
+    try {
+      const mr = localStorage.getItem(SHIP_STORAGE_MASTER_RATE);
+      if (mr != null) {
+        const n = parseFloat(mr);
+        if (!isNaN(n)) this.masterRate = n;
+      }
     } catch (e) {}
   },
 
@@ -6442,6 +6689,10 @@ Object.assign(Shipping, {
     document.getElementById('shipSettingsSpecialTab').style.display = tab === 'special' ? 'block' : 'none';
   },
   switchDefaultType(type) {
+    // 切り替え前に現在のフォーム値を保持
+    if (document.getElementById('shipDefHT')) {
+      this.collectCurrentDefaultForm();
+    }
     this.currentDefaultType = type;
     document.querySelectorAll('.ship-settings-sub-tab').forEach(b => b.classList.toggle('active', b.dataset.stype === type));
     this.renderDefaultForm();
@@ -6450,6 +6701,24 @@ Object.assign(Shipping, {
     const d = this.defaults[this.currentDefaultType];
     const svc = this.currentDefaultType;
     const excluded = new Set(d.baseExcluded || []);
+
+    // Service コード候補(現在のコードがマスタに無ければ追加)
+    const knownDomCodes = SHIP_DOMESTIC_SERVICES.map(s => s.code);
+    const domServices = knownDomCodes.includes(d.domServiceCode) || !d.domServiceCode
+      ? SHIP_DOMESTIC_SERVICES
+      : [...SHIP_DOMESTIC_SERVICES, { code: d.domServiceCode, label: d.domServiceCode + ' (現在の設定)', days: '?' }];
+    const knownIntlCodes = SHIP_INTERNATIONAL_SERVICES.map(s => s.code);
+    const intlServices = knownIntlCodes.includes(d.intlServiceCode) || !d.intlServiceCode
+      ? SHIP_INTERNATIONAL_SERVICES
+      : [...SHIP_INTERNATIONAL_SERVICES, { code: d.intlServiceCode, label: d.intlServiceCode + ' (現在の設定)', days: '?' }];
+
+    // Destinations チェックボックス
+    const destChecks = SHIP_INTL_DESTINATIONS.map(dst => `
+      <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; color:#1f2937; font-weight:normal; cursor:pointer; margin:0;">
+        <span style="flex:1 1 auto; min-width:0; font-weight:500; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${dst.label}</span>
+        <input type="checkbox" ${(d.destinations||[]).includes(dst.code)?'checked':''} style="margin:0; flex:0 0 auto; cursor:pointer;" onchange="Shipping.toggleDefaultDestination('${dst.code}', this.checked)" />
+      </label>
+    `).join('');
 
     // 地域→国の対応(地域がONなら、その地域の国も実質除外として扱う)
     const REGION_TO_GROUP_NAME = {
@@ -6519,12 +6788,86 @@ Object.assign(Shipping, {
 
     document.getElementById('shipDefaultForm').innerHTML = `
       <div class="ship-modal-section">
+        <div class="ship-modal-section-title">🌍 全サービス共通(マスター)</div>
+        <div class="ship-field">
+          <label>送料率(マスター)</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="number" id="shipDefMasterRate" step="0.1" value="${this.masterRate}" style="width:90px;" />
+            <span>%</span>
+            <span style="color:#666; font-size:11px;">(価格レンジ上限 × この%) = Domestic 送料</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ship-modal-section">
         <div class="ship-modal-section-title">📦 ${svc} のデフォルト</div>
+
+        <div class="ship-field">
+          <label>Shipping Method</label>
+          <select id="shipDefShippingMethod">
+            <option value="STANDARD"    ${d.shippingMethod==='STANDARD'?'selected':''}>Standard shipping</option>
+            <option value="FREIGHT"     ${d.shippingMethod==='FREIGHT'?'selected':''}>Freight</option>
+            <option value="NO_SHIPPING" ${d.shippingMethod==='NO_SHIPPING'?'selected':''}>No shipping (local pickup)</option>
+          </select>
+        </div>
+
+        <div class="ship-field">
+          <label>Domestic Cost Type</label>
+          <select id="shipDefDomCostType">
+            <option value="FLAT_RATE"  ${d.domCostType==='FLAT_RATE'?'selected':''}>Flat: same cost regardless of buyer location</option>
+            <option value="CALCULATED" ${d.domCostType==='CALCULATED'?'selected':''}>Calculated: based on size/weight</option>
+          </select>
+        </div>
+
+        <div class="ship-field">
+          <label>Domestic Service</label>
+          <select id="shipDefDomServiceCode">
+            ${domServices.map(s => `<option value="${s.code}" ${s.code===d.domServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="ship-field">
+          <label>International Service</label>
+          <select id="shipDefIntlServiceCode">
+            ${intlServices.map(s => `<option value="${s.code}" ${s.code===d.intlServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="ship-field">
+          <label>International 送料</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <span>$</span>
+            <input type="number" id="shipDefIntlCost" step="0.01" value="${d.intlCost}" style="width:90px;" />
+            <span style="margin-left:14px; color:#666; font-size:11px;">追加:</span>
+            <span>$</span>
+            <input type="number" id="shipDefIntlAddtlCost" step="0.01" value="${d.intlAddtlCost}" style="width:90px;" />
+          </div>
+        </div>
+
+        <div class="ship-field" style="align-items:flex-start;">
+          <label style="padding-top:6px;">Default Destinations<br><span style="font-weight:normal; font-size:11px; color:#888;">(発送先13地域)</span></label>
+          <div>
+            <div style="display:flex; gap:8px; margin-bottom:6px;">
+              <button type="button" onclick="Shipping.toggleAllDefaultDest(true)" style="background:#2563eb; color:#fff; border:none; padding:5px 14px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">✓ 全選択</button>
+              <button type="button" onclick="Shipping.toggleAllDefaultDest(false)" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:5px 14px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">全解除</button>
+              <span style="font-size:11px; color:#888; align-self:center;">${(d.destinations||[]).length}/13 選択中</span>
+            </div>
+            <div class="ship-dest-grid">${destChecks}</div>
+          </div>
+        </div>
+
         <div class="ship-field">
           <label>Handling Time</label>
           <select id="shipDefHT">
             ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${d.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
           </select>
+        </div>
+
+        <div class="ship-field">
+          <label>VeRO 時の追加</label>
+          <div style="display:flex; gap:14px;">
+            <label style="font-weight:normal; cursor:pointer;"><input type="checkbox" id="shipDefVeroAddEurope" ${(d.veroAddRegions||[]).includes('Europe')?'checked':''} /> ヨーロッパ地域全部を追加除外</label>
+          </div>
         </div>
 
         <div style="margin-top:14px;">
@@ -6536,6 +6879,21 @@ Object.assign(Shipping, {
         </div>
       </div>
     `;
+  },
+  toggleDefaultDestination(code, checked) {
+    const d = this.defaults[this.currentDefaultType];
+    if (!Array.isArray(d.destinations)) d.destinations = [];
+    if (checked) {
+      if (!d.destinations.includes(code)) d.destinations.push(code);
+    } else {
+      d.destinations = d.destinations.filter(c => c !== code);
+    }
+    this.renderDefaultForm();
+  },
+  toggleAllDefaultDest(all) {
+    const d = this.defaults[this.currentDefaultType];
+    d.destinations = all ? SHIP_INTL_DESTINATIONS.map(x => x.code) : [];
+    this.renderDefaultForm();
   },
   toggleDefaultExcluded(code, checked) {
     const list = this.defaults[this.currentDefaultType].baseExcluded || [];
@@ -6586,11 +6944,46 @@ Object.assign(Shipping, {
     this.renderDefaultForm();
   },
   collectCurrentDefaultForm() {
-    // チップ式UIなので、配列はすでに this.defaults に保持されている
-    // Handling Time だけ収集
-    const htEl = document.getElementById('shipDefHT');
-    if (htEl) {
-      this.defaults[this.currentDefaultType].handlingTime = parseInt(htEl.value);
+    // 配列系(destinations / baseExcluded / veroAddRegions)は
+    // toggle系ハンドラで this.defaults に即時反映済み。
+    // ここでは <input> / <select> の現在値だけまとめて読む。
+    const d = this.defaults[this.currentDefaultType];
+    const v = (id) => document.getElementById(id)?.value;
+    const checked = (id) => document.getElementById(id)?.checked;
+
+    // 🌍 マスター送料率 (全サービス共通)
+    const mr = v('shipDefMasterRate');
+    if (mr != null && mr !== '') {
+      const num = parseFloat(mr);
+      if (!isNaN(num)) this.masterRate = num;
+    }
+
+    // 📦 サービス毎の項目
+    if (v('shipDefShippingMethod'))  d.shippingMethod  = v('shipDefShippingMethod');
+    if (v('shipDefDomCostType'))     d.domCostType     = v('shipDefDomCostType');
+    if (v('shipDefDomServiceCode'))  d.domServiceCode  = v('shipDefDomServiceCode');
+    if (v('shipDefIntlServiceCode')) d.intlServiceCode = v('shipDefIntlServiceCode');
+
+    const intlCost = v('shipDefIntlCost');
+    if (intlCost != null && intlCost !== '') {
+      const n = parseFloat(intlCost);
+      if (!isNaN(n)) d.intlCost = n;
+    }
+    const intlAddtl = v('shipDefIntlAddtlCost');
+    if (intlAddtl != null && intlAddtl !== '') {
+      const n = parseFloat(intlAddtl);
+      if (!isNaN(n)) d.intlAddtlCost = n;
+    }
+
+    const ht = v('shipDefHT');
+    if (ht) d.handlingTime = parseInt(ht);
+
+    // VeRO 時 Europe 追加除外
+    const veroEU = checked('shipDefVeroAddEurope');
+    if (veroEU != null) {
+      const set = new Set(d.veroAddRegions || []);
+      if (veroEU) set.add('Europe'); else set.delete('Europe');
+      d.veroAddRegions = Array.from(set);
     }
   },
 
@@ -6717,8 +7110,11 @@ Object.assign(Shipping, {
     try {
       localStorage.setItem(SHIP_STORAGE_DEFAULTS, JSON.stringify(this.defaults));
       localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules));
+      localStorage.setItem(SHIP_STORAGE_MASTER_RATE, String(this.masterRate));
     } catch (e) {}
     this.closeModal('shipSettingsModal');
+    // バッジ・フィルタを再計算するため一覧再描画
+    if (typeof this.renderList === 'function') this.renderList();
     alert('✓ 設定を保存しました');
   },
 
@@ -6728,6 +7124,7 @@ Object.assign(Shipping, {
   editingPolicyId: null,
   editingPolicyExcluded: [], // 編集中の除外国
   editingIntlServices: [],   // 編集中の International services
+  _editFormSnapshot: null,    // resetFieldToDefault による一時保存(re-render時に復元)
 
   openEditPolicyModal(id) {
     const p = this.policies.find(x => x.id === id);
@@ -6752,6 +7149,20 @@ Object.assign(Shipping, {
   renderEditPolicyForm() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
+
+    // デフォルトとの差分を計算
+    const ev = this.evaluatePolicyDefaults(p);
+    const def = this.defaults[p.service] || null;
+    const diffByField = {};
+    (ev.diffs || []).forEach(d => { diffByField[d.field] = d; });
+
+    // 差分フィールド用のクラス + バナーHTMLを生成するヘルパー
+    const fieldDiffClass = (field) => diffByField[field] ? ' is-diff' : '';
+    const fieldResetBanner = (field) => {
+      if (!diffByField[field]) return '';
+      const d = diffByField[field];
+      return `<div class="ship-field-diff-banner">⚠️ デフォルトと異なる<span style="color:#92400e;">(default: <strong>${d.def}</strong> / 現在: <strong>${(d.cur+'').replace(/</g,'&lt;')}</strong>)</span><button type="button" class="ship-field-reset" onclick="Shipping.resetFieldToDefault('${field}')">↩ デフォルトに戻す</button></div>`;
+    };
 
     // 種別バッジ
     const tagSvc =
@@ -6862,31 +7273,40 @@ Object.assign(Shipping, {
       </div>
 
       <div class="ship-modal-section">
-        <div class="ship-modal-section-title">🚚 Shipping Method</div>
-        <div class="ship-field">
+        <div class="ship-modal-section-title">🚚 Shipping Method ${ev.skip?'':`<span style="font-size:11px; color:${ev.isDefault?'#166534':'#92400e'}; margin-left:8px;">${ev.isDefault?'✓ デフォルト':'✏️ 個別設定 '+ev.diffCount+'項目'}</span>`}</div>
+        <div class="ship-field${fieldDiffClass('shippingMethod')}">
           <label>Shipping Method</label>
-          <select id="shipEditShippingMethod">
-            <option value="STANDARD"     ${shippingMethodValue==='STANDARD'?'selected':''}>Standard shipping: Small to medium items</option>
-            <option value="FREIGHT"      ${shippingMethodValue==='FREIGHT'?'selected':''}>Freight: Large items that require special handling</option>
-            <option value="NO_SHIPPING"  ${shippingMethodValue==='NO_SHIPPING'?'selected':''}>No shipping. Local pickup only</option>
-          </select>
+          <div style="flex:1;">
+            <select id="shipEditShippingMethod">
+              <option value="STANDARD"     ${shippingMethodValue==='STANDARD'?'selected':''}>Standard shipping: Small to medium items</option>
+              <option value="FREIGHT"      ${shippingMethodValue==='FREIGHT'?'selected':''}>Freight: Large items that require special handling</option>
+              <option value="NO_SHIPPING"  ${shippingMethodValue==='NO_SHIPPING'?'selected':''}>No shipping. Local pickup only</option>
+            </select>
+            ${fieldResetBanner('shippingMethod')}
+          </div>
         </div>
       </div>
 
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">📦 Domestic Shipping(アメリカ向け)</div>
-        <div class="ship-field">
+        <div class="ship-field${fieldDiffClass('domCostType')}">
           <label>Cost Type</label>
-          <select id="shipEditDomCostType">
-            <option value="FLAT_RATE"  ${domCostType==='FLAT_RATE'?'selected':''}>Flat: same cost regardless of buyer location</option>
-            <option value="CALCULATED" ${domCostType==='CALCULATED'?'selected':''}>Calculated: based on package size/weight</option>
-          </select>
+          <div style="flex:1;">
+            <select id="shipEditDomCostType">
+              <option value="FLAT_RATE"  ${domCostType==='FLAT_RATE'?'selected':''}>Flat: same cost regardless of buyer location</option>
+              <option value="CALCULATED" ${domCostType==='CALCULATED'?'selected':''}>Calculated: based on package size/weight</option>
+            </select>
+            ${fieldResetBanner('domCostType')}
+          </div>
         </div>
-        <div class="ship-field">
+        <div class="ship-field${fieldDiffClass('domServiceCode')}">
           <label>Primary Service</label>
-          <select id="shipEditDomServiceCode">
-            ${allDomServices.map(s => `<option value="${s.code}" ${s.code===domServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
-          </select>
+          <div style="flex:1;">
+            <select id="shipEditDomServiceCode">
+              ${allDomServices.map(s => `<option value="${s.code}" ${s.code===domServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
+            </select>
+            ${fieldResetBanner('domServiceCode')}
+          </div>
         </div>
         <div class="ship-field">
           <label>Shipping Cost</label>
@@ -6913,29 +7333,55 @@ Object.assign(Shipping, {
 
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">🌐 International Shipping(国際発送)</div>
+        ${(diffByField['intlServiceCode'] || diffByField['intlCost'] || diffByField['destinations']) ? `
+          <div class="ship-section-diff-banner">
+            <span>⚠️ Primary Service にデフォルトとの差分があります:</span>
+            ${diffByField['intlServiceCode'] ? `<button class="ship-field-reset" onclick="Shipping.resetFieldToDefault('intlServiceCode')">↩ Service をデフォルトに</button>` : ''}
+            ${diffByField['intlCost'] ? `<button class="ship-field-reset" onclick="Shipping.resetFieldToDefault('intlCost')">↩ Cost をデフォルトに</button>` : ''}
+            ${diffByField['destinations'] ? `<button class="ship-field-reset" onclick="Shipping.resetFieldToDefault('destinations')">↩ Destinations をデフォルトに</button>` : ''}
+          </div>
+        ` : ''}
         <div id="shipEditIntlServicesContainer"></div>
         <button class="ship-btn-add" style="margin-top:8px;" onclick="Shipping.addEditIntlService()">+ Add Service(別の国に別の送料を設定)</button>
       </div>
 
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">⏱️ Handling Time</div>
-        <div class="ship-field">
+        <div class="ship-field${fieldDiffClass('handlingTime')}">
           <label>ハンドリングタイム</label>
-          <select id="shipEditPolicyHT">
-            ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${p.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
-          </select>
+          <div style="flex:1;">
+            <select id="shipEditPolicyHT">
+              ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${p.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
+            </select>
+            ${fieldResetBanner('handlingTime')}
+          </div>
         </div>
       </div>
 
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">🌐 除外国 (チェックで除外)</div>
-        <div style="font-size:11px; color:#888; margin-bottom:8px;">現在 <strong>${this.editingPolicyExcluded.length}</strong> 項目除外中</div>
+        ${diffByField['excluded'] ? `
+          <div class="ship-section-diff-banner">
+            <span>⚠️ 除外国がデフォルトと異なります(default: <strong>${diffByField['excluded'].def}</strong> / 現在: <strong>${diffByField['excluded'].cur}</strong>)</span>
+            <button class="ship-field-reset" onclick="Shipping.resetFieldToDefault('excluded')">↩ デフォルトに戻す</button>
+          </div>
+        ` : `<div style="font-size:11px; color:#166534; background:#dcfce7; padding:5px 10px; border-radius:4px; margin-bottom:8px; display:inline-block;">✓ デフォルト通り</div>`}
+        <div style="font-size:11px; color:#888; margin-bottom:8px;">現在 <strong>${this.editingPolicyExcluded.length}</strong> 項目除外中 / デフォルト <strong>${def ? ((def.baseExcluded||[]).length + (p.vero && (def.veroAddRegions||[]).includes('Europe') ? 1 : 0)) : '-'}</strong> 項目想定</div>
         ${groupsHtml}
       </div>
     `;
 
     // International services を描画
     this.renderEditIntlServices();
+
+    // resetFieldToDefault による snapshot がある場合は値を復元
+    if (this._editFormSnapshot) {
+      Object.entries(this._editFormSnapshot).forEach(([id, v]) => {
+        const el = document.getElementById(id);
+        if (el && v != null) el.value = v;
+      });
+      this._editFormSnapshot = null;
+    }
   },
 
   renderEditIntlServices() {
@@ -7030,6 +7476,61 @@ Object.assign(Shipping, {
     } else {
       this.editingPolicyExcluded = this.editingPolicyExcluded.filter(c => c !== code);
     }
+    this.renderEditPolicyForm();
+  },
+
+  // 編集モーダル: 個別フィールドをデフォルトに戻す
+  resetFieldToDefault(field) {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) return;
+    const def = this.defaults[p.service];
+    if (!def) { alert('このサービス種別にはデフォルト設定がありません。'); return; }
+
+    // 簡易フィールドのDOM値を保存(re-render前に他フィールドの未保存編集を失わないため)
+    const captureIds = ['shipEditPolicyName','shipEditPolicyDescription',
+      'shipEditShippingMethod','shipEditDomCostType','shipEditDomServiceCode',
+      'shipEditDomCost','shipEditDomAddtl','shipEditPolicyHT'];
+    const snap = {};
+    captureIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) snap[id] = el.value;
+    });
+
+    // 各フィールドを既定値に置き換え
+    if (field === 'handlingTime')        snap.shipEditPolicyHT          = String(def.handlingTime);
+    else if (field === 'shippingMethod') snap.shipEditShippingMethod    = def.shippingMethod;
+    else if (field === 'domCostType')    snap.shipEditDomCostType       = def.domCostType;
+    else if (field === 'domServiceCode') snap.shipEditDomServiceCode    = def.domServiceCode;
+    else if (field === 'intlServiceCode') {
+      if (this.editingIntlServices[0]) this.editingIntlServices[0].serviceCode = def.intlServiceCode;
+      else this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: (def.destinations||[]).slice() });
+    }
+    else if (field === 'intlCost') {
+      if (!this.editingIntlServices[0]) {
+        this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: (def.destinations||[]).slice() });
+      } else {
+        this.editingIntlServices[0].cost = def.intlCost || 0;
+        this.editingIntlServices[0].addtlCost = def.intlAddtlCost || 0;
+      }
+    }
+    else if (field === 'destinations') {
+      if (!this.editingIntlServices[0]) {
+        this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: (def.destinations||[]).slice() });
+      } else {
+        this.editingIntlServices[0].destinations = (def.destinations || []).slice();
+      }
+    }
+    else if (field === 'excluded') {
+      const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
+      this.editingPolicyExcluded = Array.from(new Set([...(def.baseExcluded||[]), ...veroAdds]));
+    }
+    else {
+      console.warn('[resetFieldToDefault] unknown field:', field);
+      return;
+    }
+
+    // 一時保存して re-render → 復元
+    this._editFormSnapshot = snap;
     this.renderEditPolicyForm();
   },
 
