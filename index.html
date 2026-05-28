@@ -2412,10 +2412,13 @@
         <span style="font-weight:600;">%</span>
       </div>
       <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
-        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算され、シッピングポリシーのデフォルト送料計算にも適用されます。
+        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。シッピングポリシーのデフォルト計算にもこの値が使われます。
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="btn" id="applyMasterRate" style="padding:5px 12px; font-size:12px;">✓ 全行に再適用</button>
+        <button class="btn" id="applyMasterRate" style="padding:5px 12px; font-size:12px;">✓ レンジ表 全行に再適用</button>
+      </div>
+      <div style="font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;">
+        💡 <strong>このボタンはレンジ表のみ更新します。</strong>シッピングポリシー127件の Domestic 送料も同時に更新したい場合は、「📦 シッピングポリシー」タブの<strong>「🌍 マスター率を全ポリシーに適用」</strong>ボタンを別途押してください。
       </div>
     </div>
 
