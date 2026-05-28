@@ -2456,6 +2456,7 @@
         <div class="ship-header-info">全 <span id="shipTotalCount">-</span> 件(表示 <span id="shipFilteredCount">-</span>) / 最終取得: <span id="shipLastFetch">未取得</span></div>
       </div>
       <div style="display:flex; gap:8px;">
+        <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
       </div>
@@ -6460,6 +6461,25 @@ const Shipping = {
         statusBadge = `<span class="ship-status-badge diff" title="${tip.replace(/"/g,'&quot;')}">✏️ 個別設定 (${ev.diffCount})</span>`;
       }
 
+      // 期待 Domestic 送料(マスター率ベース)と差分表示
+      let domCostCell;
+      if (p.priceMax != null) {
+        const rate = (this.masterRate || 25) / 100;
+        const expected = Math.round(p.priceMax * rate * 100) / 100;
+        const diff = Math.round((expected - p.domesticCost) * 100) / 100;
+        if (Math.abs(diff) < 0.01) {
+          domCostCell = `<span style="font-family:monospace;">$${p.domesticCost.toFixed(2)}</span>`;
+        } else {
+          const diffColor = diff > 0 ? '#dc2626' : '#16a34a';
+          domCostCell = `<div style="font-family:monospace; line-height:1.3;">
+            <div>$${p.domesticCost.toFixed(2)}</div>
+            <div style="font-size:10px; color:${diffColor};" title="マスター率(${(this.masterRate||25)}%)で期待される送料: $${expected.toFixed(2)} (差分 ${diff>0?'+':''}$${diff.toFixed(2)})">⚠️ 期待 $${expected.toFixed(2)}</div>
+          </div>`;
+        }
+      } else {
+        domCostCell = `<span style="font-family:monospace;">$${p.domesticCost.toFixed(2)}</span>`;
+      }
+
       html += `<tr class="${rowClass}${selectedClass}" data-pid="${p.id}">
         <td><input type="checkbox" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleSelect('${p.id}', this.checked)" /></td>
         <td class="ship-name">${p.name}</td>
@@ -6467,7 +6487,7 @@ const Shipping = {
         <td>${statusBadge}</td>
         <td>${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
         <td>${priceRange}</td>
-        <td class="ship-num">$${p.domesticCost.toFixed(2)}</td>
+        <td class="ship-num">${domCostCell}</td>
         <td><span class="${exClass}" title="${p.excluded.join(', ')}">${p.excluded.length}</span></td>
         <td><button class="ship-edit-btn" onclick="Shipping.openEditPolicyModal('${p.id}')">編集</button></td>
       </tr>`;
@@ -7120,6 +7140,215 @@ Object.assign(Shipping, {
   toggleRule(id) {
     const r = this.specialRules.find(x => x.id === id);
     if (r) { r.active = !r.active; this.renderSpecialRules(); }
+  },
+
+  // =====================================================================
+  // 🌍 マスター率を全ポリシーの Domestic 送料に一括適用
+  // =====================================================================
+  // 各ポリシーに対し: 新 Domestic送料 = 価格上限 × マスター率%
+  // priceMax が取れない / DOMESTIC オプションが無い ポリシーはスキップ
+  computeMasterRatePlan() {
+    const rate = (this.masterRate || 25) / 100;
+    const plan = [];
+    this.policies.forEach(p => {
+      const reasons = [];
+      if (p.priceMax == null) reasons.push('価格上限が名前から取れない');
+      const dom = (p._raw && p._raw.shippingOptions || []).find(o => o.optionType === 'DOMESTIC');
+      if (!dom) reasons.push('DOMESTIC オプション無し');
+      const domSvc = dom && dom.shippingServices && dom.shippingServices[0];
+      if (dom && !domSvc) reasons.push('DOMESTIC service 無し');
+      if (dom && domSvc && dom.costType && dom.costType !== 'FLAT_RATE') reasons.push(`Cost Type が ${dom.costType}(FLAT_RATE のみ対応)`);
+
+      const currentCost = (domSvc && domSvc.shippingCost && parseFloat(domSvc.shippingCost.value)) || 0;
+      const expected = (p.priceMax != null) ? Math.round(p.priceMax * rate * 100) / 100 : null;
+      const diff = (expected != null) ? Math.round((expected - currentCost) * 100) / 100 : null;
+
+      plan.push({
+        id: p.id,
+        name: p.name,
+        service: p.service,
+        priceMax: p.priceMax,
+        currentCost,
+        expected,
+        diff,
+        skippable: reasons.length > 0,
+        reasons,
+      });
+    });
+    return plan;
+  },
+
+  openMasterRateApplyModal() {
+    if (this.policies.length === 0) {
+      alert('まず「🔄 最新を取得」でポリシーを読み込んでください。');
+      return;
+    }
+    this.renderMasterRateApplyPreview();
+    document.getElementById('shipMasterRateApplyModal').classList.add('active');
+  },
+
+  renderMasterRateApplyPreview() {
+    const plan = this.computeMasterRatePlan();
+    const content = document.getElementById('shipMasterRateApplyContent');
+    const rate = this.masterRate || 25;
+    const eligible = plan.filter(x => !x.skippable);
+    const changed = eligible.filter(x => Math.abs(x.diff) > 0.001);
+    const sameAlready = eligible.filter(x => Math.abs(x.diff) < 0.001);
+    const skipped = plan.filter(x => x.skippable);
+
+    // Sort changed by largest absolute diff first
+    changed.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+    const rowsHtml = changed.map(x => `
+      <tr>
+        <td><label style="cursor:pointer;"><input type="checkbox" class="ship-mr-row" data-pid="${x.id}" checked /></label></td>
+        <td style="font-size:11px;">${x.name}</td>
+        <td style="text-align:center; font-size:11px; color:#6b7280;">${x.priceMax != null ? '$' + x.priceMax : '-'}</td>
+        <td style="text-align:right; font-family:monospace; font-size:12px;">$${x.currentCost.toFixed(2)}</td>
+        <td style="text-align:right; font-family:monospace; font-size:12px; color:#1e40af; font-weight:600;">$${x.expected.toFixed(2)}</td>
+        <td style="text-align:right; font-family:monospace; font-size:12px; color:${x.diff > 0 ? '#16a34a' : '#dc2626'};">${x.diff > 0 ? '+' : ''}$${x.diff.toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    const skippedHtml = skipped.length === 0 ? '' : `
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer; color:#6b7280; font-size:12px;">⚠️ 適用できないポリシー(${skipped.length}件)</summary>
+        <div style="margin-top:8px; font-size:11px; color:#6b7280;">
+          ${skipped.map(x => `<div style="padding:3px 0;"><strong>${x.name}</strong> — ${x.reasons.join(' / ')}</div>`).join('')}
+        </div>
+      </details>
+    `;
+
+    content.innerHTML = `
+      <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:14px; margin-bottom:14px;">
+        <div style="font-weight:700; font-size:15px; color:#1e3a8a; margin-bottom:6px;">🌍 マスター率: ${rate}%</div>
+        <div style="font-size:12px; color:#1e3a8a;">
+          各ポリシーの Domestic 送料を <strong>価格上限 × ${rate}%</strong> に再計算します。<br>
+          <strong>${changed.length}件</strong> の変更が必要 / <strong>${sameAlready.length}件</strong> は既にマスター率通り / <strong>${skipped.length}件</strong> はスキップ対象。
+        </div>
+      </div>
+
+      ${changed.length === 0 ? `
+        <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:14px; text-align:center; color:#166534;">
+          ✓ すべてのポリシーが既にマスター率(${rate}%)通りです。書き戻しの必要はありません。
+        </div>
+      ` : `
+        <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center;">
+          <button class="btn" type="button" onclick="Shipping.toggleAllMRRows(true)" style="font-size:12px; padding:4px 12px;">✓ 全選択</button>
+          <button class="btn secondary" type="button" onclick="Shipping.toggleAllMRRows(false)" style="font-size:12px; padding:4px 12px;">全解除</button>
+          <span style="font-size:11px; color:#6b7280; margin-left:8px;">チェックを外したものは適用されません</span>
+        </div>
+        <div style="max-height:380px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px;">
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead style="position:sticky; top:0; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
+              <tr>
+                <th style="padding:6px; width:30px;"><input type="checkbox" id="shipMRSelectAll" checked onchange="Shipping.toggleAllMRRows(this.checked)" /></th>
+                <th style="padding:6px; text-align:left;">ポリシー名</th>
+                <th style="padding:6px; width:60px; text-align:center;">上限</th>
+                <th style="padding:6px; width:80px; text-align:right;">現在</th>
+                <th style="padding:6px; width:80px; text-align:right;">適用後</th>
+                <th style="padding:6px; width:80px; text-align:right;">差分</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      `}
+      ${skippedHtml}
+
+      <div id="shipMRProgress" style="display:none; margin-top:14px; padding:12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px;">
+        <div style="font-weight:600; color:#92400e; margin-bottom:6px;">📡 適用中…</div>
+        <div id="shipMRProgressBar" style="background:#fff; border:1px solid #fcd34d; height:8px; border-radius:4px; overflow:hidden;">
+          <div id="shipMRProgressFill" style="background:#1e40af; height:100%; width:0%; transition:width 0.3s;"></div>
+        </div>
+        <div id="shipMRProgressText" style="font-size:11px; color:#92400e; margin-top:6px;">0 / 0</div>
+      </div>
+      <div id="shipMRResult" style="display:none; margin-top:14px;"></div>
+    `;
+  },
+
+  toggleAllMRRows(checked) {
+    document.querySelectorAll('.ship-mr-row').forEach(cb => { cb.checked = checked; });
+    const all = document.getElementById('shipMRSelectAll');
+    if (all) all.checked = checked;
+  },
+
+  // 確認 → ローカル状態のみ更新(eBay 反映は最終段階で実装)
+  confirmMasterRateApply() {
+    const selectedIds = Array.from(document.querySelectorAll('.ship-mr-row'))
+      .filter(cb => cb.checked)
+      .map(cb => cb.dataset.pid);
+    if (selectedIds.length === 0) {
+      alert('適用対象のポリシーがありません。');
+      return;
+    }
+
+    const ok = confirm(`${selectedIds.length}件のポリシーの Domestic 送料を マスター率(${this.masterRate}%) に合わせて更新します。\n\n※ 現段階では eBay には書き戻されず、ローカル状態(画面 + キャッシュ)のみが更新されます。\n\nよろしいですか？`);
+    if (!ok) return;
+
+    const rate = (this.masterRate || 25) / 100;
+    const total = selectedIds.length;
+    const results = { success: [], failed: [] };
+
+    for (let i = 0; i < total; i++) {
+      const pid = selectedIds[i];
+      const p = this.policies.find(x => x.id === pid);
+      if (!p || !p._raw) {
+        results.failed.push({ id: pid, error: 'ポリシーが見つかりません' });
+        continue;
+      }
+      if (p.priceMax == null) {
+        results.failed.push({ id: pid, name: p.name, error: '価格上限不明' });
+        continue;
+      }
+
+      const expected = Math.round(p.priceMax * rate * 100) / 100;
+
+      // _raw をディープコピーして cost を書き換え (ローカルのみ)
+      const updated = JSON.parse(JSON.stringify(p._raw));
+      const dom = (updated.shippingOptions || []).find(o => o.optionType === 'DOMESTIC');
+      if (!dom || !dom.shippingServices || !dom.shippingServices[0]) {
+        results.failed.push({ id: pid, name: p.name, error: 'DOMESTIC service 無し' });
+        continue;
+      }
+      const ds = dom.shippingServices[0];
+      const currency = (ds.shippingCost && ds.shippingCost.currency) || 'USD';
+      ds.shippingCost = { value: expected.toFixed(2), currency };
+
+      // ローカル状態を反映
+      p._raw = updated;
+      p.domesticCost = expected;
+      results.success.push({ id: pid, name: p.name, expected });
+    }
+
+    // 結果サマリ
+    const resultEl = document.getElementById('shipMRResult');
+    if (resultEl) {
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `
+        <div style="background:${results.failed.length === 0 ? '#f0fdf4' : '#fef2f2'}; border:1px solid ${results.failed.length === 0 ? '#86efac' : '#fecaca'}; border-radius:8px; padding:14px;">
+          <div style="font-weight:700; font-size:14px; color:${results.failed.length === 0 ? '#166534' : '#991b1b'};">
+            ${results.failed.length === 0 ? '✓ ローカルに反映完了' : '⚠️ 一部失敗'}: 成功 ${results.success.length}件 / 失敗 ${results.failed.length}件
+          </div>
+          <div style="font-size:11px; color:${results.failed.length === 0 ? '#166534' : '#991b1b'}; margin-top:4px;">
+            ※ eBay 上のポリシーは変更されていません。eBay への反映は全機能完成後に行います。
+          </div>
+          ${results.failed.length > 0 ? `
+            <details style="margin-top:8px;"><summary style="cursor:pointer; font-size:12px; color:#991b1b;">失敗の詳細</summary>
+              <div style="font-size:11px; color:#991b1b; margin-top:6px;">
+                ${results.failed.map(f => `<div style="padding:3px 0;"><strong>${f.name || f.id}</strong>: ${f.error}</div>`).join('')}
+              </div>
+            </details>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    // キャッシュ更新 & 一覧再描画
+    if (results.success.length > 0) {
+      this.savePoliciesCache();
+      this.renderList();
+    }
   },
   deleteRule(id) {
     if (!confirm('このルールを削除しますか?')) return;
@@ -7981,6 +8210,21 @@ Object.assign(Shipping, {
 </div>
 
 <!-- ===== ✏️ 個別ポリシー編集モーダル ===== -->
+<!-- ===== 🌍 マスター率を全ポリシーに適用 モーダル ===== -->
+<div class="ship-modal-overlay" id="shipMasterRateApplyModal">
+  <div class="ship-modal" style="max-width: 900px;">
+    <h2>🌍 マスター率を全ポリシーの Domestic 送料に適用 <span style="font-size:12px; color:#6b7280; font-weight:normal;">(現段階: ローカルのみ)</span></h2>
+    <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; margin-bottom:12px; font-size:11px; color:#92400e;">
+      💡 eBay への書き戻しは全機能の実装完了後に最終段階として行います。現段階ではローカル(画面上 + キャッシュ)のみが更新されます。
+    </div>
+    <div id="shipMasterRateApplyContent"></div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipMasterRateApplyModal')">キャンセル</button>
+      <button class="ship-btn-save" id="shipMasterRateApplyConfirmBtn" onclick="Shipping.confirmMasterRateApply()">✓ ローカルに反映</button>
+    </div>
+  </div>
+</div>
+
 <div class="ship-modal-overlay" id="shipEditPolicyModal">
   <div class="ship-modal" style="max-width: 900px;">
     <h2>✏️ ポリシー編集</h2>
