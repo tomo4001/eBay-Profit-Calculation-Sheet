@@ -1386,46 +1386,53 @@
   }
   .ship-edit-btn:hover { background: #2563eb; color: #fff; }
 
-  /* Destinations 専用グリッド(13地域がきちんと整列) */
+  /* Destinations 専用グリッド(13地域、右端チェックボックス) */
   .ship-dest-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 6px 8px;
-    padding: 12px;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px 8px !important;
+    padding: 12px !important;
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 6px !important;
   }
-  .ship-dest-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    border-radius: 4px;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    line-height: 1.4;
-    color: #1f2937;
+  label.ship-dest-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+    font-weight: normal !important;
+    cursor: pointer !important;
+    border-radius: 4px !important;
+    background: #fff !important;
+    border: 1px solid #e5e7eb !important;
+    line-height: 1.4 !important;
+    color: #1f2937 !important;
+    margin: 0 !important;
   }
-  .ship-dest-item:hover { background: #eff6ff; border-color: #93c5fd; }
-  .ship-dest-item .ship-dest-label {
-    flex: 1; min-width: 0;
-    color: #1f2937;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  label.ship-dest-item:hover {
+    background: #eff6ff !important;
+    border-color: #93c5fd !important;
   }
-  .ship-dest-item input {
-    margin: 0;
-    flex-shrink: 0;
-    cursor: pointer;
+  label.ship-dest-item > span.ship-dest-label {
+    display: inline-block !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    color: #1f2937 !important;
+    font-weight: 500 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  label.ship-dest-item > input[type="checkbox"] {
+    margin: 0 !important;
+    flex: 0 0 auto !important;
+    cursor: pointer !important;
   }
   @media (max-width: 700px) {
-    .ship-dest-grid { grid-template-columns: repeat(2, 1fr); }
+    .ship-dest-grid { grid-template-columns: repeat(2, 1fr) !important; }
   }
 </style>
 </head>
