@@ -2894,11 +2894,11 @@ function getMasterShipRate() {
 function setMasterShipRate(v) {
   const el = document.getElementById('masterShipRate');
   if (el) el.value = v;
-  // シッピングポリシー側にも同期
-  if (typeof Shipping !== 'undefined') {
-    Shipping.masterRate = v;
-    try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
-  }
+  // シッピングポリシー側にも同期 (TDZ 中は失敗するので try/catch)
+  try {
+    if (typeof Shipping !== 'undefined') Shipping.masterRate = v;
+  } catch (e) {}
+  try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
 }
 // 全レンジ行の送料 = 上限 × マスター率% に再計算
 function applyMasterRateToRanges() {
@@ -2917,7 +2917,11 @@ function applyMasterRateToRanges() {
 // マスター率をシッピング側のストレージとオブジェクトに同期
 function syncMasterRateToShipping() {
   const v = getMasterShipRate();
-  if (typeof Shipping !== 'undefined') Shipping.masterRate = v;
+  // Shipping は const 宣言のため TDZ 期間中(init初期化中)は typeof でも例外になる。
+  // try/catch で安全に。
+  try {
+    if (typeof Shipping !== 'undefined') Shipping.masterRate = v;
+  } catch (e) { /* Shipping 未初期化: localStorage 経由で同期される */ }
   try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
 }
 
@@ -5943,7 +5947,9 @@ function init() {
   if (mr == null) mr = 25;
   const mrEl = document.getElementById('masterShipRate');
   if (mrEl) mrEl.value = mr;
-  if (typeof Shipping !== 'undefined') Shipping.masterRate = mr;
+  // Note: Shipping オブジェクトはこの init() より後で宣言されるため、ここで直接代入できない。
+  // localStorage('shipping_master_rate_v1') に既に正しい値があるので、
+  // Shipping.loadSettings() が後で読み出して同期する。
 
   if (saved && saved.ranges) {
     renderRanges(saved.ranges);
