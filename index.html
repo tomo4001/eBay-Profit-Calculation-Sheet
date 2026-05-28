@@ -2170,9 +2170,9 @@
           <span class="unit"></span>
         </div>
         <div class="setting-row tariff-highlight" style="grid-template-columns: 1fr auto auto auto;">
-          <label for="tariffRate">DDP対応（関税率）<br><span style="font-size:10px; color:#888; font-weight:normal;">🔗 マスター送料率と連動</span></label>
+          <label for="tariffRate">DDP対応（関税率）<br><span id="tariffRateMismatchLabel" style="font-size:10px; color:#888; font-weight:normal;">マスター送料率とは独立して設定可能</span></label>
           <span id="ddpStatusBadge" style="display:inline-block; padding:2px 8px; font-size:11px; border-radius:4px; background:#2e7d32; color:#fff; white-space:nowrap; font-weight:600;">🇺🇸 適用中</span>
-          <input type="number" id="tariffRate" step="0.01" min="0" max="100" readonly title="この値はマスター送料率と同期されます。送料レンジ表の上にあるマスター率を変更してください。" style="background:#f3f4f6; color:#6b7280; cursor:not-allowed;" />
+          <input type="number" id="tariffRate" step="0.01" min="0" max="100" />
           <span class="unit">%</span>
         </div>
         <div class="setting-row">
@@ -2192,7 +2192,7 @@
           <strong>アメリカ向けのみ</strong>適用されます。発送国がアメリカ以外の場合、関税は0として計算され、calcX_optimal のしきい値も無効化されます(送料率制約なし)。<br>
           このアプリでは「DDP関税率」が <strong>calcX_optimal の関税率しきい値</strong> も兼ねます。<br>
           送料が販売価格の <code>(関税率)%</code> 以上になるよう X が選ばれます。<br><br>
-          🔗 <strong>マスター送料率と同じ値で連動</strong>します。送料レンジ表の上の「🌍 マスター送料率」を変更すると、こちらも自動で同じ値になります。両者は同一の概念(eBay DDP 関税分を送料に含める比率)なので、別々に管理する必要はありません。
+          📌 <strong>マスター送料率(レンジ表上)とは独立して編集可能</strong>です。本来は同じ値であるべきですが、シッピングポリシー構築中など、意図的に異なる値にしたい場面に対応しています。両者がズレている時は警告バナーが表示されます。
         </div>
       </details>
     </div>
@@ -2413,12 +2413,14 @@
         <span style="font-weight:600;">%</span>
       </div>
       <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
-        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。<br>
-        🔗 <strong>DDP関税率(下の設定欄)・シッピングポリシーのデフォルト</strong> もこの値と連動します。 ここを変えれば3箇所すべてが同じ%になります。
+        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。シッピングポリシーのデフォルト計算にも使われます。<br>
+        💡 利益計算側の <strong>DDP関税率(=calcXOptimal の25%しきい値)</strong> は別途設定可能です。シッピングポリシー構築中など、両者を意図的に違う値にしたい場合に対応しています。
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn" id="applyMasterRate" style="padding:5px 12px; font-size:12px;">✓ レンジ表 全行に再適用</button>
       </div>
+      <!-- マスター率と DDP関税率のズレ警告 -->
+      <div id="rateMismatchBanner" style="display:none; font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;"></div>
       <div style="font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;">
         💡 <strong>このボタンはレンジ表のみ更新します。</strong>シッピングポリシー127件の Domestic 送料も同時に更新したい場合は、「📦 シッピングポリシー」タブの<strong>「🌍 マスター率を全ポリシーに適用」</strong>ボタンを別途押してください。
       </div>
@@ -2926,7 +2928,8 @@ function applyMasterRateToRanges() {
   recalc();
   saveState();
 }
-// マスター率をシッピング側のストレージとオブジェクトに同期 + DDP関税率にも反映
+// マスター率をシッピング側のストレージとオブジェクトに同期
+// (DDP関税率は独立して編集可能なので上書きしない。ズレている場合は警告を更新)
 function syncMasterRateToShipping() {
   const v = getMasterShipRate();
   // Shipping は const 宣言のため TDZ 期間中(init初期化中)は typeof でも例外になる。
@@ -2936,14 +2939,32 @@ function syncMasterRateToShipping() {
   } catch (e) { /* Shipping 未初期化: localStorage 経由で同期される */ }
   try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
 
-  // 🔗 DDP関税率 (#tariffRate) にも同期(マスター率と一元化)
+  // 警告バナーの表示状態を更新
+  if (typeof updateRateMismatchBanner === 'function') updateRateMismatchBanner();
+}
+
+// マスター率と DDP関税率がズレているか判定して警告を表示/非表示
+function updateRateMismatchBanner() {
+  const banner = document.getElementById('rateMismatchBanner');
+  const labelEl = document.getElementById('tariffRateMismatchLabel');
+  if (!banner) return;
+  const masterEl = document.getElementById('masterShipRate');
   const tariffEl = document.getElementById('tariffRate');
-  if (tariffEl && parseFloat(tariffEl.value) !== v) {
-    tariffEl.value = v;
-    // 利益計算も再実行
-    if (typeof recalc === 'function') {
-      try { recalc(); } catch (e) {}
-    }
+  if (!masterEl || !tariffEl) return;
+  const m = parseFloat(masterEl.value);
+  const t = parseFloat(tariffEl.value);
+  if (isNaN(m) || isNaN(t)) { banner.style.display = 'none'; return; }
+  const diff = Math.abs(m - t) > 0.0001;
+  banner.style.display = diff ? 'block' : 'none';
+  if (diff) {
+    banner.innerHTML = `⚠️ <strong>マスター送料率 ${m}%</strong> と <strong>DDP関税率 ${t}%</strong> が異なっています。 利益計算の25%しきい値は <strong>DDP関税率(${t}%)</strong> を使うため、レンジ表の値(マスター率)と整合しない可能性があります。シッピングポリシー構築中なら問題ありません。`;
+  }
+  // DDP関税率ラベルも色付け
+  if (labelEl) {
+    labelEl.textContent = diff
+      ? `⚠️ マスター送料率(${m}%) と ${t}% でズレ中`
+      : `🔗 マスター送料率(${m}%)と同じ値`;
+    labelEl.style.color = diff ? '#c0504d' : '#2e7d32';
   }
 }
 
@@ -5657,6 +5678,10 @@ function attachEvents() {
       if (htmlId === 'setShippingCountry') {
         updateCarrierDisplay();
       }
+      // DDP関税率を変更したらマスター率とのズレ警告を更新
+      if (htmlId === 'tariffRate' && typeof updateRateMismatchBanner === 'function') {
+        updateRateMismatchBanner();
+      }
       recalc();
       saveState();
     });
@@ -5992,9 +6017,9 @@ function init() {
     document.getElementById('tariffRate').value = saved.tariff;
   }
 
-  // 🔗 マスター率と DDP関税率を一元化: 必ずマスター率の値で tariffRate を上書き
-  const tariffEl2 = document.getElementById('tariffRate');
-  if (tariffEl2) tariffEl2.value = mr;
+  // マスター率と DDP関税率はそれぞれ独立した値として保持(意図的に異なる値も許容)
+  // ロード後にズレ警告バナーの状態を更新
+  setTimeout(() => { try { updateRateMismatchBanner(); } catch (e) {} }, 0);
 
   if (saved && saved.rivalPrice) {
     document.getElementById('rivalPrice').value = saved.rivalPrice;
