@@ -6220,6 +6220,8 @@ const Shipping = {
       document.getElementById('shipFilteredCount').textContent = this.policies.length;
       document.getElementById('shipLastFetch').textContent = this.lastFetchAt.toLocaleString('ja-JP');
       this.savePoliciesCache();  // キャッシュ保存
+      // 📸 eBay取得直後の純粋状態を自動スナップショット
+      try { this.createAutoSnapshot(); } catch (e) { console.warn(e); }
       this.renderList();
     } catch (e) {
       console.error(e);
@@ -7906,20 +7908,31 @@ Object.assign(Shipping, {
       return;
     }
 
-    // 新しい順
-    const sorted = snapshots.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    list.innerHTML = sorted.map(s => `
-      <div style="padding:12px 14px; border-bottom:1px solid #f3f4f6; display:flex; gap:12px; align-items:center;">
-        <div style="flex:1;">
-          <div style="font-weight:700; font-size:14px; color:#1f2937;">${s.name}</div>
-          <div style="font-size:11px; color:#6b7280; margin-top:3px;">
-            📅 ${new Date(s.createdAt).toLocaleString('ja-JP')} / ${s.summary || ''}
+    // 新しい順、自動保存を先頭に固定表示
+    const auto = snapshots.filter(s => s._auto);
+    const manual = snapshots.filter(s => !s._auto).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const sorted = [...auto, ...manual];
+    list.innerHTML = sorted.map(s => {
+      const isAuto = !!s._auto;
+      const bg = isAuto ? '#eff6ff' : '#fff';
+      const borderL = isAuto ? '3px solid #1e40af' : 'none';
+      const nameColor = isAuto ? '#1e40af' : '#1f2937';
+      const badgeHtml = isAuto
+        ? '<span style="background:#1e40af; color:#fff; padding:1px 7px; border-radius:9px; font-size:9px; font-weight:700; margin-right:6px;">AUTO</span>'
+        : '';
+      return `
+        <div style="padding:12px 14px; border-bottom:1px solid #f3f4f6; display:flex; gap:12px; align-items:center; background:${bg}; border-left:${borderL};">
+          <div style="flex:1;">
+            <div style="font-weight:700; font-size:14px; color:${nameColor};">${badgeHtml}${s.name}</div>
+            <div style="font-size:11px; color:#6b7280; margin-top:3px;">
+              📅 ${new Date(s.createdAt).toLocaleString('ja-JP')} / ${s.summary || ''}
+            </div>
           </div>
+          <button class="ship-btn-save" style="padding:6px 14px; font-size:12px;" onclick="Shipping.restoreSnapshot('${s.id}')">⏪ 復元</button>
+          <button class="ship-btn-cancel" style="padding:6px 14px; font-size:12px; background:#fef2f2; color:#991b1b; border-color:#fecaca;" onclick="Shipping.deleteSnapshot('${s.id}')">🗑️ 削除</button>
         </div>
-        <button class="ship-btn-save" style="padding:6px 14px; font-size:12px;" onclick="Shipping.restoreSnapshot('${s.id}')">⏪ 復元</button>
-        <button class="ship-btn-cancel" style="padding:6px 14px; font-size:12px; background:#fef2f2; color:#991b1b; border-color:#fecaca;" onclick="Shipping.deleteSnapshot('${s.id}')">🗑️ 削除</button>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   },
   createSnapshot() {
     const nameEl = document.getElementById('shipSnapshotNewName');
@@ -8019,6 +8032,37 @@ Object.assign(Shipping, {
     const filtered = snapshots.filter(s => s.id !== id);
     if (this.saveSnapshotsArray(filtered)) {
       this.renderSnapshotList();
+    }
+  },
+
+  // eBay取得直後の純粋状態を自動保存(常に1つだけ最新を保持)
+  createAutoSnapshot() {
+    const snapshots = this.loadSnapshots();
+    // 既存の自動スナップショットを削除(古いものは捨てる)
+    const filtered = snapshots.filter(s => !s._auto);
+
+    const now = new Date();
+    const newSnap = {
+      id: 'snap_auto_' + now.getTime(),
+      name: '🔄 eBay取得時 (' + now.toLocaleString('ja-JP') + ')',
+      createdAt: now.toISOString(),
+      summary: `${this.policies.length}ポリシー / マスター率 ${this.masterRate}% / 特別設定 ${this.specialRules.length}件 (自動保存)`,
+      _auto: true,
+      data: {
+        policies: this.policies,
+        defaults: this.defaults,
+        specialRules: this.specialRules,
+        masterRate: this.masterRate,
+        lastFetchAt: this.lastFetchAt ? this.lastFetchAt.toISOString() : null,
+      }
+    };
+    filtered.push(newSnap);
+
+    try {
+      localStorage.setItem(SHIP_STORAGE_SNAPSHOTS, JSON.stringify(filtered));
+      console.log('[Shipping] 自動スナップショット作成: ' + newSnap.name);
+    } catch (e) {
+      console.warn('[Shipping] 自動スナップショット保存失敗:', e);
     }
   },
 
@@ -8663,7 +8707,8 @@ Object.assign(Shipping, {
   <div class="ship-modal" style="max-width: 880px;">
     <h2>📸 スナップショット管理</h2>
     <p style="font-size:12px; color:#666; margin-top:0;">
-      シッピング関連の状態(ポリシー / デフォルト / 特別設定 / マスター率)を保存して、いつでも復元できます。eBay には一切影響しません。
+      シッピング関連の状態(ポリシー / デフォルト / 特別設定 / マスター率)を保存して、いつでも復元できます。eBay には一切影響しません。<br>
+      <span style="color:#1e40af;">🔄 「最新を取得」時には自動で <strong>AUTO</strong> スナップショット(青枠)が作成され、常に最新の eBay 純粋状態に戻れます。</span>
     </p>
 
     <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:14px; margin-bottom:14px;">
