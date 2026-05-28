@@ -2454,8 +2454,10 @@
 
     <div class="ship-bulk-bar" id="shipBulkBar" style="display:none;">
       <span><strong id="shipSelectedCount">0</strong> 件選択中</span>
+      <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations 一括変更</button>
+      <button class="ship-bulk-btn" onclick="Shipping.openBulkAddExcludedModal()">🚫 除外国 を一括追加</button>
+      <button class="ship-bulk-btn" onclick="Shipping.openBulkRemoveExcludedModal()">✓ 除外国 を一括解除</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
-      <span style="font-size:11px; color:#92400e;">(一括操作は Phase 2-F で実装)</span>
     </div>
 
     <div id="shipContent">
@@ -6997,6 +6999,153 @@ Object.assign(Shipping, {
     this.renderEditPolicyForm();
   },
 
+  // =====================================================================
+  // 🛠️ 一括操作 (Phase 2-F)
+  // =====================================================================
+  bulkDestSelected: new Set(),
+  bulkAddExChips: [],
+  bulkRemoveExChips: [],
+
+  // --- Destinations 一括変更 ---
+  openBulkDestModal() {
+    if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
+    document.getElementById('shipBulkDestCount').textContent = this.selected.size;
+    this.bulkDestSelected = new Set();
+    this.renderBulkDestList();
+    document.getElementById('shipBulkDestModal').classList.add('active');
+  },
+  renderBulkDestList() {
+    document.getElementById('shipBulkDestList').innerHTML = SHIP_INTL_DESTINATIONS.map(d => `
+      <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; color:#1f2937; font-weight:normal; cursor:pointer; margin:0;">
+        <span style="flex:1 1 auto; min-width:0; font-weight:500; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.label}</span>
+        <input type="checkbox" ${this.bulkDestSelected.has(d.code)?'checked':''} style="margin:0; flex:0 0 auto; cursor:pointer;" onchange="Shipping.toggleBulkDest('${d.code}', this.checked)" />
+      </label>
+    `).join('');
+  },
+  toggleBulkDest(code, checked) {
+    if (checked) this.bulkDestSelected.add(code); else this.bulkDestSelected.delete(code);
+  },
+  bulkDestSelectAll(all) {
+    if (all) {
+      SHIP_INTL_DESTINATIONS.forEach(d => this.bulkDestSelected.add(d.code));
+    } else {
+      this.bulkDestSelected.clear();
+    }
+    this.renderBulkDestList();
+  },
+  applyBulkDest() {
+    const codes = Array.from(this.bulkDestSelected);
+    if (codes.length === 0) { alert('対象 Destinations をチェックしてください'); return; }
+    const mode = document.querySelector('input[name="shipBulkDestMode"]:checked').value;
+    const targets = this.getSelectedPolicies();
+    let updated = 0;
+    targets.forEach(p => {
+      if (!p._raw) p._raw = {};
+      if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
+      const intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
+      if (!intl || !Array.isArray(intl.shippingServices)) return;
+      let policyChanged = false;
+      intl.shippingServices.forEach(s => {
+        if (!s.shipToLocations) s.shipToLocations = {};
+        if (!Array.isArray(s.shipToLocations.regionIncluded)) s.shipToLocations.regionIncluded = [];
+        const current = new Set(s.shipToLocations.regionIncluded.map(r => r.regionName));
+        codes.forEach(c => {
+          if (mode === 'add') {
+            if (!current.has(c)) { current.add(c); policyChanged = true; }
+          } else {
+            if (current.has(c)) { current.delete(c); policyChanged = true; }
+          }
+        });
+        s.shipToLocations.regionIncluded = Array.from(current).map(r => ({ regionName: r }));
+      });
+      if (policyChanged) updated++;
+    });
+    this.closeModal('shipBulkDestModal');
+    this.renderList();
+    alert(`✓ ${updated}件のポリシーの Destinations を更新しました(${mode==='add'?'追加':'解除'})\n対象: ${codes.join(', ')}\n(eBay書込は Phase 2-G)`);
+  },
+
+  // --- 除外国 一括追加 ---
+  openBulkAddExcludedModal() {
+    if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
+    document.getElementById('shipBulkAddExCount').textContent = this.selected.size;
+    this.bulkAddExChips = [];
+    this.renderBulkExChips('add');
+    const dl = document.getElementById('shipCountryDatalist');
+    if (dl) dl.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('');
+    document.getElementById('shipBulkAddExModal').classList.add('active');
+    setTimeout(() => document.getElementById('shipBulkAddExInput').focus(), 100);
+  },
+  openBulkRemoveExcludedModal() {
+    if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
+    document.getElementById('shipBulkRemoveExCount').textContent = this.selected.size;
+    this.bulkRemoveExChips = [];
+    this.renderBulkExChips('remove');
+    const dl = document.getElementById('shipCountryDatalist');
+    if (dl) dl.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('');
+    document.getElementById('shipBulkRemoveExModal').classList.add('active');
+    setTimeout(() => document.getElementById('shipBulkRemoveExInput').focus(), 100);
+  },
+  renderBulkExChips(kind) {
+    const list = kind === 'add' ? this.bulkAddExChips : this.bulkRemoveExChips;
+    const el = document.getElementById(kind === 'add' ? 'shipBulkAddExChips' : 'shipBulkRemoveExChips');
+    if (list.length === 0) {
+      el.innerHTML = '<span style="color:#9ca3af; font-size:12px;">国がまだ追加されていません</span>';
+    } else {
+      el.innerHTML = list.map(c => `<span class="ship-chip">${shipDisplayCountry(c)} <button onclick="Shipping.removeBulkExChip('${kind}','${c}')">×</button></span>`).join('');
+    }
+  },
+  addBulkExChip(kind) {
+    const inputId = kind === 'add' ? 'shipBulkAddExInput' : 'shipBulkRemoveExInput';
+    const input = document.getElementById(inputId);
+    const v = input.value.trim();
+    if (!v) return;
+    let code = v;
+    if (v.length === 2 && SHIP_COUNTRY_NAME[v.toUpperCase()]) code = v.toUpperCase();
+    else {
+      const found = Object.entries(SHIP_COUNTRY_NAME).find(([c, n]) => n.toLowerCase() === v.toLowerCase());
+      if (found) code = found[0];
+    }
+    const list = kind === 'add' ? this.bulkAddExChips : this.bulkRemoveExChips;
+    if (!list.includes(code)) list.push(code);
+    this.renderBulkExChips(kind);
+    input.value = '';
+    input.focus();
+  },
+  removeBulkExChip(kind, code) {
+    if (kind === 'add') this.bulkAddExChips = this.bulkAddExChips.filter(c => c !== code);
+    else this.bulkRemoveExChips = this.bulkRemoveExChips.filter(c => c !== code);
+    this.renderBulkExChips(kind);
+  },
+  applyBulkAddEx() {
+    if (this.bulkAddExChips.length === 0) { alert('追加する国を入力してください'); return; }
+    const codes = this.bulkAddExChips.slice();
+    let updated = 0;
+    this.getSelectedPolicies().forEach(p => {
+      let changed = false;
+      codes.forEach(c => {
+        if (!p.excluded.includes(c)) { p.excluded.push(c); changed = true; }
+      });
+      if (changed) updated++;
+    });
+    this.closeModal('shipBulkAddExModal');
+    this.renderList();
+    alert(`✓ ${codes.length}カ国を ${updated}件のポリシーに追加(eBay書込はPhase 2-G)`);
+  },
+  applyBulkRemoveEx() {
+    if (this.bulkRemoveExChips.length === 0) { alert('解除する国を入力してください'); return; }
+    const codes = this.bulkRemoveExChips.slice();
+    let updated = 0;
+    this.getSelectedPolicies().forEach(p => {
+      const before = p.excluded.length;
+      p.excluded = p.excluded.filter(c => !codes.includes(c));
+      if (p.excluded.length !== before) updated++;
+    });
+    this.closeModal('shipBulkRemoveExModal');
+    this.renderList();
+    alert(`✓ ${codes.length}カ国を ${updated}件のポリシーから解除(eBay書込はPhase 2-G)`);
+  },
+
   saveEditedPolicy() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
@@ -7118,6 +7267,87 @@ Object.assign(Shipping, {
     <div class="ship-modal-footer">
       <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipSettingsModal')">閉じる</button>
       <button class="ship-btn-save" onclick="Shipping.saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 🌐 Destinations 一括変更モーダル ===== -->
+<div class="ship-modal-overlay" id="shipBulkDestModal">
+  <div class="ship-modal" style="max-width: 720px;">
+    <h2>🌐 Destinations 一括変更</h2>
+    <p style="font-size:13px; color:#666;">
+      選択中の <strong id="shipBulkDestCount">0</strong> 件のポリシーの International Destinations を一括変更します。
+    </p>
+
+    <div class="ship-field">
+      <label>操作</label>
+      <div style="display:flex; gap:14px;">
+        <label style="font-weight:normal; cursor:pointer;"><input type="radio" name="shipBulkDestMode" value="add" checked /> ➕ 追加(チェックした地域を発送先に追加)</label>
+        <label style="font-weight:normal; cursor:pointer;"><input type="radio" name="shipBulkDestMode" value="remove" /> ➖ 解除(チェックした地域を発送先から外す)</label>
+      </div>
+    </div>
+
+    <div class="ship-field" style="align-items:flex-start;">
+      <label style="padding-top:6px;">対象 Destinations</label>
+      <div>
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <button type="button" onclick="Shipping.bulkDestSelectAll(true)" style="background:#2563eb; color:#fff; border:none; padding:5px 14px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">✓ 全選択</button>
+          <button type="button" onclick="Shipping.bulkDestSelectAll(false)" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:5px 14px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">全解除</button>
+        </div>
+        <div class="ship-dest-grid" id="shipBulkDestList"></div>
+      </div>
+    </div>
+
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkDestModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.applyBulkDest()">✓ 全件に一括適用</button>
+    </div>
+    <div style="font-size:11px; color:#888; margin-top:6px;">
+      💡 ローカルメモリのみ反映。eBay書込は Phase 2-G で実装予定。
+    </div>
+  </div>
+</div>
+
+<!-- ===== 🚫 除外国 一括追加モーダル(複数チップ式) ===== -->
+<div class="ship-modal-overlay" id="shipBulkAddExModal">
+  <div class="ship-modal" style="max-width: 640px;">
+    <h2>🚫 除外国を一括追加(複数可)</h2>
+    <p style="font-size:13px; color:#666;">選択中の <strong id="shipBulkAddExCount">0</strong> 件のポリシーに、下記の国を全部追加します。</p>
+    <div class="ship-field" style="align-items:flex-start;">
+      <label style="padding-top:6px;">追加する国(複数)</label>
+      <div>
+        <div class="ship-country-chips" id="shipBulkAddExChips" style="min-height:60px;"></div>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <input type="text" id="shipBulkAddExInput" list="shipCountryDatalist" placeholder="国名 or 2文字コード" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addBulkExChip('add');}" />
+          <button class="ship-btn-add-chip" onclick="Shipping.addBulkExChip('add')">+ 追加</button>
+        </div>
+      </div>
+    </div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkAddExModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.applyBulkAddEx()">✓ 一括追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ✓ 除外国 一括解除モーダル(複数チップ式) ===== -->
+<div class="ship-modal-overlay" id="shipBulkRemoveExModal">
+  <div class="ship-modal" style="max-width: 640px;">
+    <h2>✓ 除外国を一括解除(複数可)</h2>
+    <p style="font-size:13px; color:#666;">選択中の <strong id="shipBulkRemoveExCount">0</strong> 件のポリシーから、下記の国を全部解除します。</p>
+    <div class="ship-field" style="align-items:flex-start;">
+      <label style="padding-top:6px;">解除する国(複数)</label>
+      <div>
+        <div class="ship-country-chips" id="shipBulkRemoveExChips" style="min-height:60px;"></div>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <input type="text" id="shipBulkRemoveExInput" list="shipCountryDatalist" placeholder="国名 or 2文字コード" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addBulkExChip('remove');}" />
+          <button class="ship-btn-add-chip" onclick="Shipping.addBulkExChip('remove')">+ 追加</button>
+        </div>
+      </div>
+    </div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkRemoveExModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.applyBulkRemoveEx()">✓ 一括解除</button>
     </div>
   </div>
 </div>
