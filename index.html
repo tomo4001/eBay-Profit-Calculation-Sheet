@@ -1390,27 +1390,33 @@
   .ship-dest-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 6px 12px;
+    gap: 6px 8px;
     padding: 12px;
     background: #f9fafb;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
   }
   .ship-dest-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 8px;
+    display: block;
+    padding: 8px 10px;
     font-size: 12px;
     cursor: pointer;
     border-radius: 4px;
     background: #fff;
     border: 1px solid #e5e7eb;
+    line-height: 1.4;
+    color: #1f2937;
   }
   .ship-dest-item:hover { background: #eff6ff; border-color: #93c5fd; }
-  .ship-dest-item input { margin: 0; flex-shrink: 0; }
-  .ship-dest-item span {
-    flex: 1; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .ship-dest-item input {
+    margin: 0 8px 0 0;
+    vertical-align: middle;
+  }
+  .ship-dest-item .ship-dest-label {
+    display: inline-block;
+    vertical-align: middle;
     color: #1f2937;
+    font-weight: 500;
   }
   @media (max-width: 700px) {
     .ship-dest-grid { grid-template-columns: repeat(2, 1fr); }
@@ -6895,8 +6901,7 @@ Object.assign(Shipping, {
       ).join('');
       const destChecks = SHIP_INTL_DESTINATIONS.map(d => `
         <label class="ship-dest-item">
-          <input type="checkbox" ${s.destinations.includes(d.code)?'checked':''} onchange="Shipping.toggleIntlServiceDest(${idx}, '${d.code}', this.checked)" />
-          <span>${d.label}</span>
+          <input type="checkbox" ${s.destinations.includes(d.code)?'checked':''} onchange="Shipping.toggleIntlServiceDest(${idx}, '${d.code}', this.checked)" /><span class="ship-dest-label">${d.label}</span>
         </label>
       `).join('');
       const labelTxt = idx === 0 ? 'Primary Service' : `Additional Service #${idx}`;
