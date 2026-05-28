@@ -2455,8 +2455,7 @@
     <div class="ship-bulk-bar" id="shipBulkBar" style="display:none;">
       <span><strong id="shipSelectedCount">0</strong> 件選択中</span>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations 一括変更</button>
-      <button class="ship-bulk-btn" onclick="Shipping.openBulkAddExcludedModal()">🚫 除外国 を一括追加</button>
-      <button class="ship-bulk-btn" onclick="Shipping.openBulkRemoveExcludedModal()">✓ 除外国 を一括解除</button>
+      <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国 一括変更(追加/解除)</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
     </div>
 
@@ -7101,87 +7100,87 @@ Object.assign(Shipping, {
     alert(`✓ ${updated}件のポリシーの Destinations を更新しました(${mode==='add'?'追加':'解除'})\n対象: ${codes.join(', ')}\n(eBay書込は Phase 2-G)`);
   },
 
-  // --- 除外国 一括追加 ---
-  openBulkAddExcludedModal() {
+  // --- 除外国 一括変更(チェックボックス式) ---
+  bulkExcludedSet: new Set(),  // チェックされた国・地域
+
+  openBulkExcludedModal() {
     if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
-    document.getElementById('shipBulkAddExCount').textContent = this.selected.size;
-    this.bulkAddExChips = [];
-    this.renderBulkExChips('add');
-    const dl = document.getElementById('shipCountryDatalist');
-    if (dl) dl.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('');
-    document.getElementById('shipBulkAddExModal').classList.add('active');
-    setTimeout(() => document.getElementById('shipBulkAddExInput').focus(), 100);
+    document.getElementById('shipBulkExCount').textContent = this.selected.size;
+    this.bulkExcludedSet = new Set();
+    this.renderBulkExcludedForm();
+    document.getElementById('shipBulkExcludedModal').classList.add('active');
   },
-  openBulkRemoveExcludedModal() {
-    if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
-    document.getElementById('shipBulkRemoveExCount').textContent = this.selected.size;
-    this.bulkRemoveExChips = [];
-    this.renderBulkExChips('remove');
-    const dl = document.getElementById('shipCountryDatalist');
-    if (dl) dl.innerHTML = Object.entries(SHIP_COUNTRY_NAME).map(([c, n]) => `<option value="${n}">${c}</option>`).join('');
-    document.getElementById('shipBulkRemoveExModal').classList.add('active');
-    setTimeout(() => document.getElementById('shipBulkRemoveExInput').focus(), 100);
+  renderBulkExcludedForm() {
+    let groupsHtml = '';
+    Object.entries(SHIP_COUNTRY_GROUPS).forEach(([groupName, group], gIdx) => {
+      const items = group.items;
+      const isRegionGroup = group.isRegion;
+      const checkedCount = items.filter(c => this.bulkExcludedSet.has(c)).length;
+      const totalCount = items.length;
+      const isAllChecked = checkedCount === totalCount;
+      const isPartial = checkedCount > 0 && checkedCount < totalCount;
+
+      const itemsHtml = items.map(c => {
+        const isChecked = this.bulkExcludedSet.has(c);
+        const label = isRegionGroup ? `<strong>${c}</strong>` : shipDisplayCountry(c);
+        return `
+          <label class="ship-checkbox-item">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleBulkExcluded('${c}', this.checked)" />
+            <span>${label}</span>
+          </label>
+        `;
+      }).join('');
+
+      groupsHtml += `
+        <details class="ship-country-group" ${gIdx < 1 || isPartial ? 'open' : ''}>
+          <summary>
+            <span class="ship-country-group-name">${groupName}</span>
+            <span class="ship-country-group-count ${isAllChecked ? 'all' : isPartial ? 'partial' : 'none'}">${checkedCount}/${totalCount}</span>
+            <button class="ship-group-action" onclick="event.preventDefault(); Shipping.toggleAllBulkExcluded('${groupName}', true)">✓ 全選択</button>
+            <button class="ship-group-action" onclick="event.preventDefault(); Shipping.toggleAllBulkExcluded('${groupName}', false)">解除</button>
+          </summary>
+          <div class="ship-checkbox-grid">${itemsHtml}</div>
+        </details>
+      `;
+    });
+    document.getElementById('shipBulkExcludedForm').innerHTML = groupsHtml;
   },
-  renderBulkExChips(kind) {
-    const list = kind === 'add' ? this.bulkAddExChips : this.bulkRemoveExChips;
-    const el = document.getElementById(kind === 'add' ? 'shipBulkAddExChips' : 'shipBulkRemoveExChips');
-    if (list.length === 0) {
-      el.innerHTML = '<span style="color:#9ca3af; font-size:12px;">国がまだ追加されていません</span>';
-    } else {
-      el.innerHTML = list.map(c => `<span class="ship-chip">${shipDisplayCountry(c)} <button onclick="Shipping.removeBulkExChip('${kind}','${c}')">×</button></span>`).join('');
-    }
+  toggleBulkExcluded(code, checked) {
+    if (checked) this.bulkExcludedSet.add(code); else this.bulkExcludedSet.delete(code);
+    this.renderBulkExcludedForm();
   },
-  addBulkExChip(kind) {
-    const inputId = kind === 'add' ? 'shipBulkAddExInput' : 'shipBulkRemoveExInput';
-    const input = document.getElementById(inputId);
-    const v = input.value.trim();
-    if (!v) return;
-    let code = v;
-    if (v.length === 2 && SHIP_COUNTRY_NAME[v.toUpperCase()]) code = v.toUpperCase();
-    else {
-      const found = Object.entries(SHIP_COUNTRY_NAME).find(([c, n]) => n.toLowerCase() === v.toLowerCase());
-      if (found) code = found[0];
-    }
-    const list = kind === 'add' ? this.bulkAddExChips : this.bulkRemoveExChips;
-    if (!list.includes(code)) list.push(code);
-    this.renderBulkExChips(kind);
-    input.value = '';
-    input.focus();
+  toggleAllBulkExcluded(groupName, allCheck) {
+    const group = SHIP_COUNTRY_GROUPS[groupName];
+    if (!group) return;
+    group.items.forEach(c => {
+      if (allCheck) this.bulkExcludedSet.add(c);
+      else this.bulkExcludedSet.delete(c);
+    });
+    this.renderBulkExcludedForm();
   },
-  removeBulkExChip(kind, code) {
-    if (kind === 'add') this.bulkAddExChips = this.bulkAddExChips.filter(c => c !== code);
-    else this.bulkRemoveExChips = this.bulkRemoveExChips.filter(c => c !== code);
-    this.renderBulkExChips(kind);
-  },
-  applyBulkAddEx() {
-    if (this.bulkAddExChips.length === 0) { alert('追加する国を入力してください'); return; }
-    const codes = this.bulkAddExChips.slice();
+  applyBulkExcluded() {
+    const codes = Array.from(this.bulkExcludedSet);
+    if (codes.length === 0) { alert('対象の国・地域をチェックしてください'); return; }
+    const mode = document.querySelector('input[name="shipBulkExMode"]:checked').value;
+    const targets = this.getSelectedPolicies();
     let updated = 0;
-    this.getSelectedPolicies().forEach(p => {
+    targets.forEach(p => {
       let changed = false;
-      codes.forEach(c => {
-        if (!p.excluded.includes(c)) { p.excluded.push(c); changed = true; }
-      });
+      if (mode === 'add') {
+        codes.forEach(c => {
+          if (!p.excluded.includes(c)) { p.excluded.push(c); changed = true; }
+        });
+      } else {
+        const before = p.excluded.length;
+        p.excluded = p.excluded.filter(c => !codes.includes(c));
+        if (p.excluded.length !== before) changed = true;
+      }
       if (changed) updated++;
     });
-    this.closeModal('shipBulkAddExModal');
+    this.closeModal('shipBulkExcludedModal');
     this.savePoliciesCache();
     this.renderList();
-    alert(`✓ ${codes.length}カ国を ${updated}件のポリシーに追加(eBay書込はPhase 2-G)`);
-  },
-  applyBulkRemoveEx() {
-    if (this.bulkRemoveExChips.length === 0) { alert('解除する国を入力してください'); return; }
-    const codes = this.bulkRemoveExChips.slice();
-    let updated = 0;
-    this.getSelectedPolicies().forEach(p => {
-      const before = p.excluded.length;
-      p.excluded = p.excluded.filter(c => !codes.includes(c));
-      if (p.excluded.length !== before) updated++;
-    });
-    this.closeModal('shipBulkRemoveExModal');
-    this.savePoliciesCache();
-    this.renderList();
-    alert(`✓ ${codes.length}カ国を ${updated}件のポリシーから解除(eBay書込はPhase 2-G)`);
+    alert(`✓ ${codes.length}項目を ${updated}件のポリシーに${mode==='add'?'追加':'解除'}(eBay書込はPhase 2-G)\n対象: ${codes.slice(0,10).join(', ')}${codes.length>10?' ...':''}`);
   },
 
   saveEditedPolicy() {
@@ -7347,46 +7346,31 @@ Object.assign(Shipping, {
   </div>
 </div>
 
-<!-- ===== 🚫 除外国 一括追加モーダル(複数チップ式) ===== -->
-<div class="ship-modal-overlay" id="shipBulkAddExModal">
-  <div class="ship-modal" style="max-width: 640px;">
-    <h2>🚫 除外国を一括追加(複数可)</h2>
-    <p style="font-size:13px; color:#666;">選択中の <strong id="shipBulkAddExCount">0</strong> 件のポリシーに、下記の国を全部追加します。</p>
-    <div class="ship-field" style="align-items:flex-start;">
-      <label style="padding-top:6px;">追加する国(複数)</label>
-      <div>
-        <div class="ship-country-chips" id="shipBulkAddExChips" style="min-height:60px;"></div>
-        <div style="display:flex; gap:6px; margin-top:8px;">
-          <input type="text" id="shipBulkAddExInput" list="shipCountryDatalist" placeholder="国名 or 2文字コード" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addBulkExChip('add');}" />
-          <button class="ship-btn-add-chip" onclick="Shipping.addBulkExChip('add')">+ 追加</button>
-        </div>
-      </div>
-    </div>
-    <div class="ship-modal-footer">
-      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkAddExModal')">キャンセル</button>
-      <button class="ship-btn-save" onclick="Shipping.applyBulkAddEx()">✓ 一括追加</button>
-    </div>
-  </div>
-</div>
+<!-- ===== 🚫 除外国 一括変更モーダル(地域+チェックボックス) ===== -->
+<div class="ship-modal-overlay" id="shipBulkExcludedModal">
+  <div class="ship-modal" style="max-width: 900px;">
+    <h2>🚫 除外国 一括変更(追加 or 解除)</h2>
+    <p style="font-size:13px; color:#666;">選択中の <strong id="shipBulkExCount">0</strong> 件のポリシーに対して、チェックした地域・国を一括で追加 or 解除します。</p>
 
-<!-- ===== ✓ 除外国 一括解除モーダル(複数チップ式) ===== -->
-<div class="ship-modal-overlay" id="shipBulkRemoveExModal">
-  <div class="ship-modal" style="max-width: 640px;">
-    <h2>✓ 除外国を一括解除(複数可)</h2>
-    <p style="font-size:13px; color:#666;">選択中の <strong id="shipBulkRemoveExCount">0</strong> 件のポリシーから、下記の国を全部解除します。</p>
-    <div class="ship-field" style="align-items:flex-start;">
-      <label style="padding-top:6px;">解除する国(複数)</label>
-      <div>
-        <div class="ship-country-chips" id="shipBulkRemoveExChips" style="min-height:60px;"></div>
-        <div style="display:flex; gap:6px; margin-top:8px;">
-          <input type="text" id="shipBulkRemoveExInput" list="shipCountryDatalist" placeholder="国名 or 2文字コード" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addBulkExChip('remove');}" />
-          <button class="ship-btn-add-chip" onclick="Shipping.addBulkExChip('remove')">+ 追加</button>
-        </div>
+    <div class="ship-field">
+      <label>操作モード</label>
+      <div style="display:flex; gap:14px;">
+        <label style="font-weight:normal; cursor:pointer;"><input type="radio" name="shipBulkExMode" value="add" checked /> ➕ 追加(チェックした国を除外リストに加える)</label>
+        <label style="font-weight:normal; cursor:pointer;"><input type="radio" name="shipBulkExMode" value="remove" /> ➖ 解除(チェックした国を除外リストから外す)</label>
       </div>
     </div>
+
+    <div class="ship-modal-section">
+      <div class="ship-modal-section-title">🌐 対象 国・地域(チェックしたものに操作を適用)</div>
+      <div id="shipBulkExcludedForm"></div>
+    </div>
+
     <div class="ship-modal-footer">
-      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkRemoveExModal')">キャンセル</button>
-      <button class="ship-btn-save" onclick="Shipping.applyBulkRemoveEx()">✓ 一括解除</button>
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkExcludedModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.applyBulkExcluded()">✓ 全件に一括適用</button>
+    </div>
+    <div style="font-size:11px; color:#888; margin-top:6px;">
+      💡 ローカルメモリのみ反映。eBay書込は Phase 2-G。
     </div>
   </div>
 </div>
