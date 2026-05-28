@@ -6947,7 +6947,14 @@ Object.assign(Shipping, {
           </div>
           <div class="ship-field" style="align-items:flex-start;">
             <label style="padding-top:6px;">Destinations<br><span style="font-weight:normal; font-size:11px; color:#888;">(発送先13地域)</span></label>
-            <div class="ship-dest-grid">${destChecks}</div>
+            <div>
+              <div style="display:flex; gap:8px; margin-bottom:6px;">
+                <button type="button" onclick="Shipping.toggleAllIntlDest(${idx}, true)" style="background:#2563eb; color:#fff; border:none; padding:5px 14px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">✓ 全選択</button>
+                <button type="button" onclick="Shipping.toggleAllIntlDest(${idx}, false)" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:5px 14px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">全解除</button>
+                <span style="font-size:11px; color:#888; align-self:center;">現在 ${s.destinations.length}/13 選択中</span>
+              </div>
+              <div class="ship-dest-grid">${destChecks}</div>
+            </div>
           </div>
         </div>
       `;
@@ -6958,6 +6965,16 @@ Object.assign(Shipping, {
     if (!s) return;
     if (checked && !s.destinations.includes(code)) s.destinations.push(code);
     else if (!checked) s.destinations = s.destinations.filter(d => d !== code);
+  },
+  toggleAllIntlDest(idx, allCheck) {
+    const s = this.editingIntlServices[idx];
+    if (!s) return;
+    if (allCheck) {
+      s.destinations = SHIP_INTL_DESTINATIONS.map(d => d.code);
+    } else {
+      s.destinations = [];
+    }
+    this.renderEditIntlServices();
   },
   addEditIntlService() {
     this.editingIntlServices.push({
