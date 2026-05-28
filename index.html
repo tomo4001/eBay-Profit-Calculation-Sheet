@@ -5957,16 +5957,50 @@ try {
 // =========================================================================
 // 📦 シッピングポリシー管理モジュール (Phase 2-A: 一覧表示のみ)
 // =========================================================================
+const SHIP_POLICIES_CACHE_KEY = 'shipping_policies_cache_v1';
+
 const Shipping = {
   policies: [],       // 取得したポリシー(本物のeBayデータ)
   selected: new Set(),// チェックされた id のセット
   lastFetchAt: null,
   isLoading: false,
 
+  // localStorage キャッシュ操作
+  savePoliciesCache() {
+    try {
+      localStorage.setItem(SHIP_POLICIES_CACHE_KEY, JSON.stringify({
+        policies: this.policies,
+        lastFetchAt: this.lastFetchAt ? this.lastFetchAt.toISOString() : null,
+      }));
+    } catch (e) { console.warn('Shipping cache save failed:', e); }
+  },
+  loadPoliciesCache() {
+    try {
+      const raw = localStorage.getItem(SHIP_POLICIES_CACHE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.policies) && data.policies.length > 0) {
+        this.policies = data.policies;
+        this.lastFetchAt = data.lastFetchAt ? new Date(data.lastFetchAt) : null;
+        return true;
+      }
+    } catch (e) { console.warn('Shipping cache load failed:', e); }
+    return false;
+  },
+
   // タブ初回オープン時に呼ばれる
   initIfNeeded() {
     if (this.policies.length === 0 && !this.isLoading) {
-      // 自動取得はしない、ユーザーがボタン押下で取得
+      // localStorage キャッシュから復元を試みる
+      const loaded = this.loadPoliciesCache();
+      if (loaded) {
+        document.getElementById('shipTotalCount').textContent = this.policies.length;
+        document.getElementById('shipFilteredCount').textContent = this.policies.length;
+        if (this.lastFetchAt) {
+          document.getElementById('shipLastFetch').textContent = this.lastFetchAt.toLocaleString('ja-JP') + ' (キャッシュ)';
+        }
+        this.renderList();
+      }
     }
   },
 
@@ -5991,6 +6025,7 @@ const Shipping = {
       document.getElementById('shipTotalCount').textContent = this.policies.length;
       document.getElementById('shipFilteredCount').textContent = this.policies.length;
       document.getElementById('shipLastFetch').textContent = this.lastFetchAt.toLocaleString('ja-JP');
+      this.savePoliciesCache();  // キャッシュ保存
       this.renderList();
     } catch (e) {
       console.error(e);
@@ -7061,6 +7096,7 @@ Object.assign(Shipping, {
       if (policyChanged) updated++;
     });
     this.closeModal('shipBulkDestModal');
+    this.savePoliciesCache();
     this.renderList();
     alert(`✓ ${updated}件のポリシーの Destinations を更新しました(${mode==='add'?'追加':'解除'})\n対象: ${codes.join(', ')}\n(eBay書込は Phase 2-G)`);
   },
@@ -7129,6 +7165,7 @@ Object.assign(Shipping, {
       if (changed) updated++;
     });
     this.closeModal('shipBulkAddExModal');
+    this.savePoliciesCache();
     this.renderList();
     alert(`✓ ${codes.length}カ国を ${updated}件のポリシーに追加(eBay書込はPhase 2-G)`);
   },
@@ -7142,6 +7179,7 @@ Object.assign(Shipping, {
       if (p.excluded.length !== before) updated++;
     });
     this.closeModal('shipBulkRemoveExModal');
+    this.savePoliciesCache();
     this.renderList();
     alert(`✓ ${codes.length}カ国を ${updated}件のポリシーから解除(eBay書込はPhase 2-G)`);
   },
@@ -7225,6 +7263,7 @@ Object.assign(Shipping, {
     p.excluded = this.editingPolicyExcluded.slice();
 
     this.closeModal('shipEditPolicyModal');
+    this.savePoliciesCache();
     this.renderList();
     alert(`✓ ローカル保存しました(eBay書込はPhase 2-G)\n変更: 名前/説明/Shipping Method/Domestic/International(${this.editingIntlServices.length}サービス)/HT(${p.handlingTime}日)/除外国(${p.excluded.length}項目)`);
   },
