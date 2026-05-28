@@ -2462,9 +2462,10 @@
         <h2>📦 シッピングポリシー管理</h2>
         <div class="ship-header-info">全 <span id="shipTotalCount">-</span> 件(表示 <span id="shipFilteredCount">-</span>) / 最終取得: <span id="shipLastFetch">未取得</span></div>
       </div>
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
+        <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
       </div>
@@ -6594,6 +6595,7 @@ function onShippingTabOpen() {
 const SHIP_STORAGE_DEFAULTS    = 'shipping_defaults_v1';
 const SHIP_STORAGE_RULES       = 'shipping_special_rules_v1';
 const SHIP_STORAGE_MASTER_RATE = 'shipping_master_rate_v1';
+const SHIP_STORAGE_SNAPSHOTS   = 'shipping_snapshots_v1';
 
 // eBay「Europe」グループの26カ国(VeRO時に一括除外)
 const SHIP_EUROPE_CODES = [
@@ -7849,6 +7851,178 @@ Object.assign(Shipping, {
   },
 
   // =====================================================================
+  // 📸 スナップショット管理 (Phase 2-F.5)
+  // =====================================================================
+  // スナップショットのスキーマ: { id, name, createdAt, summary, data: { policies, defaults, specialRules, masterRate, lastFetchAt } }
+  loadSnapshots() {
+    try {
+      const raw = localStorage.getItem(SHIP_STORAGE_SNAPSHOTS);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  },
+  saveSnapshotsArray(snapshots) {
+    try {
+      localStorage.setItem(SHIP_STORAGE_SNAPSHOTS, JSON.stringify(snapshots));
+      return true;
+    } catch (e) {
+      // 容量オーバーの可能性
+      alert('⚠️ スナップショットの保存に失敗しました。\n原因: localStorage 容量不足の可能性。\n不要なスナップショットを削除してから再度お試しください。\n\n詳細: ' + (e.message || e));
+      return false;
+    }
+  },
+  estimateSnapshotSizeKB() {
+    // 現在の状態をJSON化したサイズの目安(KB)
+    try {
+      const payload = {
+        policies: this.policies,
+        defaults: this.defaults,
+        specialRules: this.specialRules,
+        masterRate: this.masterRate,
+      };
+      const str = JSON.stringify(payload);
+      return Math.round(str.length / 1024);
+    } catch (e) { return 0; }
+  },
+  openSnapshotModal() {
+    this.renderSnapshotList();
+    document.getElementById('shipSnapshotModal').classList.add('active');
+  },
+  renderSnapshotList() {
+    const snapshots = this.loadSnapshots();
+    const list = document.getElementById('shipSnapshotList');
+    const info = document.getElementById('shipSnapshotStorageInfo');
+
+    // 容量目安
+    const curSize = this.estimateSnapshotSizeKB();
+    const totalSize = snapshots.reduce((acc, s) => acc + (JSON.stringify(s).length / 1024), 0);
+    if (info) {
+      info.innerHTML = `📊 現在の状態のサイズ: 約 ${curSize}KB / 保存済み合計: 約 ${Math.round(totalSize)}KB (localStorage 上限の目安: 5-10MB)${snapshots.length >= 5 ? ' / ⚠️ 5件超過: 古いものを削除推奨' : ''}`;
+    }
+
+    if (snapshots.length === 0) {
+      list.innerHTML = '<div style="padding:30px; text-align:center; color:#888;">まだスナップショットがありません。<br>上の入力欄で名前を付けて保存してください。</div>';
+      return;
+    }
+
+    // 新しい順
+    const sorted = snapshots.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    list.innerHTML = sorted.map(s => `
+      <div style="padding:12px 14px; border-bottom:1px solid #f3f4f6; display:flex; gap:12px; align-items:center;">
+        <div style="flex:1;">
+          <div style="font-weight:700; font-size:14px; color:#1f2937;">${s.name}</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:3px;">
+            📅 ${new Date(s.createdAt).toLocaleString('ja-JP')} / ${s.summary || ''}
+          </div>
+        </div>
+        <button class="ship-btn-save" style="padding:6px 14px; font-size:12px;" onclick="Shipping.restoreSnapshot('${s.id}')">⏪ 復元</button>
+        <button class="ship-btn-cancel" style="padding:6px 14px; font-size:12px; background:#fef2f2; color:#991b1b; border-color:#fecaca;" onclick="Shipping.deleteSnapshot('${s.id}')">🗑️ 削除</button>
+      </div>
+    `).join('');
+  },
+  createSnapshot() {
+    const nameEl = document.getElementById('shipSnapshotNewName');
+    const name = (nameEl?.value || '').trim();
+    if (!name) {
+      alert('スナップショット名を入力してください。');
+      return;
+    }
+
+    const snapshots = this.loadSnapshots();
+    // 同名チェック
+    const dup = snapshots.find(s => s.name === name);
+    if (dup) {
+      if (!confirm(`同じ名前のスナップショット "${name}" が既に存在します。上書きしますか?`)) return;
+      // 上書きの場合、既存を削除
+      const idx = snapshots.findIndex(s => s.id === dup.id);
+      if (idx >= 0) snapshots.splice(idx, 1);
+    }
+
+    // データを構築
+    const newSnap = {
+      id: 'snap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      name,
+      createdAt: new Date().toISOString(),
+      summary: `${this.policies.length}ポリシー / マスター率 ${this.masterRate}% / 特別設定 ${this.specialRules.length}件`,
+      data: {
+        policies: this.policies,
+        defaults: this.defaults,
+        specialRules: this.specialRules,
+        masterRate: this.masterRate,
+        lastFetchAt: this.lastFetchAt ? this.lastFetchAt.toISOString() : null,
+      }
+    };
+    snapshots.push(newSnap);
+
+    if (this.saveSnapshotsArray(snapshots)) {
+      nameEl.value = '';
+      this.renderSnapshotList();
+      // 成功通知(目立たない)
+      const info = document.getElementById('shipSnapshotStorageInfo');
+      if (info) {
+        const orig = info.innerHTML;
+        info.innerHTML = '<span style="color:#16a34a; font-weight:700;">✓ スナップショット "' + name + '" を保存しました</span>';
+        setTimeout(() => { info.innerHTML = orig; this.renderSnapshotList(); }, 2000);
+      }
+    }
+  },
+  restoreSnapshot(id) {
+    const snapshots = this.loadSnapshots();
+    const snap = snapshots.find(s => s.id === id);
+    if (!snap) { alert('スナップショットが見つかりません'); return; }
+    if (!confirm(`スナップショット "${snap.name}" を復元します。\n\n現在のローカル変更はすべて破棄されます。\n(eBay 上のデータは影響を受けません)\n\nよろしいですか?`)) return;
+
+    try {
+      // データ復元
+      const d = snap.data || {};
+      if (Array.isArray(d.policies)) this.policies = d.policies;
+      if (d.defaults) this.defaults = d.defaults;
+      if (Array.isArray(d.specialRules)) this.specialRules = d.specialRules;
+      if (typeof d.masterRate === 'number') {
+        this.masterRate = d.masterRate;
+        // 利益計算側のマスター率入力欄も同期
+        const mrEl = document.getElementById('masterShipRate');
+        if (mrEl) mrEl.value = d.masterRate;
+        try { localStorage.setItem(SHIP_STORAGE_MASTER_RATE, String(d.masterRate)); } catch (e) {}
+      }
+      if (d.lastFetchAt) {
+        this.lastFetchAt = new Date(d.lastFetchAt);
+      }
+
+      // 各localStorageキャッシュも更新
+      this.savePoliciesCache();
+      try { localStorage.setItem(SHIP_STORAGE_DEFAULTS, JSON.stringify(this.defaults)); } catch (e) {}
+      try { localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules)); } catch (e) {}
+
+      // UI 更新
+      this.renderList();
+      const totalEl = document.getElementById('shipTotalCount');
+      const filteredEl = document.getElementById('shipFilteredCount');
+      const fetchEl = document.getElementById('shipLastFetch');
+      if (totalEl) totalEl.textContent = this.policies.length;
+      if (filteredEl) filteredEl.textContent = this.policies.length;
+      if (fetchEl && this.lastFetchAt) fetchEl.textContent = this.lastFetchAt.toLocaleString('ja-JP') + ' (スナップショット復元)';
+
+      this.closeModal('shipSnapshotModal');
+      alert(`✓ スナップショット "${snap.name}" を復元しました。\n${snap.summary || ''}`);
+    } catch (e) {
+      alert('復元に失敗しました: ' + (e.message || e));
+    }
+  },
+  deleteSnapshot(id) {
+    const snapshots = this.loadSnapshots();
+    const snap = snapshots.find(s => s.id === id);
+    if (!snap) return;
+    if (!confirm(`スナップショット "${snap.name}" を削除します。\n(復元できなくなります)\n\nよろしいですか?`)) return;
+
+    const filtered = snapshots.filter(s => s.id !== id);
+    if (this.saveSnapshotsArray(filtered)) {
+      this.renderSnapshotList();
+    }
+  },
+
+  // =====================================================================
   // ➕ 新規ポリシー作成 (Phase 2-E)
   // =====================================================================
   isCreatingNew: false,  // true の時、saveEditedPolicy は新規追加モードで動く
@@ -8484,6 +8658,32 @@ Object.assign(Shipping, {
 </div>
 
 <!-- ===== ✏️ 個別ポリシー編集モーダル ===== -->
+<!-- ===== 📸 スナップショット管理モーダル ===== -->
+<div class="ship-modal-overlay" id="shipSnapshotModal">
+  <div class="ship-modal" style="max-width: 880px;">
+    <h2>📸 スナップショット管理</h2>
+    <p style="font-size:12px; color:#666; margin-top:0;">
+      シッピング関連の状態(ポリシー / デフォルト / 特別設定 / マスター率)を保存して、いつでも復元できます。eBay には一切影響しません。
+    </p>
+
+    <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:14px; margin-bottom:14px;">
+      <div style="font-weight:700; color:#166534; margin-bottom:8px; font-size:14px;">📸 現在の状態を新規スナップショットとして保存</div>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="shipSnapshotNewName" placeholder="例: 元の状態 / マスター率30%試行版 / VeRO 適用後" style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
+        <button class="ship-btn-save" onclick="Shipping.createSnapshot()">📸 保存</button>
+      </div>
+      <div id="shipSnapshotStorageInfo" style="margin-top:8px; font-size:11px; color:#166534;"></div>
+    </div>
+
+    <div style="font-weight:700; margin-bottom:8px; font-size:14px;">💾 保存済みスナップショット</div>
+    <div id="shipSnapshotList" style="border:1px solid #e5e7eb; border-radius:8px; max-height:380px; overflow-y:auto;"></div>
+
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipSnapshotModal')">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== ➕ 新規ポリシー作成 ルート選択モーダル ===== -->
 <div class="ship-modal-overlay" id="shipCreateChooserModal">
   <div class="ship-modal" style="max-width: 640px;">
