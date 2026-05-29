@@ -8630,9 +8630,23 @@ Object.assign(Shipping, {
             <td style="padding:8px; text-align:center; vertical-align:top;">${ck('beField_domesticAddtl', s.domesticAddtl.enabled)}</td>
             <td style="padding:8px; font-weight:600; vertical-align:top;">Domestic Each additional</td>
             <td style="padding:8px; ${s.domesticAddtl.enabled?'':'opacity:0.5;'}">
+              ${(() => {
+                // サービス別デフォルトの内訳を表示するためのヒント
+                const allSvcs = ['Expedited','Economy','Standard'];
+                const presentSvcs = Array.from(new Set(selectedPolicies.map(p => p.service))).filter(s => allSvcs.includes(s));
+                const hintLines = presentSvcs.map(svc => {
+                  const def = this.defaults[svc];
+                  if (!def) return null;
+                  const mode = def.addtlMode || 'same';
+                  const pct = def.addtlPercent != null ? def.addtlPercent : 100;
+                  const desc = mode === 'percent' ? `送料の ${pct}%` : '送料と同額(100%)';
+                  return `<strong>${svc}</strong>: ${desc}`;
+                }).filter(Boolean);
+                return `<div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:4px; padding:6px 10px; font-size:11px; color:#1e40af; margin-bottom:8px;">📌 現在の各サービス Each additional 設定: ${hintLines.join(' / ') || '(設定なし)'}</div>`;
+              })()}
               <label style="display:block; cursor:pointer; font-size:12px; margin-bottom:5px;">
                 <input type="radio" name="beAddtlMode" value="serviceDefault" ${s.domesticAddtl.mode==='serviceDefault'?'checked':''} onchange="Shipping.bulkEditState.domesticAddtl.mode='serviceDefault'; Shipping.renderBulkEditForm()" ${s.domesticAddtl.enabled?'':'disabled'} />
-                <strong>サービス別デフォルトに従う</strong>(⚙️設定で設定した値)
+                <strong>サービス別デフォルトに従う</strong>(上記の各サービスの設定値を適用)
               </label>
               <label style="display:block; cursor:pointer; font-size:12px; margin-bottom:5px;">
                 <input type="radio" name="beAddtlMode" value="same" ${s.domesticAddtl.mode==='same'?'checked':''} onchange="Shipping.bulkEditState.domesticAddtl.mode='same'; Shipping.renderBulkEditForm()" ${s.domesticAddtl.enabled?'':'disabled'} />
