@@ -2416,9 +2416,6 @@
         <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。シッピングポリシーのデフォルト計算にも使われます。<br>
         💡 利益計算側の <strong>DDP関税率(=calcXOptimal の25%しきい値)</strong> は別途設定可能です。シッピングポリシー構築中など、両者を意図的に違う値にしたい場合に対応しています。
       </div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn" id="applyMasterRate" style="padding:5px 12px; font-size:12px;">✓ レンジ表 全行に再適用</button>
-      </div>
       <!-- マスター率と DDP関税率のズレ警告 -->
       <div id="rateMismatchBanner" style="display:none; font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;"></div>
       <div style="font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;">
@@ -5876,16 +5873,12 @@ function attachEvents() {
   document.getElementById('catSearch').addEventListener('input', (e) => {
     renderCatTable(e.target.value);
   });
-  // 🌍 マスター送料率: 変更で全行に再適用 / 「再適用」ボタン
+  // 🌍 マスター送料率: 変更で全行に再適用(change時) + リアルタイム同期(input時)
   const masterRateEl = document.getElementById('masterShipRate');
   if (masterRateEl) {
     masterRateEl.addEventListener('change', () => applyMasterRateToRanges());
     // 入力中にも同期は反映(レンジ再計算は change まで待つ)
     masterRateEl.addEventListener('input', () => syncMasterRateToShipping());
-  }
-  const applyBtn = document.getElementById('applyMasterRate');
-  if (applyBtn) {
-    applyBtn.addEventListener('click', () => applyMasterRateToRanges());
   }
 
   // レンジ表編集 (上限を変えたら、そのセルの送料も即座にマスター率で再計算)
