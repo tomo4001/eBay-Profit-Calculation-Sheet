@@ -7273,7 +7273,8 @@ Object.assign(Shipping, {
         <div style="font-weight:700; font-size:15px; color:#1e3a8a; margin-bottom:6px;">🌍 マスター率: ${rate}%</div>
         <div style="font-size:12px; color:#1e3a8a;">
           各ポリシーの Domestic 送料を <strong>価格上限 × ${rate}%</strong> に再計算します。<br>
-          <strong>${changed.length}件</strong> の変更が必要 / <strong>${sameAlready.length}件</strong> は既にマスター率通り / <strong>${skipped.length}件</strong> はスキップ対象。
+          <strong>${changed.length}件</strong> の変更が必要 / <strong>${sameAlready.length}件</strong> は既にマスター率通り / <strong>${skipped.length}件</strong> はスキップ対象。<br>
+          📌 自動生成パターン("Service N Days A~B$ (C$)")に従う名前のポリシーは、<strong>名前の (送料$) 部分も自動更新</strong>されます。
         </div>
       </div>
 
@@ -7367,7 +7368,19 @@ Object.assign(Shipping, {
       // ローカル状態を反映
       p._raw = updated;
       p.domesticCost = expected;
-      results.success.push({ id: pid, name: p.name, expected });
+
+      // 名前の (送料$) 部分も自動更新(自動生成パターンに従っているポリシーのみ)
+      let newName = p.name;
+      if (this.policyFollowsAutoTitlePattern(p)) {
+        const auto = this.computeAutoTitleForPolicy(p);
+        if (auto && auto !== p.name) {
+          p.name = auto;
+          if (p._raw) p._raw.name = auto;
+          newName = auto;
+        }
+      }
+
+      results.success.push({ id: pid, name: newName, expected });
     }
 
     // 結果サマリ
@@ -7646,29 +7659,28 @@ Object.assign(Shipping, {
 
         <div class="ship-field">
           <label>ポリシー名</label>
-          <input type="text" id="shipEditPolicyName" value="${(p.name || '').replace(/"/g, '&quot;')}" maxlength="65" oninput="Shipping.markNameUserEdited()" />
+          <div style="flex:1; display:flex; gap:6px; align-items:center;">
+            <input type="text" id="shipEditPolicyName" value="${(p.name || '').replace(/"/g, '&quot;')}" maxlength="65" oninput="Shipping.markNameUserEdited()" style="flex:1;" />
+            <button type="button" id="shipEditRestoreAutoBtn" onclick="Shipping.restoreAutoName()" style="display:none; padding:5px 10px; background:#fff; color:#1e40af; border:1px solid #93c5fd; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600; white-space:nowrap;">🔄 自動生成に戻す</button>
+          </div>
         </div>
 
-        <!-- 📌 タイトル自動生成 (ライブプレビュー + 価格レンジ入力) -->
+        <!-- 📌 タイトル自動生成 (ボタン無し: 値が変わると即座に名前自動更新) -->
         <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:10px 14px; margin-bottom:10px;">
-          <div style="font-weight:700; color:#1e3a8a; font-size:12px; margin-bottom:8px;">📌 タイトル自動生成</div>
-          <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <div style="font-weight:700; color:#1e3a8a; font-size:12px;">📌 タイトル要素</div>
             <div style="display:flex; gap:4px; align-items:center;">
               <label style="font-size:11px; color:#1e3a8a; font-weight:600; margin:0;">価格レンジ:</label>
               <span>$</span>
-              <input type="number" id="shipEditPriceMin" step="0.01" value="${p.priceMin != null ? p.priceMin : ''}" placeholder="下限" style="width:70px; padding:4px 6px; border:1px solid #93c5fd; border-radius:4px; font-size:12px;" oninput="Shipping.updateTitlePreview()" />
+              <input type="number" id="shipEditPriceMin" step="0.01" value="${p.priceMin != null ? p.priceMin : ''}" placeholder="下限" style="width:64px; padding:4px 6px; border:1px solid #93c5fd; border-radius:4px; font-size:12px;" oninput="Shipping.updateTitlePreview()" />
               <span>〜</span>
               <span>$</span>
-              <input type="number" id="shipEditPriceMax" step="0.01" value="${p.priceMax != null ? p.priceMax : ''}" placeholder="上限" style="width:70px; padding:4px 6px; border:1px solid #93c5fd; border-radius:4px; font-size:12px;" oninput="Shipping.updateTitlePreview()" />
+              <input type="number" id="shipEditPriceMax" step="0.01" value="${p.priceMax != null ? p.priceMax : ''}" placeholder="上限" style="width:64px; padding:4px 6px; border:1px solid #93c5fd; border-radius:4px; font-size:12px;" oninput="Shipping.updateTitlePreview()" />
             </div>
             <label style="font-size:11px; color:#1e3a8a; font-weight:600; margin:0; cursor:pointer;">
               <input type="checkbox" id="shipEditVeroFlag" ${p.vero ? 'checked' : ''} onchange="Shipping.updateTitlePreview()" /> VeRO
             </label>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <span style="font-size:11px; color:#666;">提案:</span>
-            <code id="shipEditTitlePreview" style="background:#fff; padding:4px 10px; border-radius:4px; font-size:12px; color:#1e40af; font-family:monospace; flex:1 1 auto; min-width:200px;">-</code>
-            <button type="button" class="ship-btn-save" style="padding:4px 14px; font-size:11px;" onclick="Shipping.applyTitlePreviewToName()">📋 名前に反映</button>
+            <span id="shipEditAutoNameStatus" style="font-size:11px; color:#16a34a; font-weight:600; margin-left:auto;">🔗 名前は自動更新中</span>
           </div>
           <div id="shipEditTitleAutoNote" style="font-size:10px; color:#666; margin-top:6px;"></div>
         </div>
@@ -7782,9 +7794,26 @@ Object.assign(Shipping, {
     this.renderEditIntlServices();
 
     // 📌 タイトル自動生成プレビューを初期化
-    // 新規作成時は手動編集フラグをリセット(自動提案がそのまま入る)
-    if (this.isCreatingNew) this._nameUserEdited = false;
-    else this._nameUserEdited = true;  // 既存編集は手動編集扱い(勝手に上書きしない)
+    // 新規作成時 or 既に自動生成パターンに従っている既存ポリシー → 自動更新モード
+    // それ以外(レガシー/特殊命名) → 手動編集モード(勝手に上書きしない)
+    if (this.isCreatingNew) {
+      this._nameUserEdited = false;
+    } else {
+      this._nameUserEdited = !this.policyFollowsAutoTitlePattern(p);
+    }
+    // UI 状態の同期
+    const statusEl = document.getElementById('shipEditAutoNameStatus');
+    const restoreBtn = document.getElementById('shipEditRestoreAutoBtn');
+    if (statusEl) {
+      if (this._nameUserEdited) {
+        statusEl.textContent = '✏️ 手動編集モード';
+        statusEl.style.color = '#92400e';
+      } else {
+        statusEl.textContent = '🔗 名前は自動更新中';
+        statusEl.style.color = '#16a34a';
+      }
+    }
+    if (restoreBtn) restoreBtn.style.display = this._nameUserEdited ? 'inline-block' : 'none';
     this.updateTitlePreview();
 
     // resetFieldToDefault による snapshot がある場合は値を復元
@@ -8253,80 +8282,108 @@ Object.assign(Shipping, {
     }, 50);
   },
 
-  // 📌 タイトル自動生成 (Phase 2-E.5: モックの updateTitlePreview を本番移植)
+  // 📌 タイトル自動生成 (Phase 2-E.5+: ボタン無し型 — 値変更で即座に名前を自動更新)
   // 形式: "${Service} ${Days} Days ${priceMin}~${priceMax}$ [VeRO] (${cost}$)"
+  // _nameUserEdited が true の間は自動更新を停止(ユーザー編集を尊重)
   _nameUserEdited: false,
   markNameUserEdited() {
+    if (this._nameUserEdited) return;  // 既に編集モードならスキップ
     this._nameUserEdited = true;
+    const status = document.getElementById('shipEditAutoNameStatus');
+    if (status) {
+      status.textContent = '✏️ 手動編集モード';
+      status.style.color = '#92400e';
+    }
+    const btn = document.getElementById('shipEditRestoreAutoBtn');
+    if (btn) btn.style.display = 'inline-block';
     const note = document.getElementById('shipEditTitleAutoNote');
-    if (note) note.innerHTML = '✏️ 名前を手動編集中です。「📋 名前に反映」を押すと提案で上書きされます。';
+    if (note) note.innerHTML = '✏️ 名前を手動編集中。フィールドを変更しても名前は自動更新されません。「🔄 自動生成に戻す」で復帰できます。';
+  },
+  restoreAutoName() {
+    this._nameUserEdited = false;
+    const status = document.getElementById('shipEditAutoNameStatus');
+    if (status) {
+      status.textContent = '🔗 名前は自動更新中';
+      status.style.color = '#16a34a';
+    }
+    const btn = document.getElementById('shipEditRestoreAutoBtn');
+    if (btn) btn.style.display = 'none';
+    const note = document.getElementById('shipEditTitleAutoNote');
+    if (note) note.innerHTML = '';
+    // 名前を再生成
+    this.updateTitlePreview();
   },
   computeAutoTitle() {
-    // 各種フィールドから現在値を読む
+    // Service: 現在の名前から推測 (Expedited/Economy/Standard で始まらない場合は Domestic Service コードから推測)
     const nameEl = document.getElementById('shipEditPolicyName');
     const curName = (nameEl?.value || '').trim();
-    // Service: 現在の名前から推測 (Expedited/Economy/Standard で始まらない場合は Domestic Service コードから推測)
     let service = 'Expedited';
     const lower = curName.toLowerCase();
     if (lower.startsWith('expedited')) service = 'Expedited';
     else if (lower.startsWith('economy')) service = 'Economy';
     else if (lower.startsWith('standard')) service = 'Standard';
     else {
-      // Domestic service コードから推測
       const sc = document.getElementById('shipEditDomServiceCode')?.value || '';
       if (sc.toLowerCase().includes('expedit')) service = 'Expedited';
       else if (sc.toLowerCase().includes('econom')) service = 'Economy';
       else if (sc.toLowerCase().includes('standard')) service = 'Standard';
     }
 
-    // HT
     const htVal = parseInt(document.getElementById('shipEditPolicyHT')?.value || '10');
     const days = isNaN(htVal) ? '?' : htVal;
 
-    // 価格レンジ(専用入力欄から)
     const pminVal = document.getElementById('shipEditPriceMin')?.value;
     const pmaxVal = document.getElementById('shipEditPriceMax')?.value;
     const pmin = (pminVal !== '' && pminVal != null) ? pminVal : '?';
     const pmax = (pmaxVal !== '' && pmaxVal != null) ? pmaxVal : '?';
 
-    // VeRO
     const isVero = document.getElementById('shipEditVeroFlag')?.checked;
     const veroTag = isVero ? ' VeRO' : '';
 
-    // Domestic送料
     const cost = parseFloat(document.getElementById('shipEditDomCost')?.value || '0');
-    const costStr = isNaN(cost) ? '?' : cost.toFixed(2).replace(/\.00$/, '').replace(/\.50$/, '.5');
+    const costStr = isNaN(cost) ? '?' : (cost % 1 === 0 ? String(cost) : cost.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
 
     return `${service} ${days} Days ${pmin}~${pmax}$${veroTag} (${costStr}$)`;
   },
   updateTitlePreview() {
-    const previewEl = document.getElementById('shipEditTitlePreview');
-    if (!previewEl) return;
-    const auto = this.computeAutoTitle();
-    previewEl.textContent = auto;
-    // ユーザー未編集 + 新規作成中の場合は自動で反映
-    if (!this._nameUserEdited && this.isCreatingNew) {
-      const nameEl = document.getElementById('shipEditPolicyName');
-      if (nameEl && !nameEl.value.trim()) {
-        // 空の場合は placeholder で見せる
-        nameEl.placeholder = auto;
-      }
-    }
-  },
-  applyTitlePreviewToName() {
+    // 自動更新モードのみ名前を上書き
+    if (this._nameUserEdited) return;
     const auto = this.computeAutoTitle();
     const nameEl = document.getElementById('shipEditPolicyName');
-    if (!nameEl) return;
-    if (nameEl.value.trim() && nameEl.value.trim() !== auto) {
-      if (!confirm(`現在の名前:\n"${nameEl.value}"\n\n提案で上書きします:\n"${auto}"\n\nよろしいですか?`)) return;
+    if (nameEl) {
+      // 入力中に caret 位置を壊さないため、focus 状態の時はスキップ
+      if (document.activeElement === nameEl) return;
+      nameEl.value = auto;
     }
-    nameEl.value = auto;
-    this._nameUserEdited = false;
-    const note = document.getElementById('shipEditTitleAutoNote');
-    if (note) note.innerHTML = '✓ 提案を名前に反映しました。';
-    setTimeout(() => {
-      if (note) note.innerHTML = '';
-    }, 2500);
+  },
+
+  // モジュールレベルのヘルパー: 任意のポリシーオブジェクトに対して自動タイトルを生成
+  // (バルク操作などで使う)
+  computeAutoTitleForPolicy(p) {
+    if (!p) return null;
+    const service = p.service || 'Expedited';
+    const htVal = parseInt(p.handlingTime);
+    const days = isNaN(htVal) ? '?' : htVal;
+    const pmin = p.priceMin != null ? p.priceMin : '?';
+    const pmax = p.priceMax != null ? p.priceMax : '?';
+    const veroTag = p.vero ? ' VeRO' : '';
+    const cost = parseFloat(p.domesticCost || 0);
+    const costStr = isNaN(cost) ? '?' : (cost % 1 === 0 ? String(cost) : cost.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
+    return `${service} ${days} Days ${pmin}~${pmax}$${veroTag} (${costStr}$)`;
+  },
+  // ポリシー名が自動生成パターンに「従っているか」を判定
+  // 従っている = 名前を再生成しても良い(バルク時に安全に書き換え可能)
+  policyFollowsAutoTitlePattern(p) {
+    if (!p || !p.name) return false;
+    // パターン: "Service N Days min~max$ [VeRO ] (cost$)"
+    // ゆるめに判定: Service名 + "Days" を含み、$表記がある
+    const lower = p.name.toLowerCase();
+    const hasService = ['expedited','economy','standard'].some(s => lower.startsWith(s));
+    const hasDaysWord = /\d+\s*days/i.test(p.name);
+    const hasPriceRange = /\d+(?:\.\d+)?[~\-]\d+(?:\.\d+)?\$/.test(p.name);
+    const hasCost = /\(\d+(?:\.\d+)?\$\)/.test(p.name);
+    // この4要素を満たせば自動生成パターンに従っているとみなす
+    return hasService && hasDaysWord && hasPriceRange && hasCost;
   },
 
   toggleEditPolicyExcluded(code, checked) {
