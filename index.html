@@ -7263,7 +7263,16 @@ Object.assign(Shipping, {
   },
 
   _mrSortKey: 'diffDesc',
-  _mrFilter: { search: '', service: '', vero: '', direction: '' },
+  _mrFilter: { search: '', services: [], vero: '', direction: '' },
+  toggleMRServiceFilter(svc, checked) {
+    if (!Array.isArray(this._mrFilter.services)) this._mrFilter.services = [];
+    if (checked) {
+      if (!this._mrFilter.services.includes(svc)) this._mrFilter.services.push(svc);
+    } else {
+      this._mrFilter.services = this._mrFilter.services.filter(s => s !== svc);
+    }
+    this.renderMasterRateApplyPreview();
+  },
   renderMasterRateApplyPreview() {
     const plan = this.computeMasterRatePlan();
     const content = document.getElementById('shipMasterRateApplyContent');
@@ -7282,10 +7291,10 @@ Object.assign(Shipping, {
       const q = f.search.toLowerCase();
       changed = changed.filter(x => x.name.toLowerCase().includes(q));
     }
-    if (f.service) {
+    if (Array.isArray(f.services) && f.services.length > 0) {
       changed = changed.filter(x => {
         const pol = this.policies.find(p => p.id === x.id);
-        return pol && pol.service === f.service;
+        return pol && f.services.includes(pol.service);
       });
     }
     if (f.vero === 'yes') {
@@ -7371,13 +7380,14 @@ Object.assign(Shipping, {
         <!-- 🔍 フィルタ行 -->
         <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
           <input type="text" placeholder="🔍 ポリシー名で検索…" value="${(f.search||'').replace(/"/g,'&quot;')}" oninput="Shipping._mrFilter.search = this.value; Shipping.renderMasterRateApplyPreview()" style="flex:1; min-width:140px; padding:5px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" />
-          <select onchange="Shipping._mrFilter.service = this.value; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px;">
-            <option value="" ${!f.service?'selected':''}>全サービス</option>
-            <option value="Expedited" ${f.service==='Expedited'?'selected':''}>Expedited</option>
-            <option value="Economy" ${f.service==='Economy'?'selected':''}>Economy</option>
-            <option value="Standard" ${f.service==='Standard'?'selected':''}>Standard</option>
-            <option value="Other" ${f.service==='Other'?'selected':''}>Other</option>
-          </select>
+          <div style="display:flex; gap:10px; align-items:center; font-size:11px;">
+            <span style="color:#374151; font-weight:600;">サービス:</span>
+            ${['Expedited','Economy','Standard','Other'].map(svc => `
+              <label style="cursor:pointer; display:flex; gap:3px; align-items:center; margin:0;">
+                <input type="checkbox" ${(f.services||[]).includes(svc)?'checked':''} onchange="Shipping.toggleMRServiceFilter('${svc}', this.checked)" /> ${svc}
+              </label>
+            `).join('')}
+          </div>
           <select onchange="Shipping._mrFilter.vero = this.value; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px;">
             <option value="" ${!f.vero?'selected':''}>VeRO/非VeRO 全て</option>
             <option value="yes" ${f.vero==='yes'?'selected':''}>VeROのみ</option>
@@ -7388,7 +7398,7 @@ Object.assign(Shipping, {
             <option value="up" ${f.direction==='up'?'selected':''}>送料↑(値上がり)</option>
             <option value="down" ${f.direction==='down'?'selected':''}>送料↓(値下がり)</option>
           </select>
-          <button type="button" onclick="Shipping._mrFilter = { search:'', service:'', vero:'', direction:'' }; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 10px; background:#fff; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;">クリア</button>
+          <button type="button" onclick="Shipping._mrFilter = { search:'', services:[], vero:'', direction:'' }; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 10px; background:#fff; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;">クリア</button>
           <span style="font-size:11px; color:#6b7280; margin-left:auto;">表示 <strong>${changed.length}</strong> / <strong>${totalChanged}</strong> 件</span>
         </div>
 
