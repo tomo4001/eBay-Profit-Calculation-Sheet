@@ -8543,12 +8543,24 @@ Object.assign(Shipping, {
       </label>
     `).join('');
 
+    const serviceDefBanner = s._useServiceDefaults ? `
+      <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:10px 12px; margin-bottom:10px; display:flex; align-items:center; gap:10px;">
+        <div style="font-weight:700; color:#166534; font-size:13px;">🔄 サービス別デフォルトモード ON</div>
+        <div style="flex:1; font-size:11px; color:#166534;">
+          表示中の値は <strong>${s._dominantService || 'Expedited'}</strong>(優勢サービス)のデフォルト。
+          適用時は<strong>各ポリシーが自分のサービス(Expedited/Economy/Standard)の defaults を適用</strong>します。
+        </div>
+        <button class="ship-btn-cancel" style="padding:4px 12px; font-size:11px;" onclick="Shipping.bulkEditExitServiceDefaultsMode()">手動モードに切替</button>
+      </div>
+    ` : '';
+
     content.innerHTML = `
       <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#1e40af;">
         📊 <strong>選択 ${this.selected.size}件</strong> / 内訳: ${serviceBreakdown} / VeRO: ${veroCount}件
       </div>
+      ${serviceDefBanner}
 
-      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px; ${s._useServiceDefaults ? 'pointer-events:none; opacity:0.65;' : ''}" title="${s._useServiceDefaults ? 'サービス別デフォルトモード中: 編集するには上のバナーから手動モードに切り替えてください' : ''}">
         <thead style="background:#f9fafb; border-bottom:2px solid #e5e7eb;">
           <tr>
             <th style="padding:8px; width:40px; text-align:center;">適用</th>
@@ -8696,31 +8708,37 @@ Object.assign(Shipping, {
     this.renderBulkEditForm();
   },
   bulkEditApplyAllDefaults() {
-    // 全項目を ON にして UI を更新
-    // 値は適用時にサービス別デフォルトから動的に取得するため、ここでは「使うフラグ」を立てるだけ
     const s = this.bulkEditState;
-    s.shippingMethod.enabled = true;
-    s.domCostType.enabled = true;
-    s.domServiceCode.enabled = true;
-    s.intlServiceCode.enabled = true;
-    s.intlCost.enabled = true;
-    s.handlingTime.enabled = true;
-    s.destinations.enabled = true;
-    s.excluded.enabled = true;
-    s.domesticCost.enabled = true;
-    s.domesticCost.useMaster = true;
-    s.domesticAddtl.enabled = true;
-    s.domesticAddtl.mode = 'serviceDefault';
-    // 各値は「サービス別デフォルト」に印を付ける(値はそのまま、apply時にサービス別に解決)
+    // 選択中の優勢サービスを判定(視覚的に "値" を埋めるための参照)
+    const selectedPolicies = this.getSelectedPolicies();
+    const serviceCounts = {};
+    selectedPolicies.forEach(p => { serviceCounts[p.service] = (serviceCounts[p.service] || 0) + 1; });
+    const dominantService = Object.entries(serviceCounts)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || 'Expedited';
+    const refDef = this.defaults[dominantService] || this.defaults.Expedited || {};
+    s._dominantService = dominantService;
+
+    // 全項目 ON + 値を優勢サービスの defaults に設定(視覚的フィードバック)
+    s.shippingMethod = { enabled: true, value: refDef.shippingMethod || 'STANDARD' };
+    s.domCostType    = { enabled: true, value: refDef.domCostType || 'FLAT_RATE' };
+    s.domServiceCode = { enabled: true, value: refDef.domServiceCode || (SHIP_DOMESTIC_SERVICES[0]?.code || '') };
+    s.intlServiceCode= { enabled: true, value: refDef.intlServiceCode || (SHIP_INTERNATIONAL_SERVICES[0]?.code || '') };
+    s.intlCost       = { enabled: true, value: refDef.intlCost || 0, addtl: refDef.intlAddtlCost || 0 };
+    s.handlingTime   = { enabled: true, value: refDef.handlingTime || 10 };
+    s.destinations   = { enabled: true, value: (refDef.destinations || SHIP_INTL_DESTINATIONS.map(d => d.code)).slice() };
+    s.excluded       = { enabled: true, mode: 'default' };
+    s.domesticCost   = { enabled: true, useMaster: true };
+    s.domesticAddtl  = { enabled: true, mode: 'serviceDefault', percent: refDef.addtlPercent || 100, fixed: 0 };
+
+    // _useServiceDefaults を立てる: apply時は各ポリシーの service の defaults を優先
     s._useServiceDefaults = true;
     this.renderBulkEditForm();
-    // 視覚フィードバック
-    const cnt = document.getElementById('shipBulkEditCount');
-    if (cnt) {
-      const orig = cnt.innerHTML;
-      cnt.innerHTML = orig + ' <span style="color:#16a34a;">📋 全項目=デフォルトに設定済み</span>';
-      setTimeout(() => { cnt.innerHTML = orig; }, 3000);
-    }
+  },
+  // ユーザーが手動値に切替
+  bulkEditExitServiceDefaultsMode() {
+    this.bulkEditState._useServiceDefaults = false;
+    this.bulkEditState._dominantService = null;
+    this.renderBulkEditForm();
   },
   applyBulkEdit() {
     const s = this.bulkEditState;
