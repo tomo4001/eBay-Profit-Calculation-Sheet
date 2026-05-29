@@ -7263,14 +7263,47 @@ Object.assign(Shipping, {
   },
 
   _mrSortKey: 'diffDesc',
+  _mrFilter: { search: '', service: '', vero: '', direction: '' },
   renderMasterRateApplyPreview() {
     const plan = this.computeMasterRatePlan();
     const content = document.getElementById('shipMasterRateApplyContent');
     const rate = this.masterRate || 25;
     const eligible = plan.filter(x => !x.skippable);
-    const changed = eligible.filter(x => Math.abs(x.diff) > 0.001);
+    let changed = eligible.filter(x => Math.abs(x.diff) > 0.001);
     const sameAlready = eligible.filter(x => Math.abs(x.diff) < 0.001);
     const skipped = plan.filter(x => x.skippable);
+
+    // 全変更件数(フィルタ前の母数)
+    const totalChanged = changed.length;
+
+    // 🔍 フィルタ適用
+    const f = this._mrFilter || {};
+    if (f.search) {
+      const q = f.search.toLowerCase();
+      changed = changed.filter(x => x.name.toLowerCase().includes(q));
+    }
+    if (f.service) {
+      changed = changed.filter(x => {
+        const pol = this.policies.find(p => p.id === x.id);
+        return pol && pol.service === f.service;
+      });
+    }
+    if (f.vero === 'yes') {
+      changed = changed.filter(x => {
+        const pol = this.policies.find(p => p.id === x.id);
+        return pol && pol.vero;
+      });
+    } else if (f.vero === 'no') {
+      changed = changed.filter(x => {
+        const pol = this.policies.find(p => p.id === x.id);
+        return pol && !pol.vero;
+      });
+    }
+    if (f.direction === 'up') {
+      changed = changed.filter(x => x.diff > 0);
+    } else if (f.direction === 'down') {
+      changed = changed.filter(x => x.diff < 0);
+    }
 
     // ソート(現在のチェックボックス状態を維持)
     const checkedIds = new Set(Array.from(document.querySelectorAll('.ship-mr-row:checked')).map(cb => cb.dataset.pid));
@@ -7335,9 +7368,34 @@ Object.assign(Shipping, {
           ✓ すべてのポリシーが既にマスター率(${rate}%)通りです。書き戻しの必要はありません。
         </div>
       ` : `
+        <!-- 🔍 フィルタ行 -->
+        <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
+          <input type="text" placeholder="🔍 ポリシー名で検索…" value="${(f.search||'').replace(/"/g,'&quot;')}" oninput="Shipping._mrFilter.search = this.value; Shipping.renderMasterRateApplyPreview()" style="flex:1; min-width:140px; padding:5px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" />
+          <select onchange="Shipping._mrFilter.service = this.value; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px;">
+            <option value="" ${!f.service?'selected':''}>全サービス</option>
+            <option value="Expedited" ${f.service==='Expedited'?'selected':''}>Expedited</option>
+            <option value="Economy" ${f.service==='Economy'?'selected':''}>Economy</option>
+            <option value="Standard" ${f.service==='Standard'?'selected':''}>Standard</option>
+            <option value="Other" ${f.service==='Other'?'selected':''}>Other</option>
+          </select>
+          <select onchange="Shipping._mrFilter.vero = this.value; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px;">
+            <option value="" ${!f.vero?'selected':''}>VeRO/非VeRO 全て</option>
+            <option value="yes" ${f.vero==='yes'?'selected':''}>VeROのみ</option>
+            <option value="no" ${f.vero==='no'?'selected':''}>非VeROのみ</option>
+          </select>
+          <select onchange="Shipping._mrFilter.direction = this.value; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px;">
+            <option value="" ${!f.direction?'selected':''}>送料の方向 全て</option>
+            <option value="up" ${f.direction==='up'?'selected':''}>送料↑(値上がり)</option>
+            <option value="down" ${f.direction==='down'?'selected':''}>送料↓(値下がり)</option>
+          </select>
+          <button type="button" onclick="Shipping._mrFilter = { search:'', service:'', vero:'', direction:'' }; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:5px 10px; background:#fff; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;">クリア</button>
+          <span style="font-size:11px; color:#6b7280; margin-left:auto;">表示 <strong>${changed.length}</strong> / <strong>${totalChanged}</strong> 件</span>
+        </div>
+
+        <!-- ✓ 全選択 + 並び順 -->
         <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <button class="btn" type="button" onclick="Shipping.toggleAllMRRows(true)" style="font-size:12px; padding:4px 12px;">✓ 全選択</button>
-          <button class="btn secondary" type="button" onclick="Shipping.toggleAllMRRows(false)" style="font-size:12px; padding:4px 12px;">全解除</button>
+          <button class="btn" type="button" onclick="Shipping.toggleAllMRRows(true)" style="font-size:12px; padding:4px 12px;">✓ 全選択(表示中)</button>
+          <button class="btn secondary" type="button" onclick="Shipping.toggleAllMRRows(false)" style="font-size:12px; padding:4px 12px;">全解除(表示中)</button>
           <span style="font-size:11px; color:#6b7280; margin-left:8px;">チェックを外したものは適用されません</span>
           <span style="margin-left:auto; display:flex; gap:6px; align-items:center;">
             <label style="font-size:11px; color:#374151; font-weight:600; margin:0;">並び順:</label>
