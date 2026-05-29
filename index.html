@@ -2523,8 +2523,9 @@
 
     <div class="ship-bulk-bar" id="shipBulkBar" style="display:none;">
       <span><strong id="shipSelectedCount">0</strong> 件選択中</span>
-      <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations 一括変更</button>
-      <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国 一括変更(追加/解除)</button>
+      <button class="ship-bulk-btn" style="background:#7c3aed; color:#fff;" onclick="Shipping.openBulkEditModal()">🔧 一括編集 (全項目)</button>
+      <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations</button>
+      <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国(追加/解除)</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
     </div>
 
@@ -8282,6 +8283,325 @@ Object.assign(Shipping, {
     }, 50);
   },
 
+  // =====================================================================
+  // 🔧 一括編集モーダル (Phase 2-F+) — 全項目対応
+  // =====================================================================
+  bulkEditState: {
+    shippingMethod: { enabled: false, value: 'STANDARD' },
+    domCostType:    { enabled: false, value: 'FLAT_RATE' },
+    domServiceCode: { enabled: false, value: '' },
+    intlServiceCode:{ enabled: false, value: '' },
+    intlCost:       { enabled: false, value: 0, addtl: 0 },
+    handlingTime:   { enabled: false, value: 10 },
+    destinations:   { enabled: false, value: [] },
+    excluded:       { enabled: false, mode: 'default' }, // 'default' or 'add' or 'remove' or 'set'
+    domesticCost:   { enabled: false, useMaster: true }, // 'マスター率で再計算' or 明示送料
+  },
+  openBulkEditModal() {
+    if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
+    document.getElementById('shipBulkEditCount').textContent = this.selected.size;
+    // 状態リセット
+    this.bulkEditState = {
+      shippingMethod: { enabled: false, value: 'STANDARD' },
+      domCostType:    { enabled: false, value: 'FLAT_RATE' },
+      domServiceCode: { enabled: false, value: SHIP_DOMESTIC_SERVICES[0]?.code || '' },
+      intlServiceCode:{ enabled: false, value: SHIP_INTERNATIONAL_SERVICES[0]?.code || '' },
+      intlCost:       { enabled: false, value: 0, addtl: 0 },
+      handlingTime:   { enabled: false, value: 10 },
+      destinations:   { enabled: false, value: SHIP_INTL_DESTINATIONS.map(d => d.code) },
+      excluded:       { enabled: false, mode: 'default' },
+      domesticCost:   { enabled: false, useMaster: true },
+    };
+    this.renderBulkEditForm();
+    document.getElementById('shipBulkEditModal').classList.add('active');
+  },
+  renderBulkEditForm() {
+    const s = this.bulkEditState;
+    const content = document.getElementById('shipBulkEditContent');
+    const selectedPolicies = this.getSelectedPolicies();
+    // サービス内訳
+    const serviceCounts = selectedPolicies.reduce((acc, p) => {
+      acc[p.service] = (acc[p.service] || 0) + 1;
+      return acc;
+    }, {});
+    const serviceBreakdown = Object.entries(serviceCounts).map(([k, v]) => `${k}:${v}件`).join(' / ');
+    const veroCount = selectedPolicies.filter(p => p.vero).length;
+
+    const ck = (id, enabled) => `<input type="checkbox" id="${id}" ${enabled?'checked':''} onchange="Shipping.bulkEditToggleField('${id.replace('beField_','')}', this.checked)" />`;
+
+    const domServiceOpts = SHIP_DOMESTIC_SERVICES.map(svc => `<option value="${svc.code}" ${svc.code===s.domServiceCode.value?'selected':''}>${svc.label} — ${svc.days} business days</option>`).join('');
+    const intlServiceOpts = SHIP_INTERNATIONAL_SERVICES.map(svc => `<option value="${svc.code}" ${svc.code===s.intlServiceCode.value?'selected':''}>${svc.label} — ${svc.days} business days</option>`).join('');
+
+    const destChecks = SHIP_INTL_DESTINATIONS.map(d => `
+      <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:4px; font-size:11px; cursor:pointer; margin:0;">
+        <span style="flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${d.label}</span>
+        <input type="checkbox" ${s.destinations.value.includes(d.code)?'checked':''} onchange="Shipping.bulkEditToggleDest('${d.code}', this.checked)" />
+      </label>
+    `).join('');
+
+    content.innerHTML = `
+      <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#1e40af;">
+        📊 <strong>選択 ${this.selected.size}件</strong> / 内訳: ${serviceBreakdown} / VeRO: ${veroCount}件
+      </div>
+
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead style="background:#f9fafb; border-bottom:2px solid #e5e7eb;">
+          <tr>
+            <th style="padding:8px; width:40px; text-align:center;">適用</th>
+            <th style="padding:8px; text-align:left; width:160px;">項目</th>
+            <th style="padding:8px; text-align:left;">値</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_shippingMethod', s.shippingMethod.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">Shipping Method</td>
+            <td style="padding:8px;">
+              <select id="be_shippingMethod" onchange="Shipping.bulkEditState.shippingMethod.value = this.value" ${s.shippingMethod.enabled?'':'disabled style="opacity:0.5;"'}>
+                <option value="STANDARD" ${s.shippingMethod.value==='STANDARD'?'selected':''}>Standard shipping</option>
+                <option value="FREIGHT" ${s.shippingMethod.value==='FREIGHT'?'selected':''}>Freight</option>
+                <option value="NO_SHIPPING" ${s.shippingMethod.value==='NO_SHIPPING'?'selected':''}>No shipping (local pickup)</option>
+              </select>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_domCostType', s.domCostType.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">Domestic Cost Type</td>
+            <td style="padding:8px;">
+              <select id="be_domCostType" onchange="Shipping.bulkEditState.domCostType.value = this.value" ${s.domCostType.enabled?'':'disabled style="opacity:0.5;"'}>
+                <option value="FLAT_RATE" ${s.domCostType.value==='FLAT_RATE'?'selected':''}>Flat: same cost regardless of buyer location</option>
+                <option value="CALCULATED" ${s.domCostType.value==='CALCULATED'?'selected':''}>Calculated: based on size/weight</option>
+              </select>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_domServiceCode', s.domServiceCode.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">Domestic Service</td>
+            <td style="padding:8px;">
+              <select id="be_domServiceCode" onchange="Shipping.bulkEditState.domServiceCode.value = this.value" ${s.domServiceCode.enabled?'':'disabled style="opacity:0.5;"'}>
+                ${domServiceOpts}
+              </select>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_domesticCost', s.domesticCost.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">Domestic 送料</td>
+            <td style="padding:8px;">
+              <label style="font-size:12px; cursor:pointer;"><input type="checkbox" ${s.domesticCost.useMaster?'checked':''} onchange="Shipping.bulkEditState.domesticCost.useMaster = this.checked" ${s.domesticCost.enabled?'':'disabled'} />
+                マスター率(${this.masterRate}%) × 価格上限 で再計算</label>
+              <div style="font-size:11px; color:#888; margin-top:4px;">※ 価格上限が不明なポリシーはスキップ</div>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_intlServiceCode', s.intlServiceCode.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">International Service</td>
+            <td style="padding:8px;">
+              <select id="be_intlServiceCode" onchange="Shipping.bulkEditState.intlServiceCode.value = this.value" ${s.intlServiceCode.enabled?'':'disabled style="opacity:0.5;"'}>
+                ${intlServiceOpts}
+              </select>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_intlCost', s.intlCost.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">International 送料</td>
+            <td style="padding:8px;">
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                <span>$</span>
+                <input type="number" step="0.01" value="${s.intlCost.value}" style="width:80px;" oninput="Shipping.bulkEditState.intlCost.value = parseFloat(this.value)||0" ${s.intlCost.enabled?'':'disabled'} />
+                <span style="font-size:11px; color:#666; margin-left:8px;">追加:</span>
+                <span>$</span>
+                <input type="number" step="0.01" value="${s.intlCost.addtl}" style="width:80px;" oninput="Shipping.bulkEditState.intlCost.addtl = parseFloat(this.value)||0" ${s.intlCost.enabled?'':'disabled'} />
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center;">${ck('beField_handlingTime', s.handlingTime.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">Handling Time</td>
+            <td style="padding:8px;">
+              <select id="be_handlingTime" onchange="Shipping.bulkEditState.handlingTime.value = parseInt(this.value)" ${s.handlingTime.enabled?'':'disabled style="opacity:0.5;"'}>
+                ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${s.handlingTime.value===v?'selected':''}>${v} 営業日</option>`).join('')}
+              </select>
+            </td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:8px; text-align:center; vertical-align:top;">${ck('beField_destinations', s.destinations.enabled)}</td>
+            <td style="padding:8px; font-weight:600; vertical-align:top;">Destinations <br><span style="font-size:10px; font-weight:normal; color:#888;">(13地域)</span></td>
+            <td style="padding:8px;">
+              <div style="display:flex; gap:6px; margin-bottom:6px;">
+                <button type="button" onclick="Shipping.bulkEditToggleAllDest(true)" style="background:#2563eb; color:#fff; border:none; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:11px;" ${s.destinations.enabled?'':'disabled'}>✓ 全選択</button>
+                <button type="button" onclick="Shipping.bulkEditToggleAllDest(false)" style="background:#fff; border:1px solid #d1d5db; color:#4b5563; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:11px;" ${s.destinations.enabled?'':'disabled'}>全解除</button>
+                <span style="font-size:11px; color:#888; align-self:center;">${s.destinations.value.length}/13</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:4px; ${s.destinations.enabled?'':'opacity:0.5;'}">${destChecks}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px; text-align:center;">${ck('beField_excluded', s.excluded.enabled)}</td>
+            <td style="padding:8px; font-weight:600;">除外国</td>
+            <td style="padding:8px; font-size:12px;">
+              ${s.excluded.enabled ? '✓ <strong>各サービスのデフォルト除外国に上書き</strong>(VeRO の場合はヨーロッパも追加)' : '<span style="color:#888;">チェックを入れるとサービスデフォルトに上書きされます</span>'}
+              <div style="font-size:11px; color:#888; margin-top:4px;">※ 細かい追加/解除は別途「🚫 除外国(追加/解除)」モーダルから</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:12px; margin-top:14px; font-size:11px; color:#374151;">
+        💡 「📋 全項目をデフォルトに揃える」を押すと、上のチェックボックスを全 ON にして、各サービス種別のデフォルト値を入れます。
+        その後 ✓ ローカルに適用 を押すと選択中の全ポリシーに反映されます。
+      </div>
+    `;
+  },
+  bulkEditToggleField(field, enabled) {
+    if (this.bulkEditState[field]) this.bulkEditState[field].enabled = enabled;
+    this.renderBulkEditForm();
+  },
+  bulkEditToggleDest(code, checked) {
+    const list = this.bulkEditState.destinations.value;
+    if (checked) {
+      if (!list.includes(code)) list.push(code);
+    } else {
+      this.bulkEditState.destinations.value = list.filter(c => c !== code);
+    }
+    this.renderBulkEditForm();
+  },
+  bulkEditToggleAllDest(all) {
+    this.bulkEditState.destinations.value = all ? SHIP_INTL_DESTINATIONS.map(d => d.code) : [];
+    this.renderBulkEditForm();
+  },
+  bulkEditApplyAllDefaults() {
+    // 全項目を ON にして UI を更新
+    // 値は適用時にサービス別デフォルトから動的に取得するため、ここでは「使うフラグ」を立てるだけ
+    const s = this.bulkEditState;
+    s.shippingMethod.enabled = true;
+    s.domCostType.enabled = true;
+    s.domServiceCode.enabled = true;
+    s.intlServiceCode.enabled = true;
+    s.intlCost.enabled = true;
+    s.handlingTime.enabled = true;
+    s.destinations.enabled = true;
+    s.excluded.enabled = true;
+    s.domesticCost.enabled = true;
+    s.domesticCost.useMaster = true;
+    // 各値は「サービス別デフォルト」に印を付ける(値はそのまま、apply時にサービス別に解決)
+    s._useServiceDefaults = true;
+    this.renderBulkEditForm();
+    // 視覚フィードバック
+    const cnt = document.getElementById('shipBulkEditCount');
+    if (cnt) {
+      const orig = cnt.innerHTML;
+      cnt.innerHTML = orig + ' <span style="color:#16a34a;">📋 全項目=デフォルトに設定済み</span>';
+      setTimeout(() => { cnt.innerHTML = orig; }, 3000);
+    }
+  },
+  applyBulkEdit() {
+    const s = this.bulkEditState;
+    const selected = this.getSelectedPolicies();
+    if (selected.length === 0) { alert('対象のポリシーがありません'); return; }
+
+    // 何も選択されてない
+    const anyEnabled = Object.keys(s).filter(k => !k.startsWith('_')).some(k => s[k].enabled);
+    if (!anyEnabled) { alert('適用する項目を1つ以上選択してください'); return; }
+
+    if (!confirm(`${selected.length}件のポリシーに一括適用します。\n\nローカルのみ反映され、eBay には書き戻されません。\n\nよろしいですか?`)) return;
+
+    let changedCount = 0;
+    const useDefaults = !!s._useServiceDefaults;
+    selected.forEach(p => {
+      const def = this.defaults[p.service];
+      if (!p._raw) p._raw = {};
+
+      // Shipping Method
+      if (s.shippingMethod.enabled) {
+        const v = useDefaults && def ? (def.shippingMethod || 'STANDARD') : s.shippingMethod.value;
+        p._raw.shippingMethod = v;
+        p._raw.freightShipping = (v === 'FREIGHT');
+        p._raw.localPickup = (v === 'NO_SHIPPING');
+      }
+
+      // Domestic / Intl の共通: shippingOptions を初期化
+      if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
+      let dom = p._raw.shippingOptions.find(o => o.optionType === 'DOMESTIC');
+      if (!dom) {
+        dom = { optionType: 'DOMESTIC', shippingServices: [{}] };
+        p._raw.shippingOptions.push(dom);
+      }
+      if (!dom.shippingServices || dom.shippingServices.length === 0) dom.shippingServices = [{}];
+
+      // Domestic Cost Type
+      if (s.domCostType.enabled) {
+        dom.costType = useDefaults && def ? (def.domCostType || 'FLAT_RATE') : s.domCostType.value;
+      }
+      // Domestic Service Code
+      if (s.domServiceCode.enabled) {
+        dom.shippingServices[0].shippingServiceCode = useDefaults && def ? (def.domServiceCode || '') : s.domServiceCode.value;
+      }
+      // Domestic Cost (マスター率で再計算)
+      if (s.domesticCost.enabled && s.domesticCost.useMaster && p.priceMax != null) {
+        const newCost = Math.round(p.priceMax * (this.masterRate / 100) * 100) / 100;
+        dom.shippingServices[0].shippingCost = { value: newCost.toFixed(2), currency: 'USD' };
+        p.domesticCost = newCost;
+      }
+
+      // International
+      let intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
+      if (s.intlServiceCode.enabled || s.intlCost.enabled) {
+        if (!intl) {
+          intl = { optionType: 'INTERNATIONAL', costType: 'FLAT_RATE', shippingServices: [{}] };
+          p._raw.shippingOptions.push(intl);
+        }
+        if (!intl.shippingServices || intl.shippingServices.length === 0) intl.shippingServices = [{}];
+      }
+      if (s.intlServiceCode.enabled && intl) {
+        intl.shippingServices[0].shippingServiceCode = useDefaults && def ? (def.intlServiceCode || '') : s.intlServiceCode.value;
+      }
+      if (s.intlCost.enabled && intl) {
+        const ic = useDefaults && def ? (def.intlCost || 0) : s.intlCost.value;
+        const iac = useDefaults && def ? (def.intlAddtlCost || 0) : s.intlCost.addtl;
+        intl.shippingServices[0].shippingCost = { value: ic.toFixed(2), currency: 'USD' };
+        intl.shippingServices[0].additionalShippingCost = { value: iac.toFixed(2), currency: 'USD' };
+      }
+
+      // Destinations (Intl)
+      if (s.destinations.enabled && intl) {
+        const dst = useDefaults && def ? (def.destinations || []) : s.destinations.value;
+        intl.shippingServices[0].shipToLocations = { regionIncluded: dst.map(d => ({ regionName: d })) };
+      }
+
+      // Handling Time
+      if (s.handlingTime.enabled) {
+        const ht = useDefaults && def ? (def.handlingTime || 10) : s.handlingTime.value;
+        p.handlingTime = ht;
+        p._raw.handlingTime = { value: ht, unit: 'DAY' };
+      }
+
+      // Excluded countries (デフォルトに上書き、VeRO ならヨーロッパ追加)
+      if (s.excluded.enabled && def) {
+        const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
+        const expected = Array.from(new Set([...(def.baseExcluded || []), ...veroAdds]));
+        p.excluded = expected;
+        if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
+        p._raw.shipToLocations.regionExcluded = expected.map(c => ({ regionName: c }));
+      }
+
+      // 名前を自動生成パターンに従う場合は再生成
+      if (this.policyFollowsAutoTitlePattern(p)) {
+        const auto = this.computeAutoTitleForPolicy(p);
+        if (auto && auto !== p.name) {
+          p.name = auto;
+          if (p._raw) p._raw.name = auto;
+        }
+      }
+
+      changedCount++;
+    });
+
+    this.savePoliciesCache();
+    this.renderList();
+    this.closeModal('shipBulkEditModal');
+    alert(`✓ ${changedCount}件のポリシーに一括適用しました。\n\n※ eBay 上のポリシーは変更されていません(eBay 書込は Phase 2-G)`);
+  },
+
   // 📌 タイトル自動生成 (Phase 2-E.5+: ボタン無し型 — 値変更で即座に名前を自動更新)
   // 形式: "${Service} ${Days} Days ${priceMin}~${priceMax}$ [VeRO] (${cost}$)"
   // _nameUserEdited が true の間は自動更新を停止(ユーザー編集を尊重)
@@ -8879,6 +9199,32 @@ Object.assign(Shipping, {
 </div>
 
 <!-- ===== ✏️ 個別ポリシー編集モーダル ===== -->
+<!-- ===== 🔧 一括編集モーダル (全項目対応) ===== -->
+<div class="ship-modal-overlay" id="shipBulkEditModal">
+  <div class="ship-modal" style="max-width: 980px;">
+    <h2>🔧 一括編集 <span style="font-size:12px; color:#6b7280; font-weight:normal;">(選択中 <strong id="shipBulkEditCount" style="color:#7c3aed;">0</strong> 件)</span></h2>
+    <p style="font-size:12px; color:#666; margin-top:0;">
+      各項目のチェックボックスで適用対象を選択。値を入力して「✓ 適用」で選択中のポリシー全部に反映(ローカルのみ)。
+    </p>
+
+    <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+      <div style="font-weight:700; color:#92400e; margin-bottom:6px;">📋 全項目をデフォルトに揃える</div>
+      <div style="font-size:12px; color:#92400e; margin-bottom:8px;">
+        各ポリシーのサービス種別(Expedited/Economy/Standard)に応じたデフォルト値を一括適用。
+        VeRO ポリシーはヨーロッパが除外に追加されます。Domestic 送料は <strong>価格上限 × マスター率%</strong> で再計算。
+      </div>
+      <button class="ship-btn-save" onclick="Shipping.bulkEditApplyAllDefaults()" style="background:#f59e0b;">📋 全項目をデフォルトに揃える</button>
+    </div>
+
+    <div id="shipBulkEditContent"></div>
+
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkEditModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.applyBulkEdit()">✓ 選択した項目を適用</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 📸 スナップショット管理モーダル ===== -->
 <div class="ship-modal-overlay" id="shipSnapshotModal">
   <div class="ship-modal" style="max-width: 880px;">
