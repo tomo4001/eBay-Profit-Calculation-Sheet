@@ -6189,6 +6189,8 @@ const Shipping = {
   initIfNeeded() {
     // 🔧 マスター率を localStorage と DOM から確実に同期(TDZ 回避のため init 直後ではここで)
     this.syncMasterRate();
+    // 🔧 デフォルト設定も localStorage から復元(ユーザーが設定を変えてリロードした場合に必須)
+    this.loadSettings();
 
     if (this.policies.length === 0 && !this.isLoading) {
       // localStorage キャッシュから復元を試みる
@@ -7053,12 +7055,12 @@ Object.assign(Shipping, {
           <label style="padding-top:6px;">Domestic Each additional<br><span style="font-weight:normal; font-size:11px; color:#888;">(2個目以降の追加送料の算出方法)</span></label>
           <div>
             <label style="display:flex; gap:6px; align-items:center; cursor:pointer; font-weight:normal; margin-bottom:6px;">
-              <input type="radio" name="shipDefAddtlMode" value="same" ${(d.addtlMode||'same')==='same'?'checked':''} onchange="Shipping.defaults['${svc}'].addtlMode='same'; Shipping.renderDefaultForm();" />
+              <input type="radio" name="shipDefAddtlMode" value="same" ${(d.addtlMode||'same')==='same'?'checked':''} onchange="Shipping.defaults['${svc}'].addtlMode='same'; Shipping._persistDefaults(); Shipping.renderDefaultForm();" />
               <span><strong>送料と同額</strong>(例: 送料 $65 → 追加 $65)</span>
             </label>
             <label style="display:flex; gap:6px; align-items:center; cursor:pointer; font-weight:normal;">
-              <input type="radio" name="shipDefAddtlMode" value="percent" ${(d.addtlMode||'same')==='percent'?'checked':''} onchange="Shipping.defaults['${svc}'].addtlMode='percent'; Shipping.renderDefaultForm();" />
-              <span>送料の <input type="number" id="shipDefAddtlPercent" step="1" min="0" max="200" value="${d.addtlPercent != null ? d.addtlPercent : 100}" style="width:60px; padding:3px 6px; border:1px solid #d1d5db; border-radius:4px;" ${(d.addtlMode||'same')!=='percent'?'disabled':''} oninput="Shipping.defaults['${svc}'].addtlPercent = parseFloat(this.value)||0" />% (例: 50 = 送料の半額)</span>
+              <input type="radio" name="shipDefAddtlMode" value="percent" ${(d.addtlMode||'same')==='percent'?'checked':''} onchange="Shipping.defaults['${svc}'].addtlMode='percent'; Shipping._persistDefaults(); Shipping.renderDefaultForm();" />
+              <span>送料の <input type="number" id="shipDefAddtlPercent" step="1" min="0" max="200" value="${d.addtlPercent != null ? d.addtlPercent : 100}" style="width:60px; padding:3px 6px; border:1px solid #d1d5db; border-radius:4px;" ${(d.addtlMode||'same')!=='percent'?'disabled':''} oninput="Shipping.defaults['${svc}'].addtlPercent = parseFloat(this.value)||0; Shipping._persistDefaults();" />% (例: 50 = 送料の半額)</span>
             </label>
             <div style="font-size:11px; color:#888; margin-top:6px;">
               💡 マスター率一括適用時、各サービスのこの設定で Each additional が計算されます
@@ -7102,6 +7104,10 @@ Object.assign(Shipping, {
       </div>
     `;
   },
+  // デフォルトを localStorage に永続化(全更新パスから呼ぶ)
+  _persistDefaults() {
+    try { localStorage.setItem(SHIP_STORAGE_DEFAULTS, JSON.stringify(this.defaults)); } catch (e) {}
+  },
   toggleDefaultDestination(code, checked) {
     const d = this.defaults[this.currentDefaultType];
     if (!Array.isArray(d.destinations)) d.destinations = [];
@@ -7110,11 +7116,13 @@ Object.assign(Shipping, {
     } else {
       d.destinations = d.destinations.filter(c => c !== code);
     }
+    this._persistDefaults();
     this.renderDefaultForm();
   },
   toggleAllDefaultDest(all) {
     const d = this.defaults[this.currentDefaultType];
     d.destinations = all ? SHIP_INTL_DESTINATIONS.map(x => x.code) : [];
+    this._persistDefaults();
     this.renderDefaultForm();
   },
   toggleDefaultExcluded(code, checked) {
@@ -7124,6 +7132,7 @@ Object.assign(Shipping, {
     } else {
       this.defaults[this.currentDefaultType].baseExcluded = list.filter(c => c !== code);
     }
+    this._persistDefaults();
     this.renderDefaultForm();
   },
   toggleAllInGroup(groupName, checked) {
@@ -7135,6 +7144,7 @@ Object.assign(Shipping, {
       if (checked) set.add(c); else set.delete(c);
     });
     this.defaults[this.currentDefaultType].baseExcluded = Array.from(set);
+    this._persistDefaults();
     this.renderDefaultForm();
   },
   addDefaultExcluded() {
@@ -7157,12 +7167,14 @@ Object.assign(Shipping, {
     if (!list.includes(code)) list.push(code);
     this.defaults[this.currentDefaultType].baseExcluded = list;
     input.value = '';
+    this._persistDefaults();
     this.renderDefaultForm();
     setTimeout(() => document.getElementById('shipDefNewExcluded')?.focus(), 50);
   },
   removeDefaultExcluded(code) {
     const list = this.defaults[this.currentDefaultType].baseExcluded || [];
     this.defaults[this.currentDefaultType].baseExcluded = list.filter(c => c !== code);
+    this._persistDefaults();
     this.renderDefaultForm();
   },
   collectCurrentDefaultForm() {
@@ -8505,8 +8517,9 @@ Object.assign(Shipping, {
   },
   openBulkEditModal() {
     if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
-    // 🔧 開く度に最新のマスター率を同期
+    // 🔧 開く度に最新のマスター率 + デフォルト設定を同期
     this.syncMasterRate();
+    this.loadSettings();
     document.getElementById('shipBulkEditCount').textContent = this.selected.size;
     // 状態リセット
     this.bulkEditState = {
@@ -8713,6 +8726,8 @@ Object.assign(Shipping, {
     this.renderBulkEditForm();
   },
   bulkEditApplyAllDefaults() {
+    // 確実に最新の defaults を読み込む(loadSettings 経由)
+    this.loadSettings();
     const s = this.bulkEditState;
     // 選択中の優勢サービスを判定(視覚的に "値" を埋めるための参照)
     const selectedPolicies = this.getSelectedPolicies();
@@ -8722,6 +8737,9 @@ Object.assign(Shipping, {
       .sort((a, b) => b[1] - a[1])[0]?.[0] || 'Expedited';
     const refDef = this.defaults[dominantService] || this.defaults.Expedited || {};
     s._dominantService = dominantService;
+    // 🔍 診断ログ: 何が読み込まれたか確認
+    console.log('[BulkEdit] 全項目をデフォルトに揃える / 優勢サービス:', dominantService);
+    console.log('[BulkEdit] 使用するデフォルト:', JSON.parse(JSON.stringify(refDef)));
 
     // 全項目 ON + 値を優勢サービスの defaults に設定(視覚的フィードバック)
     s.shippingMethod = { enabled: true, value: refDef.shippingMethod || 'STANDARD' };
