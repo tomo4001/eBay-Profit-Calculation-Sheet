@@ -7262,6 +7262,7 @@ Object.assign(Shipping, {
     document.getElementById('shipMasterRateApplyModal').classList.add('active');
   },
 
+  _mrSortKey: 'diffDesc',
   renderMasterRateApplyPreview() {
     const plan = this.computeMasterRatePlan();
     const content = document.getElementById('shipMasterRateApplyContent');
@@ -7271,19 +7272,44 @@ Object.assign(Shipping, {
     const sameAlready = eligible.filter(x => Math.abs(x.diff) < 0.001);
     const skipped = plan.filter(x => x.skippable);
 
-    // Sort changed by largest absolute diff first
-    changed.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+    // ソート(現在のチェックボックス状態を維持)
+    const checkedIds = new Set(Array.from(document.querySelectorAll('.ship-mr-row:checked')).map(cb => cb.dataset.pid));
+    const hasCheckedState = checkedIds.size > 0 || document.querySelectorAll('.ship-mr-row').length > 0;
+    const sortKey = this._mrSortKey || 'diffDesc';
+    const serviceOrder = { Expedited: 0, Economy: 1, Standard: 2, Other: 9 };
+    changed.sort((a, b) => {
+      const polA = this.policies.find(p => p.id === a.id);
+      const polB = this.policies.find(p => p.id === b.id);
+      switch (sortKey) {
+        case 'diffDesc':       return Math.abs(b.diff) - Math.abs(a.diff);
+        case 'diffAsc':        return Math.abs(a.diff) - Math.abs(b.diff);
+        case 'name':           return a.name.localeCompare(b.name);
+        case 'priceMaxAsc':    return (a.priceMax || 0) - (b.priceMax || 0);
+        case 'priceMaxDesc':   return (b.priceMax || 0) - (a.priceMax || 0);
+        case 'currentAsc':     return a.currentCost - b.currentCost;
+        case 'currentDesc':    return b.currentCost - a.currentCost;
+        case 'expectedAsc':    return a.expected - b.expected;
+        case 'expectedDesc':   return b.expected - a.expected;
+        case 'serviceThenPrice':
+          return ((serviceOrder[polA?.service] ?? 9) - (serviceOrder[polB?.service] ?? 9)) ||
+                 ((a.priceMax || 0) - (b.priceMax || 0));
+        default: return Math.abs(b.diff) - Math.abs(a.diff);
+      }
+    });
 
-    const rowsHtml = changed.map(x => `
+    const rowsHtml = changed.map(x => {
+      // 既存のチェック状態を維持(再描画時にユーザー選択を失わない)
+      const isChecked = !hasCheckedState || checkedIds.has(x.id);
+      return `
       <tr>
-        <td><label style="cursor:pointer;"><input type="checkbox" class="ship-mr-row" data-pid="${x.id}" checked /></label></td>
+        <td><label style="cursor:pointer;"><input type="checkbox" class="ship-mr-row" data-pid="${x.id}" ${isChecked?'checked':''} /></label></td>
         <td style="font-size:11px;">${x.name}</td>
         <td style="text-align:center; font-size:11px; color:#6b7280;">${x.priceMax != null ? '$' + x.priceMax : '-'}</td>
         <td style="text-align:right; font-family:monospace; font-size:12px;">$${x.currentCost.toFixed(2)}</td>
         <td style="text-align:right; font-family:monospace; font-size:12px; color:#1e40af; font-weight:600;">$${x.expected.toFixed(2)}</td>
         <td style="text-align:right; font-family:monospace; font-size:12px; color:${x.diff > 0 ? '#16a34a' : '#dc2626'};">${x.diff > 0 ? '+' : ''}$${x.diff.toFixed(2)}</td>
       </tr>
-    `).join('');
+    `;}).join('');
 
     const skippedHtml = skipped.length === 0 ? '' : `
       <details style="margin-top:12px;">
@@ -7309,10 +7335,25 @@ Object.assign(Shipping, {
           ✓ すべてのポリシーが既にマスター率(${rate}%)通りです。書き戻しの必要はありません。
         </div>
       ` : `
-        <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center;">
+        <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <button class="btn" type="button" onclick="Shipping.toggleAllMRRows(true)" style="font-size:12px; padding:4px 12px;">✓ 全選択</button>
           <button class="btn secondary" type="button" onclick="Shipping.toggleAllMRRows(false)" style="font-size:12px; padding:4px 12px;">全解除</button>
           <span style="font-size:11px; color:#6b7280; margin-left:8px;">チェックを外したものは適用されません</span>
+          <span style="margin-left:auto; display:flex; gap:6px; align-items:center;">
+            <label style="font-size:11px; color:#374151; font-weight:600; margin:0;">並び順:</label>
+            <select onchange="Shipping._mrSortKey = this.value; Shipping.renderMasterRateApplyPreview()" style="font-size:11px; padding:4px 8px; border:1px solid #d1d5db; border-radius:4px;">
+              <option value="diffDesc" ${sortKey==='diffDesc'?'selected':''}>差分(大→小)</option>
+              <option value="diffAsc" ${sortKey==='diffAsc'?'selected':''}>差分(小→大)</option>
+              <option value="serviceThenPrice" ${sortKey==='serviceThenPrice'?'selected':''}>サービス → 価格上限</option>
+              <option value="priceMaxAsc" ${sortKey==='priceMaxAsc'?'selected':''}>価格上限(昇順)</option>
+              <option value="priceMaxDesc" ${sortKey==='priceMaxDesc'?'selected':''}>価格上限(降順)</option>
+              <option value="currentAsc" ${sortKey==='currentAsc'?'selected':''}>現在送料(昇順)</option>
+              <option value="currentDesc" ${sortKey==='currentDesc'?'selected':''}>現在送料(降順)</option>
+              <option value="expectedAsc" ${sortKey==='expectedAsc'?'selected':''}>適用後送料(昇順)</option>
+              <option value="expectedDesc" ${sortKey==='expectedDesc'?'selected':''}>適用後送料(降順)</option>
+              <option value="name" ${sortKey==='name'?'selected':''}>ポリシー名</option>
+            </select>
+          </span>
         </div>
         <div style="max-height:380px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px;">
           <table style="width:100%; border-collapse:collapse; font-size:12px;">
