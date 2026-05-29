@@ -6783,6 +6783,8 @@ Object.assign(Shipping, {
       handlingTime:    10,
       baseExcluded:    SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(),
       veroAddRegions:  ['Europe'],                   // VeRO時に追加する地域(個別26カ国でなく地域指定)
+      addtlMode:       'same',                       // Each additional 計算方法: 'same' (送料と同額) or 'percent'
+      addtlPercent:    100,                          // 'percent' 時の % (例: 50 = 送料の 50%)
     },
     Economy: {
       shippingMethod:  'STANDARD',
@@ -6795,6 +6797,8 @@ Object.assign(Shipping, {
       handlingTime:    20,
       baseExcluded:    SHIP_ECONOMY_DEFAULT_EXCLUDED.slice(),
       veroAddRegions:  ['Europe'],
+      addtlMode:       'same',
+      addtlPercent:    100,
     },
     Standard: {
       shippingMethod:  'STANDARD',
@@ -6807,6 +6811,8 @@ Object.assign(Shipping, {
       handlingTime:    15,
       baseExcluded:    SHIP_EXPEDITED_DEFAULT_EXCLUDED.slice(),  // Standardは Expedited と同じ
       veroAddRegions:  ['Europe'],
+      addtlMode:       'same',
+      addtlPercent:    100,
     },
   },
   specialRules: [
@@ -7044,6 +7050,23 @@ Object.assign(Shipping, {
         </div>
 
         <div class="ship-field" style="align-items:flex-start;">
+          <label style="padding-top:6px;">Domestic Each additional<br><span style="font-weight:normal; font-size:11px; color:#888;">(2個目以降の追加送料の算出方法)</span></label>
+          <div>
+            <label style="display:flex; gap:6px; align-items:center; cursor:pointer; font-weight:normal; margin-bottom:6px;">
+              <input type="radio" name="shipDefAddtlMode" value="same" ${(d.addtlMode||'same')==='same'?'checked':''} onchange="Shipping.defaults['${svc}'].addtlMode='same'; Shipping.renderDefaultForm();" />
+              <span><strong>送料と同額</strong>(例: 送料 $65 → 追加 $65)</span>
+            </label>
+            <label style="display:flex; gap:6px; align-items:center; cursor:pointer; font-weight:normal;">
+              <input type="radio" name="shipDefAddtlMode" value="percent" ${(d.addtlMode||'same')==='percent'?'checked':''} onchange="Shipping.defaults['${svc}'].addtlMode='percent'; Shipping.renderDefaultForm();" />
+              <span>送料の <input type="number" id="shipDefAddtlPercent" step="1" min="0" max="200" value="${d.addtlPercent != null ? d.addtlPercent : 100}" style="width:60px; padding:3px 6px; border:1px solid #d1d5db; border-radius:4px;" ${(d.addtlMode||'same')!=='percent'?'disabled':''} oninput="Shipping.defaults['${svc}'].addtlPercent = parseFloat(this.value)||0" />% (例: 50 = 送料の半額)</span>
+            </label>
+            <div style="font-size:11px; color:#888; margin-top:6px;">
+              💡 マスター率一括適用時、各サービスのこの設定で Each additional が計算されます
+            </div>
+          </div>
+        </div>
+
+        <div class="ship-field" style="align-items:flex-start;">
           <label style="padding-top:6px;">Default Destinations<br><span style="font-weight:normal; font-size:11px; color:#888;">(発送先13地域)</span></label>
           <div>
             <div style="display:flex; gap:8px; margin-bottom:6px;">
@@ -7174,6 +7197,15 @@ Object.assign(Shipping, {
       if (!isNaN(n)) d.intlAddtlCost = n;
     }
 
+    // Domestic Each additional の計算モード
+    // addtlMode は radio の onchange でリアルタイム更新されるので、フォーム描画時点の値を保持
+    // addtlPercent は input の oninput でリアルタイム更新済みだが、最終値を念のため読む
+    const addtlPctEl = document.getElementById('shipDefAddtlPercent');
+    if (addtlPctEl) {
+      const n = parseFloat(addtlPctEl.value);
+      if (!isNaN(n)) d.addtlPercent = n;
+    }
+
     const ht = v('shipDefHT');
     if (ht) d.handlingTime = parseInt(ht);
 
@@ -7235,8 +7267,19 @@ Object.assign(Shipping, {
       if (dom && domSvc && dom.costType && dom.costType !== 'FLAT_RATE') reasons.push(`Cost Type が ${dom.costType}(FLAT_RATE のみ対応)`);
 
       const currentCost = (domSvc && domSvc.shippingCost && parseFloat(domSvc.shippingCost.value)) || 0;
+      const currentAddtl = (domSvc && domSvc.additionalShippingCost && parseFloat(domSvc.additionalShippingCost.value)) || 0;
       const expected = (p.priceMax != null) ? Math.round(p.priceMax * rate * 100) / 100 : null;
+      // Each additional の期待値はサービス別設定で計算
+      const def = this.defaults[p.service];
+      const addtlMode = (def && def.addtlMode) || 'same';
+      const addtlPercent = (def && def.addtlPercent != null) ? def.addtlPercent : 100;
+      const expectedAddtl = (expected != null)
+        ? (addtlMode === 'percent' ? Math.round(expected * (addtlPercent / 100) * 100) / 100 : expected)
+        : null;
       const diff = (expected != null) ? Math.round((expected - currentCost) * 100) / 100 : null;
+      const addtlDiff = (expectedAddtl != null) ? Math.round((expectedAddtl - currentAddtl) * 100) / 100 : null;
+      // "実質的な変更が必要か" は shippingCost と additionalShippingCost のどちらかがズレていれば true
+      const needsUpdate = (expected != null) && (Math.abs(diff) > 0.001 || Math.abs(addtlDiff) > 0.001);
 
       plan.push({
         id: p.id,
@@ -7244,8 +7287,12 @@ Object.assign(Shipping, {
         service: p.service,
         priceMax: p.priceMax,
         currentCost,
+        currentAddtl,
         expected,
+        expectedAddtl,
         diff,
+        addtlDiff,
+        needsUpdate,
         skippable: reasons.length > 0,
         reasons,
       });
@@ -7278,8 +7325,9 @@ Object.assign(Shipping, {
     const content = document.getElementById('shipMasterRateApplyContent');
     const rate = this.masterRate || 25;
     const eligible = plan.filter(x => !x.skippable);
-    let changed = eligible.filter(x => Math.abs(x.diff) > 0.001);
-    const sameAlready = eligible.filter(x => Math.abs(x.diff) < 0.001);
+    // 送料 or Each additional のどちらかがズレていれば "変更が必要" と判定
+    let changed = eligible.filter(x => x.needsUpdate);
+    const sameAlready = eligible.filter(x => !x.needsUpdate);
     const skipped = plan.filter(x => x.skippable);
 
     // 全変更件数(フィルタ前の母数)
@@ -7342,13 +7390,23 @@ Object.assign(Shipping, {
     const rowsHtml = changed.map(x => {
       // 既存のチェック状態を維持(再描画時にユーザー選択を失わない)
       const isChecked = !hasCheckedState || checkedIds.has(x.id);
+      // 現在の値表示: shippingCost と additionalShippingCost が異なる場合は両方表示
+      const sameCurrent = Math.abs(x.currentCost - x.currentAddtl) < 0.001;
+      const currentDisplay = sameCurrent
+        ? `$${x.currentCost.toFixed(2)}`
+        : `$${x.currentCost.toFixed(2)}<br><span style="font-size:10px; color:#92400e;">addtl: $${x.currentAddtl.toFixed(2)}</span>`;
+      // 適用後の値表示: addtl が cost と異なる場合は両方表示
+      const sameExpected = x.expectedAddtl != null && Math.abs(x.expected - x.expectedAddtl) < 0.001;
+      const expectedDisplay = sameExpected
+        ? `$${x.expected.toFixed(2)}`
+        : `$${x.expected.toFixed(2)}<br><span style="font-size:10px; color:#1e40af;">addtl: $${(x.expectedAddtl != null ? x.expectedAddtl : x.expected).toFixed(2)}</span>`;
       return `
       <tr>
         <td><label style="cursor:pointer;"><input type="checkbox" class="ship-mr-row" data-pid="${x.id}" ${isChecked?'checked':''} /></label></td>
         <td style="font-size:11px;">${x.name}</td>
         <td style="text-align:center; font-size:11px; color:#6b7280;">${x.priceMax != null ? '$' + x.priceMax : '-'}</td>
-        <td style="text-align:right; font-family:monospace; font-size:12px;">$${x.currentCost.toFixed(2)}</td>
-        <td style="text-align:right; font-family:monospace; font-size:12px; color:#1e40af; font-weight:600;">$${x.expected.toFixed(2)}</td>
+        <td style="text-align:right; font-family:monospace; font-size:12px;">${currentDisplay}</td>
+        <td style="text-align:right; font-family:monospace; font-size:12px; color:#1e40af; font-weight:600;">${expectedDisplay}</td>
         <td style="text-align:right; font-family:monospace; font-size:12px; color:${x.diff > 0 ? '#16a34a' : '#dc2626'};">${x.diff > 0 ? '+' : ''}$${x.diff.toFixed(2)}</td>
       </tr>
     `;}).join('');
@@ -7366,7 +7424,7 @@ Object.assign(Shipping, {
       <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:14px; margin-bottom:14px;">
         <div style="font-weight:700; font-size:15px; color:#1e3a8a; margin-bottom:6px;">🌍 マスター率: ${rate}%</div>
         <div style="font-size:12px; color:#1e3a8a;">
-          各ポリシーの Domestic 送料を <strong>価格上限 × ${rate}%</strong> に再計算します。<br>
+          各ポリシーの Domestic <strong>送料 + Each additional</strong> を <strong>価格上限 × ${rate}%</strong> に再計算します(両方とも同じ値)。<br>
           <strong>${changed.length}件</strong> の変更が必要 / <strong>${sameAlready.length}件</strong> は既にマスター率通り / <strong>${skipped.length}件</strong> はスキップ対象。<br>
           📌 自動生成パターン("Service N Days A~B$ (C$)")に従う名前のポリシーは、<strong>名前の (送料$) 部分も自動更新</strong>されます。
         </div>
@@ -7499,6 +7557,14 @@ Object.assign(Shipping, {
       const ds = dom.shippingServices[0];
       const currency = (ds.shippingCost && ds.shippingCost.currency) || 'USD';
       ds.shippingCost = { value: expected.toFixed(2), currency };
+      // Each additional はサービス別デフォルトの設定で計算
+      const def = this.defaults[p.service];
+      const addtlMode = (def && def.addtlMode) || 'same';
+      const addtlPercent = (def && def.addtlPercent != null) ? def.addtlPercent : 100;
+      const addtlValue = addtlMode === 'percent'
+        ? Math.round(expected * (addtlPercent / 100) * 100) / 100
+        : expected;
+      ds.additionalShippingCost = { value: addtlValue.toFixed(2), currency };
 
       // ローカル状態を反映
       p._raw = updated;
@@ -8675,10 +8741,17 @@ Object.assign(Shipping, {
       if (s.domServiceCode.enabled) {
         dom.shippingServices[0].shippingServiceCode = useDefaults && def ? (def.domServiceCode || '') : s.domServiceCode.value;
       }
-      // Domestic Cost (マスター率で再計算)
+      // Domestic Cost (マスター率で再計算) — Each additional はサービス別設定で計算
       if (s.domesticCost.enabled && s.domesticCost.useMaster && p.priceMax != null) {
         const newCost = Math.round(p.priceMax * (this.masterRate / 100) * 100) / 100;
+        const sdef = this.defaults[p.service];
+        const addtlMode = (sdef && sdef.addtlMode) || 'same';
+        const addtlPercent = (sdef && sdef.addtlPercent != null) ? sdef.addtlPercent : 100;
+        const addtlVal = addtlMode === 'percent'
+          ? Math.round(newCost * (addtlPercent / 100) * 100) / 100
+          : newCost;
         dom.shippingServices[0].shippingCost = { value: newCost.toFixed(2), currency: 'USD' };
+        dom.shippingServices[0].additionalShippingCost = { value: addtlVal.toFixed(2), currency: 'USD' };
         p.domesticCost = newCost;
       }
 
