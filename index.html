@@ -7646,8 +7646,33 @@ Object.assign(Shipping, {
 
         <div class="ship-field">
           <label>ポリシー名</label>
-          <input type="text" id="shipEditPolicyName" value="${(p.name || '').replace(/"/g, '&quot;')}" maxlength="65" />
+          <input type="text" id="shipEditPolicyName" value="${(p.name || '').replace(/"/g, '&quot;')}" maxlength="65" oninput="Shipping.markNameUserEdited()" />
         </div>
+
+        <!-- 📌 タイトル自動生成 (ライブプレビュー + 価格レンジ入力) -->
+        <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:10px 14px; margin-bottom:10px;">
+          <div style="font-weight:700; color:#1e3a8a; font-size:12px; margin-bottom:8px;">📌 タイトル自動生成</div>
+          <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+            <div style="display:flex; gap:4px; align-items:center;">
+              <label style="font-size:11px; color:#1e3a8a; font-weight:600; margin:0;">価格レンジ:</label>
+              <span>$</span>
+              <input type="number" id="shipEditPriceMin" step="0.01" value="${p.priceMin != null ? p.priceMin : ''}" placeholder="下限" style="width:70px; padding:4px 6px; border:1px solid #93c5fd; border-radius:4px; font-size:12px;" oninput="Shipping.updateTitlePreview()" />
+              <span>〜</span>
+              <span>$</span>
+              <input type="number" id="shipEditPriceMax" step="0.01" value="${p.priceMax != null ? p.priceMax : ''}" placeholder="上限" style="width:70px; padding:4px 6px; border:1px solid #93c5fd; border-radius:4px; font-size:12px;" oninput="Shipping.updateTitlePreview()" />
+            </div>
+            <label style="font-size:11px; color:#1e3a8a; font-weight:600; margin:0; cursor:pointer;">
+              <input type="checkbox" id="shipEditVeroFlag" ${p.vero ? 'checked' : ''} onchange="Shipping.updateTitlePreview()" /> VeRO
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:11px; color:#666;">提案:</span>
+            <code id="shipEditTitlePreview" style="background:#fff; padding:4px 10px; border-radius:4px; font-size:12px; color:#1e40af; font-family:monospace; flex:1 1 auto; min-width:200px;">-</code>
+            <button type="button" class="ship-btn-save" style="padding:4px 14px; font-size:11px;" onclick="Shipping.applyTitlePreviewToName()">📋 名前に反映</button>
+          </div>
+          <div id="shipEditTitleAutoNote" style="font-size:10px; color:#666; margin-top:6px;"></div>
+        </div>
+
         <div class="ship-field" style="align-items:flex-start;">
           <label style="padding-top:6px;">Description<br><span style="font-weight:normal; font-size:11px; color:#888;">(説明・メモ用)</span></label>
           <textarea id="shipEditPolicyDescription" rows="3" placeholder="例: FedEx・DHL・UPS 配送準備期間10日 230~260$ アメリカ関税込">${(rawDescription || '').replace(/</g, '&lt;')}</textarea>
@@ -7694,7 +7719,7 @@ Object.assign(Shipping, {
           <label>Shipping Cost</label>
           <div style="display:flex; gap:8px; align-items:center;">
             <span>$</span>
-            <input type="number" id="shipEditDomCost" step="0.01" value="${domCostVal.toFixed(2)}" style="width:120px;" />
+            <input type="number" id="shipEditDomCost" step="0.01" value="${domCostVal.toFixed(2)}" style="width:120px;" oninput="Shipping.updateTitlePreview()" />
           </div>
         </div>
         <div class="ship-field">
@@ -7732,7 +7757,7 @@ Object.assign(Shipping, {
         <div class="ship-field${fieldDiffClass('handlingTime')}">
           <label>ハンドリングタイム</label>
           <div style="flex:1;">
-            <select id="shipEditPolicyHT">
+            <select id="shipEditPolicyHT" onchange="Shipping.updateTitlePreview()">
               ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${p.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
             </select>
             ${fieldResetBanner('handlingTime')}
@@ -7755,6 +7780,12 @@ Object.assign(Shipping, {
 
     // International services を描画
     this.renderEditIntlServices();
+
+    // 📌 タイトル自動生成プレビューを初期化
+    // 新規作成時は手動編集フラグをリセット(自動提案がそのまま入る)
+    if (this.isCreatingNew) this._nameUserEdited = false;
+    else this._nameUserEdited = true;  // 既存編集は手動編集扱い(勝手に上書きしない)
+    this.updateTitlePreview();
 
     // resetFieldToDefault による snapshot がある場合は値を復元
     if (this._editFormSnapshot) {
@@ -8222,6 +8253,82 @@ Object.assign(Shipping, {
     }, 50);
   },
 
+  // 📌 タイトル自動生成 (Phase 2-E.5: モックの updateTitlePreview を本番移植)
+  // 形式: "${Service} ${Days} Days ${priceMin}~${priceMax}$ [VeRO] (${cost}$)"
+  _nameUserEdited: false,
+  markNameUserEdited() {
+    this._nameUserEdited = true;
+    const note = document.getElementById('shipEditTitleAutoNote');
+    if (note) note.innerHTML = '✏️ 名前を手動編集中です。「📋 名前に反映」を押すと提案で上書きされます。';
+  },
+  computeAutoTitle() {
+    // 各種フィールドから現在値を読む
+    const nameEl = document.getElementById('shipEditPolicyName');
+    const curName = (nameEl?.value || '').trim();
+    // Service: 現在の名前から推測 (Expedited/Economy/Standard で始まらない場合は Domestic Service コードから推測)
+    let service = 'Expedited';
+    const lower = curName.toLowerCase();
+    if (lower.startsWith('expedited')) service = 'Expedited';
+    else if (lower.startsWith('economy')) service = 'Economy';
+    else if (lower.startsWith('standard')) service = 'Standard';
+    else {
+      // Domestic service コードから推測
+      const sc = document.getElementById('shipEditDomServiceCode')?.value || '';
+      if (sc.toLowerCase().includes('expedit')) service = 'Expedited';
+      else if (sc.toLowerCase().includes('econom')) service = 'Economy';
+      else if (sc.toLowerCase().includes('standard')) service = 'Standard';
+    }
+
+    // HT
+    const htVal = parseInt(document.getElementById('shipEditPolicyHT')?.value || '10');
+    const days = isNaN(htVal) ? '?' : htVal;
+
+    // 価格レンジ(専用入力欄から)
+    const pminVal = document.getElementById('shipEditPriceMin')?.value;
+    const pmaxVal = document.getElementById('shipEditPriceMax')?.value;
+    const pmin = (pminVal !== '' && pminVal != null) ? pminVal : '?';
+    const pmax = (pmaxVal !== '' && pmaxVal != null) ? pmaxVal : '?';
+
+    // VeRO
+    const isVero = document.getElementById('shipEditVeroFlag')?.checked;
+    const veroTag = isVero ? ' VeRO' : '';
+
+    // Domestic送料
+    const cost = parseFloat(document.getElementById('shipEditDomCost')?.value || '0');
+    const costStr = isNaN(cost) ? '?' : cost.toFixed(2).replace(/\.00$/, '').replace(/\.50$/, '.5');
+
+    return `${service} ${days} Days ${pmin}~${pmax}$${veroTag} (${costStr}$)`;
+  },
+  updateTitlePreview() {
+    const previewEl = document.getElementById('shipEditTitlePreview');
+    if (!previewEl) return;
+    const auto = this.computeAutoTitle();
+    previewEl.textContent = auto;
+    // ユーザー未編集 + 新規作成中の場合は自動で反映
+    if (!this._nameUserEdited && this.isCreatingNew) {
+      const nameEl = document.getElementById('shipEditPolicyName');
+      if (nameEl && !nameEl.value.trim()) {
+        // 空の場合は placeholder で見せる
+        nameEl.placeholder = auto;
+      }
+    }
+  },
+  applyTitlePreviewToName() {
+    const auto = this.computeAutoTitle();
+    const nameEl = document.getElementById('shipEditPolicyName');
+    if (!nameEl) return;
+    if (nameEl.value.trim() && nameEl.value.trim() !== auto) {
+      if (!confirm(`現在の名前:\n"${nameEl.value}"\n\n提案で上書きします:\n"${auto}"\n\nよろしいですか?`)) return;
+    }
+    nameEl.value = auto;
+    this._nameUserEdited = false;
+    const note = document.getElementById('shipEditTitleAutoNote');
+    if (note) note.innerHTML = '✓ 提案を名前に反映しました。';
+    setTimeout(() => {
+      if (note) note.innerHTML = '';
+    }, 2500);
+  },
+
   toggleEditPolicyExcluded(code, checked) {
     if (checked) {
       if (!this.editingPolicyExcluded.includes(code)) this.editingPolicyExcluded.push(code);
@@ -8462,7 +8569,7 @@ Object.assign(Shipping, {
       if (newName) {
         p.name = newName;
         p._raw.name = newName;
-        // 名前から価格レンジを再抽出
+        // 名前から価格レンジを再抽出(フォールバック)
         const rangeMatch = newName.match(/(\d+(?:\.\d+)?)[~\-](\d+(?:\.\d+)?)\$/);
         if (rangeMatch) {
           p.priceMin = parseFloat(rangeMatch[1]);
@@ -8482,6 +8589,19 @@ Object.assign(Shipping, {
         p.service = service;
       }
     }
+    // ----- 価格レンジ・VeRO 入力欄からの値で上書き(名前から取れた値より優先) -----
+    const pminEl = document.getElementById('shipEditPriceMin');
+    const pmaxEl = document.getElementById('shipEditPriceMax');
+    if (pminEl && pminEl.value !== '') {
+      const v = parseFloat(pminEl.value);
+      if (!isNaN(v)) p.priceMin = v;
+    }
+    if (pmaxEl && pmaxEl.value !== '') {
+      const v = parseFloat(pmaxEl.value);
+      if (!isNaN(v)) p.priceMax = v;
+    }
+    const veroEl = document.getElementById('shipEditVeroFlag');
+    if (veroEl) p.vero = veroEl.checked;
 
     // ----- Description -----
     const descEl = document.getElementById('shipEditPolicyDescription');
