@@ -2513,6 +2513,8 @@
           <option value="priceDesc">価格帯(降順)</option>
           <option value="costAsc">送料(昇順)</option>
           <option value="costDesc">送料(降順)</option>
+          <option value="htAsc">HT(短い順)</option>
+          <option value="htDesc">HT(長い順)</option>
           <option value="name">ポリシー名(あいうえお順)</option>
           <option value="excludedDesc">除外国数(降順)</option>
           <option value="diffDesc">個別設定の差分(多い順)</option>
@@ -2938,7 +2940,14 @@ function syncMasterRateToShipping() {
   // Shipping は const 宣言のため TDZ 期間中(init初期化中)は typeof でも例外になる。
   // try/catch で安全に。
   try {
-    if (typeof Shipping !== 'undefined') Shipping.masterRate = v;
+    if (typeof Shipping !== 'undefined') {
+      Shipping.masterRate = v;
+      // 一括編集モーダルが開いている場合は再描画してラベルを最新化
+      const beModal = document.getElementById('shipBulkEditModal');
+      if (beModal && beModal.classList.contains('active') && typeof Shipping.renderBulkEditForm === 'function') {
+        Shipping.renderBulkEditForm();
+      }
+    }
   } catch (e) { /* Shipping 未初期化: localStorage 経由で同期される */ }
   try { localStorage.setItem('shipping_master_rate_v1', String(v)); } catch (e) {}
 
@@ -6185,6 +6194,9 @@ const Shipping = {
 
   // タブ初回オープン時に呼ばれる
   initIfNeeded() {
+    // 🔧 マスター率を localStorage と DOM から確実に同期(TDZ 回避のため init 直後ではここで)
+    this.syncMasterRate();
+
     if (this.policies.length === 0 && !this.isLoading) {
       // localStorage キャッシュから復元を試みる
       const loaded = this.loadPoliciesCache();
@@ -6197,6 +6209,24 @@ const Shipping = {
         this.renderList();
       }
     }
+  },
+
+  // 🔧 マスター率を最新値で同期: DOM > localStorage > 既存値 の順
+  syncMasterRate() {
+    const mrEl = document.getElementById('masterShipRate');
+    if (mrEl) {
+      const v = parseFloat(mrEl.value);
+      if (!isNaN(v)) { this.masterRate = v; return v; }
+    }
+    try {
+      const v = parseFloat(localStorage.getItem('shipping_master_rate_v1'));
+      if (!isNaN(v)) { this.masterRate = v; return v; }
+    } catch (e) {}
+    return this.masterRate;
+  },
+  // 常に最新のマスター率を読みたい時に使う
+  getCurrentMasterRate() {
+    return this.syncMasterRate();
   },
 
   // ポリシー一覧をeBayから取得
@@ -6450,6 +6480,8 @@ const Shipping = {
         case 'priceDesc':   return (b.priceMin || 0) - (a.priceMin || 0);
         case 'costAsc':     return a.domesticCost - b.domesticCost;
         case 'costDesc':    return b.domesticCost - a.domesticCost;
+        case 'htAsc':       return (a.handlingTime == null ? 999 : a.handlingTime) - (b.handlingTime == null ? 999 : b.handlingTime);
+        case 'htDesc':      return (b.handlingTime == null ? -1 : b.handlingTime) - (a.handlingTime == null ? -1 : a.handlingTime);
         case 'name':        return a.name.localeCompare(b.name);
         case 'excludedDesc': return b.excluded.length - a.excluded.length;
         case 'diffDesc':    return getDiff(b).diffCount - getDiff(a).diffCount;
@@ -8299,6 +8331,8 @@ Object.assign(Shipping, {
   },
   openBulkEditModal() {
     if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
+    // 🔧 開く度に最新のマスター率を同期
+    this.syncMasterRate();
     document.getElementById('shipBulkEditCount').textContent = this.selected.size;
     // 状態リセット
     this.bulkEditState = {
@@ -8503,7 +8537,10 @@ Object.assign(Shipping, {
     const anyEnabled = Object.keys(s).filter(k => !k.startsWith('_')).some(k => s[k].enabled);
     if (!anyEnabled) { alert('適用する項目を1つ以上選択してください'); return; }
 
-    if (!confirm(`${selected.length}件のポリシーに一括適用します。\n\nローカルのみ反映され、eBay には書き戻されません。\n\nよろしいですか?`)) return;
+    // 🔧 適用直前に必ずマスター率を最新値に同期(モーダルを開いてから変更された可能性)
+    this.syncMasterRate();
+
+    if (!confirm(`${selected.length}件のポリシーに一括適用します。\n現在のマスター率: ${this.masterRate}%\n\nローカルのみ反映され、eBay には書き戻されません。\n\nよろしいですか?`)) return;
 
     let changedCount = 0;
     const useDefaults = !!s._useServiceDefaults;
