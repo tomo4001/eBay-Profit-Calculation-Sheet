@@ -7009,7 +7009,7 @@ Object.assign(Shipping, {
 
         <div class="ship-field">
           <label>Shipping Method</label>
-          <select id="shipDefShippingMethod">
+          <select id="shipDefShippingMethod" onchange="Shipping.collectCurrentDefaultForm()">
             <option value="STANDARD"    ${d.shippingMethod==='STANDARD'?'selected':''}>Standard shipping</option>
             <option value="FREIGHT"     ${d.shippingMethod==='FREIGHT'?'selected':''}>Freight</option>
             <option value="NO_SHIPPING" ${d.shippingMethod==='NO_SHIPPING'?'selected':''}>No shipping (local pickup)</option>
@@ -7018,7 +7018,7 @@ Object.assign(Shipping, {
 
         <div class="ship-field">
           <label>Domestic Cost Type</label>
-          <select id="shipDefDomCostType">
+          <select id="shipDefDomCostType" onchange="Shipping.collectCurrentDefaultForm()">
             <option value="FLAT_RATE"  ${d.domCostType==='FLAT_RATE'?'selected':''}>Flat: same cost regardless of buyer location</option>
             <option value="CALCULATED" ${d.domCostType==='CALCULATED'?'selected':''}>Calculated: based on size/weight</option>
           </select>
@@ -7026,14 +7026,14 @@ Object.assign(Shipping, {
 
         <div class="ship-field">
           <label>Domestic Service</label>
-          <select id="shipDefDomServiceCode">
+          <select id="shipDefDomServiceCode" onchange="Shipping.collectCurrentDefaultForm()">
             ${domServices.map(s => `<option value="${s.code}" ${s.code===d.domServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
           </select>
         </div>
 
         <div class="ship-field">
           <label>International Service</label>
-          <select id="shipDefIntlServiceCode">
+          <select id="shipDefIntlServiceCode" onchange="Shipping.collectCurrentDefaultForm()">
             ${intlServices.map(s => `<option value="${s.code}" ${s.code===d.intlServiceCode?'selected':''}>${s.label} — ${s.days} business days</option>`).join('')}
           </select>
         </div>
@@ -7042,10 +7042,10 @@ Object.assign(Shipping, {
           <label>International 送料</label>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <span>$</span>
-            <input type="number" id="shipDefIntlCost" step="0.01" value="${d.intlCost}" style="width:90px;" />
+            <input type="number" id="shipDefIntlCost" step="0.01" value="${d.intlCost}" style="width:90px;" oninput="Shipping.collectCurrentDefaultForm()" />
             <span style="margin-left:14px; color:#666; font-size:11px;">追加:</span>
             <span>$</span>
-            <input type="number" id="shipDefIntlAddtlCost" step="0.01" value="${d.intlAddtlCost}" style="width:90px;" />
+            <input type="number" id="shipDefIntlAddtlCost" step="0.01" value="${d.intlAddtlCost}" style="width:90px;" oninput="Shipping.collectCurrentDefaultForm()" />
           </div>
         </div>
 
@@ -7080,7 +7080,7 @@ Object.assign(Shipping, {
 
         <div class="ship-field">
           <label>Handling Time</label>
-          <select id="shipDefHT">
+          <select id="shipDefHT" onchange="Shipping.collectCurrentDefaultForm()">
             ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${d.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
           </select>
         </div>
@@ -7088,7 +7088,7 @@ Object.assign(Shipping, {
         <div class="ship-field">
           <label>VeRO 時の追加</label>
           <div style="display:flex; gap:14px;">
-            <label style="font-weight:normal; cursor:pointer;"><input type="checkbox" id="shipDefVeroAddEurope" ${(d.veroAddRegions||[]).includes('Europe')?'checked':''} /> ヨーロッパ地域全部を追加除外</label>
+            <label style="font-weight:normal; cursor:pointer;"><input type="checkbox" id="shipDefVeroAddEurope" ${(d.veroAddRegions||[]).includes('Europe')?'checked':''} onchange="Shipping.collectCurrentDefaultForm()" /> ヨーロッパ地域全部を追加除外</label>
           </div>
         </div>
 
@@ -7216,6 +7216,11 @@ Object.assign(Shipping, {
       if (veroEU) set.add('Europe'); else set.delete('Europe');
       d.veroAddRegions = Array.from(set);
     }
+
+    // 🔄 変更を localStorage に自動保存(オートセーブ。保存ボタンを押さなくても永続化)
+    try {
+      localStorage.setItem(SHIP_STORAGE_DEFAULTS, JSON.stringify(this.defaults));
+    } catch (e) {}
   },
 
   // 特別設定
