@@ -6735,6 +6735,13 @@ const SHIP_INTL_DESTINATIONS = [
   { code: 'AU',       label: 'Australia'               },
   { code: 'RU',       label: 'Russian Federation'      },
 ];
+// VeRO ポリシーで除外されるべき Destinations コード(Europe 関連)
+const SHIP_VERO_EXCLUDED_DESTINATIONS = ['Europe', 'GB', 'DE', 'FR'];
+// VeRO ポリシー用に Destinations から Europe 関連を除外するヘルパー
+function shipFilterDestinationsForVero(destinations, isVero) {
+  if (!isVero || !Array.isArray(destinations)) return destinations;
+  return destinations.filter(d => !SHIP_VERO_EXCLUDED_DESTINATIONS.includes(d));
+}
 
 // Domestic 用シッピングサービスコード(eBay UI で選択可能なサービス、Hartuoさんが実際に使うもの)
 const SHIP_DOMESTIC_SERVICES = [
@@ -8728,6 +8735,11 @@ Object.assign(Shipping, {
             <td style="padding:8px; text-align:center; vertical-align:top;">${ck('beField_destinations', s.destinations.enabled)}</td>
             <td style="padding:8px; font-weight:600; vertical-align:top;">Destinations <br><span style="font-size:10px; font-weight:normal; color:#888;">(13地域)</span></td>
             <td style="padding:8px;">
+              ${veroCount > 0 ? `
+                <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:4px; padding:6px 10px; font-size:11px; color:#92400e; margin-bottom:6px;">
+                  ⚠️ 選択中の <strong>${veroCount}件の VeRO ポリシー</strong> には、適用時に <strong>Europe / GB / DE / FR が自動除外</strong>されます(表示上はチェックされていても、VeRO ポリシーには反映されません)
+                </div>
+              ` : ''}
               <div style="display:flex; gap:6px; margin-bottom:6px;">
                 <button type="button" onclick="Shipping.bulkEditToggleAllDest(true)" style="background:#2563eb; color:#fff; border:none; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:11px;" ${s.destinations.enabled?'':'disabled'}>✓ 全選択</button>
                 <button type="button" onclick="Shipping.bulkEditToggleAllDest(false)" style="background:#fff; border:1px solid #d1d5db; color:#4b5563; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:11px;" ${s.destinations.enabled?'':'disabled'}>全解除</button>
@@ -8922,9 +8934,10 @@ Object.assign(Shipping, {
         intl.shippingServices[0].additionalShippingCost = { value: iac.toFixed(2), currency: 'USD' };
       }
 
-      // Destinations (Intl)
+      // Destinations (Intl) — VeRO ポリシーは Europe 関連を自動除外
       if (s.destinations.enabled && intl) {
-        const dst = useDefaults && def ? (def.destinations || []) : s.destinations.value;
+        const rawDst = useDefaults && def ? (def.destinations || []) : s.destinations.value;
+        const dst = shipFilterDestinationsForVero(rawDst, p.vero);
         intl.shippingServices[0].shipToLocations = { regionIncluded: dst.map(d => ({ regionName: d })) };
       }
 
@@ -9117,12 +9130,13 @@ Object.assign(Shipping, {
       if (daEl) daEl.value = addtlVal.toFixed(2);
     }
 
-    // International services を defaults でリセット
+    // International services を defaults でリセット — VeRO ポリシーは Europe 関連を Destinations から除外
+    const destForThisPolicy = shipFilterDestinationsForVero((freshDef.destinations || []).slice(), p.vero);
     this.editingIntlServices = [{
       serviceCode: freshDef.intlServiceCode || '',
       cost: freshDef.intlCost || 0,
       addtlCost: freshDef.intlAddtlCost || 0,
-      destinations: (freshDef.destinations || []).slice(),
+      destinations: destForThisPolicy,
     }];
 
     // 除外国を defaults で上書き
@@ -9159,22 +9173,25 @@ Object.assign(Shipping, {
     else if (field === 'domCostType')    snap.shipEditDomCostType       = def.domCostType;
     else if (field === 'domServiceCode') snap.shipEditDomServiceCode    = def.domServiceCode;
     else if (field === 'intlServiceCode') {
+      const destDef = shipFilterDestinationsForVero((def.destinations||[]).slice(), p.vero);
       if (this.editingIntlServices[0]) this.editingIntlServices[0].serviceCode = def.intlServiceCode;
-      else this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: (def.destinations||[]).slice() });
+      else this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: destDef });
     }
     else if (field === 'intlCost') {
+      const destDef = shipFilterDestinationsForVero((def.destinations||[]).slice(), p.vero);
       if (!this.editingIntlServices[0]) {
-        this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: (def.destinations||[]).slice() });
+        this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: destDef });
       } else {
         this.editingIntlServices[0].cost = def.intlCost || 0;
         this.editingIntlServices[0].addtlCost = def.intlAddtlCost || 0;
       }
     }
     else if (field === 'destinations') {
+      const destDef = shipFilterDestinationsForVero((def.destinations||[]).slice(), p.vero);
       if (!this.editingIntlServices[0]) {
-        this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: (def.destinations||[]).slice() });
+        this.editingIntlServices.push({ serviceCode: def.intlServiceCode, cost: def.intlCost||0, addtlCost: def.intlAddtlCost||0, destinations: destDef });
       } else {
-        this.editingIntlServices[0].destinations = (def.destinations || []).slice();
+        this.editingIntlServices[0].destinations = destDef;
       }
     }
     else if (field === 'excluded') {
