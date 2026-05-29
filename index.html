@@ -2503,6 +2503,22 @@
         </select>
       </div>
       <div class="ship-toolbar-field">
+        <label>HT</label>
+        <select id="shipFilterHT" onchange="Shipping.renderList()">
+          <option value="">全て</option>
+          <option value="1">1日</option>
+          <option value="2">2日</option>
+          <option value="3">3日</option>
+          <option value="4">4日</option>
+          <option value="5">5日</option>
+          <option value="10">10日</option>
+          <option value="15">15日</option>
+          <option value="20">20日</option>
+          <option value="30">30日</option>
+          <option value="40">40日</option>
+        </select>
+      </div>
+      <div class="ship-toolbar-field">
         <label>並び順</label>
         <select id="shipSortKey" onchange="Shipping.renderList()">
           <option value="serviceThenPrice">サービス → 価格帯(昇順)</option>
@@ -6440,6 +6456,7 @@ const Shipping = {
     const svc = document.getElementById('shipFilterService')?.value || '';
     const cls = document.getElementById('shipFilterClass')?.value || '';
     const status = document.getElementById('shipFilterStatus')?.value || '';
+    const htFilter = document.getElementById('shipFilterHT')?.value || '';
     const sortKey = document.getElementById('shipSortKey')?.value || 'serviceThenPrice';
 
     let list = this.policies.slice();
@@ -6450,6 +6467,10 @@ const Shipping = {
     if (cls === 'special')      list = list.filter(p => p.special);
     if (cls === 'legacy')       list = list.filter(p => p.isLegacy);
     if (cls === 'bulkEligible') list = list.filter(p => !p.special && !p.isLegacy);
+    if (htFilter) {
+      const htVal = parseInt(htFilter);
+      list = list.filter(p => p.handlingTime === htVal);
+    }
 
     // 状態フィルタ(デフォルト/個別設定)
     if (status) {
@@ -7866,6 +7887,16 @@ Object.assign(Shipping, {
       : [...SHIP_DOMESTIC_SERVICES, { code: domServiceCode, label: domServiceCode + ' (現在の設定)', days: '?' }];
 
     document.getElementById('shipEditPolicyContent').innerHTML = `
+      ${def && !this.isCreatingNew ? `
+        <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; padding:12px 14px; margin-bottom:14px; display:flex; align-items:center; gap:12px;">
+          <div style="font-weight:700; color:#92400e; font-size:13px;">📋 全項目を ${p.service} デフォルトに戻す</div>
+          <div style="flex:1; font-size:11px; color:#92400e;">
+            このポリシーの全項目を <strong>${p.service}</strong> デフォルト(${p.vero?'VeRO + ヨーロッパ追加除外':'非VeRO'})に上書きします。名前と Description は保持。Domestic送料はマスター率で再計算。
+          </div>
+          <button class="ship-btn-save" style="background:#f59e0b; padding:6px 14px; font-size:12px; white-space:nowrap;" onclick="Shipping.resetEditPolicyToAllDefaults()">↩ 全項目をデフォルトに戻す</button>
+        </div>
+      ` : ''}
+
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">📋 基本情報</div>
         <div style="font-size:12px; color:#666; margin-bottom:10px;">
@@ -9041,6 +9072,67 @@ Object.assign(Shipping, {
     } else {
       this.editingPolicyExcluded = this.editingPolicyExcluded.filter(c => c !== code);
     }
+    this.renderEditPolicyForm();
+  },
+
+  // 編集モーダル: このポリシーの全項目をサービス別 defaults で上書き
+  resetEditPolicyToAllDefaults() {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) return;
+    const def = this.defaults[p.service];
+    if (!def) { alert('このサービスにはデフォルトがありません(Other/Legacy 等)'); return; }
+
+    // 最新の defaults を読み込み(念のため)
+    this.loadSettings();
+    const freshDef = this.defaults[p.service] || def;
+
+    const veroAdds = (p.vero && freshDef.veroAddRegions) ? freshDef.veroAddRegions : [];
+
+    if (!confirm(`このポリシー "${p.name}" の全項目を ${p.service} のデフォルトに上書きします。\n\n変更される項目:\n・Shipping Method: ${freshDef.shippingMethod}\n・Domestic Cost Type: ${freshDef.domCostType}\n・Domestic Service: ${freshDef.domServiceCode}\n・Domestic 送料: 価格上限 × マスター率(${this.masterRate}%)\n・Each additional: ${freshDef.addtlMode==='percent'?'送料の '+freshDef.addtlPercent+'%':'送料と同額'}\n・International Service: ${freshDef.intlServiceCode}\n・International 送料: $${freshDef.intlCost} (追加 $${freshDef.intlAddtlCost})\n・Destinations: ${freshDef.destinations?.join(', ')}\n・Handling Time: ${freshDef.handlingTime}日\n・除外国: ${freshDef.baseExcluded?.length}項目${p.vero?' + ヨーロッパ':''}\n\n名前と Description は変更されません。\nよろしいですか?`)) return;
+
+    // 各フィールドを順次デフォルトに置換
+    // Shipping Method
+    const smEl = document.getElementById('shipEditShippingMethod');
+    if (smEl) smEl.value = freshDef.shippingMethod || 'STANDARD';
+
+    // Domestic Cost Type
+    const dctEl = document.getElementById('shipEditDomCostType');
+    if (dctEl) dctEl.value = freshDef.domCostType || 'FLAT_RATE';
+
+    // Domestic Service Code
+    const dscEl = document.getElementById('shipEditDomServiceCode');
+    if (dscEl) dscEl.value = freshDef.domServiceCode || '';
+
+    // Domestic Cost (マスター率 × 価格上限) + Each additional
+    if (p.priceMax != null) {
+      const newCost = Math.round(p.priceMax * (this.masterRate / 100) * 100) / 100;
+      const addtlMode = freshDef.addtlMode || 'same';
+      const addtlPercent = freshDef.addtlPercent != null ? freshDef.addtlPercent : 100;
+      const addtlVal = addtlMode === 'percent'
+        ? Math.round(newCost * (addtlPercent / 100) * 100) / 100
+        : newCost;
+      const dcEl = document.getElementById('shipEditDomCost');
+      const daEl = document.getElementById('shipEditDomAddtl');
+      if (dcEl) dcEl.value = newCost.toFixed(2);
+      if (daEl) daEl.value = addtlVal.toFixed(2);
+    }
+
+    // International services を defaults でリセット
+    this.editingIntlServices = [{
+      serviceCode: freshDef.intlServiceCode || '',
+      cost: freshDef.intlCost || 0,
+      addtlCost: freshDef.intlAddtlCost || 0,
+      destinations: (freshDef.destinations || []).slice(),
+    }];
+
+    // 除外国を defaults で上書き
+    this.editingPolicyExcluded = Array.from(new Set([...(freshDef.baseExcluded || []), ...veroAdds]));
+
+    // HT を defaults でセット(saveSnapshot 経由で復元)
+    if (!this._editFormSnapshot) this._editFormSnapshot = {};
+    this._editFormSnapshot.shipEditPolicyHT = String(freshDef.handlingTime || 10);
+
+    // フォーム全体を再描画(価格レンジ/VeRO/送料は維持)
     this.renderEditPolicyForm();
   },
 
