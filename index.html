@@ -8755,6 +8755,10 @@ Object.assign(Shipping, {
     console.log('[BulkEdit] 全項目をデフォルトに揃える / 優勢サービス:', dominantService);
     console.log('[BulkEdit] 使用するデフォルト:', JSON.parse(JSON.stringify(refDef)));
 
+    // 単一サービス選択かどうかを判定
+    const uniqueServices = Object.keys(serviceCounts);
+    const isSingleService = uniqueServices.length === 1;
+
     // 全項目 ON + 値を優勢サービスの defaults に設定(視覚的フィードバック)
     s.shippingMethod = { enabled: true, value: refDef.shippingMethod || 'STANDARD' };
     s.domCostType    = { enabled: true, value: refDef.domCostType || 'FLAT_RATE' };
@@ -8765,7 +8769,14 @@ Object.assign(Shipping, {
     s.destinations   = { enabled: true, value: (refDef.destinations || SHIP_INTL_DESTINATIONS.map(d => d.code)).slice() };
     s.excluded       = { enabled: true, mode: 'default' };
     s.domesticCost   = { enabled: true, useMaster: true };
-    s.domesticAddtl  = { enabled: true, mode: 'serviceDefault', percent: refDef.addtlPercent || 100, fixed: 0 };
+    // Each additional: 単一サービス選択時は実際のモードを直接選択。混在時は serviceDefault
+    if (isSingleService) {
+      const refMode = refDef.addtlMode || 'same';
+      const refPct = refDef.addtlPercent != null ? refDef.addtlPercent : 100;
+      s.domesticAddtl = { enabled: true, mode: refMode, percent: refPct, fixed: 0 };
+    } else {
+      s.domesticAddtl  = { enabled: true, mode: 'serviceDefault', percent: refDef.addtlPercent || 100, fixed: 0 };
+    }
 
     // _useServiceDefaults を立てる: apply時は各ポリシーの service の defaults を優先
     s._useServiceDefaults = true;
