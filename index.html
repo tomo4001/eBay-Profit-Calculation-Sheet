@@ -6396,11 +6396,11 @@ const Shipping = {
           diffs.push({ field: 'intlCost', label: 'Intl 送料', def: '$'+def.intlCost, cur: '$'+curCost });
         }
       }
-      // Destinations
+      // Destinations — VeRO ポリシーは Europe 関連を期待値から除外
       if (def.destinations) {
         compared++;
         const curDest = ((intlSvc && intlSvc.shipToLocations && intlSvc.shipToLocations.regionIncluded) || []).map(r => r.regionName).sort();
-        const defDest = (def.destinations || []).slice().sort();
+        const defDest = shipFilterDestinationsForVero((def.destinations || []).slice(), p.vero).sort();
         if (curDest.join('|') !== defDest.join('|')) {
           const onlyInCur = curDest.filter(c => !defDest.includes(c));
           const onlyInDef = defDest.filter(c => !curDest.includes(c));
