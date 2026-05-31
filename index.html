@@ -7926,7 +7926,6 @@ Object.assign(Shipping, {
   editingPolicyId: null,
   editingPolicyExcluded: [], // 編集中の除外国
   editingIntlServices: [],   // 編集中の International services
-  editingPolicyAddlLocations: [],  // 📍 Phase 2-H+: Additional locations (policy-level shipToLocations.regionIncluded)
   _editFormSnapshot: null,    // resetFieldToDefault による一時保存(re-render時に復元)
 
   openEditPolicyModal(id) {
@@ -7945,16 +7944,6 @@ Object.assign(Shipping, {
           destinations: ((s.shipToLocations && s.shipToLocations.regionIncluded) || []).map(r => r.regionName)
         }))
       : [];
-
-    // 📍 Phase 2-H+: Additional locations は policy.shipToLocations.regionIncluded を直接編集
-    // "Worldwide" が入っている場合は全 13 destinations に展開
-    const rawAddl = ((p._raw && p._raw.shipToLocations && p._raw.shipToLocations.regionIncluded) || [])
-      .map(r => r.regionName);
-    if (rawAddl.includes('Worldwide')) {
-      this.editingPolicyAddlLocations = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    } else {
-      this.editingPolicyAddlLocations = rawAddl.slice();
-    }
 
     this.renderEditPolicyForm();
     document.getElementById('shipEditPolicyModal').classList.add('active');
@@ -8217,15 +8206,15 @@ Object.assign(Shipping, {
         <div id="shipEditIntlServicesContainer"></div>
         <button class="ship-btn-add" style="margin-top:8px;" onclick="Shipping.addEditIntlService()">+ Add Service(別の国に別の送料を設定)</button>
 
-        <!-- 📍 Additional locations (optional) — policy 全体の ship-to(per-service Destinations とは独立) -->
+        <!-- 📍 Additional locations (optional) — 全 service destinations の和集合プレビュー(自動算出) -->
         <div style="margin-top:16px; padding-top:14px; border-top:1px dashed #d1d5db;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div style="font-size:12px; font-weight:700; color:#4b5563;">📍 Additional locations (optional)</div>
-            <div style="font-size:11px; color:#6b7280;">policy.shipToLocations.regionIncluded</div>
+            <div style="font-size:12px; font-weight:700; color:#4b5563;">📍 Additional locations (optional) <span style="font-weight:normal; font-size:10px; color:#9ca3af;">[ プレビュー / 読み取り専用 ]</span></div>
+            <div style="font-size:11px; color:#6b7280;">eBay に送信される合計</div>
           </div>
           <div style="font-size:11px; color:#6b7280; margin-bottom:8px; padding:6px 10px; background:#f9fafb; border-radius:4px;">
-            eBay UI の「Additional locations (optional)」と同じ項目。<br>
-            ポリシー全体の発送可能国(per-service の Destinations とは別フィールド)。チェック切替で eBay に同期されます。
+            Primary Destinations と Add Service の destinations を<strong>合算</strong>して eBay の Additional locations にそのまま送信します。<br>
+            編集したい場合は上の Primary Destinations / Add Service を変更してください。
           </div>
           <div id="shipEditAdditionalLocsContainer"></div>
         </div>
@@ -8362,6 +8351,7 @@ Object.assign(Shipping, {
     } else {
       s.destinations = s.destinations.filter(d => d !== code);
     }
+    this.renderEditAdditionalLocations();
   },
   toggleAllIntlDest(idx, allCheck) {
     const s = this.editingIntlServices[idx];
@@ -8372,6 +8362,7 @@ Object.assign(Shipping, {
       s.destinations = [];
     }
     this.renderEditIntlServices();
+    this.renderEditAdditionalLocations();
   },
   addEditIntlService() {
     this.editingIntlServices.push({
@@ -8379,64 +8370,53 @@ Object.assign(Shipping, {
       cost: 0, addtlCost: 0, destinations: []
     });
     this.renderEditIntlServices();
+    this.renderEditAdditionalLocations();
   },
   removeEditIntlService(idx) {
     this.editingIntlServices.splice(idx, 1);
     this.renderEditIntlServices();
+    this.renderEditAdditionalLocations();
   },
 
-  // 📍 Phase 2-H+: Additional locations = policy.shipToLocations.regionIncluded
-  // per-service の destinations とは独立した「ポリシー全体の ship-to」フィールド
-  // チェック切替 → policy.shipToLocations.regionIncluded を直接編集
+  // 📍 Phase 2-H++: Additional locations = 全 service の destinations の和集合(自動算出・読み取り専用)
+  // - 編集は Primary Destinations / Add Service 側で行う
+  // - eBay PUT 時にこの合算結果を policy.shipToLocations.regionIncluded として送信
+  // → eBay UI 上で Additional locations と Destinations が自動的に一致する
+  computeAdditionalLocationsUnion() {
+    const union = new Set();
+    this.editingIntlServices.forEach(s => {
+      (s.destinations || []).forEach(c => union.add(c));
+    });
+    return Array.from(union);
+  },
   renderEditAdditionalLocations() {
     const container = document.getElementById('shipEditAdditionalLocsContainer');
     if (!container) return;
 
+    const union = this.computeAdditionalLocationsUnion();
+    const checkedSet = new Set(union);
     const codes = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    const checkedSet = new Set(this.editingPolicyAddlLocations);
-
-    // SHIP_INTL_DESTINATIONS に無いコードも末尾に追加
-    this.editingPolicyAddlLocations.forEach(c => { if (!codes.includes(c)) codes.push(c); });
+    // service に未知コードが含まれている場合は末尾に追加
+    union.forEach(c => { if (!codes.includes(c)) codes.push(c); });
 
     const items = codes.map(code => {
       const destInfo = SHIP_INTL_DESTINATIONS.find(d => d.code === code);
       const label = destInfo ? destInfo.label : code;
       const isChecked = checkedSet.has(code);
       return `
-        <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; color:#1f2937; font-weight:normal; cursor:pointer; margin:0;">
-          <span style="flex:1 1 auto; min-width:0; font-weight:500; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${label}</span>
-          <input type="checkbox" ${isChecked?'checked':''} onchange="Shipping.toggleAdditionalLocation('${code}', this.checked)" style="margin:0; flex:0 0 auto; cursor:pointer;" />
+        <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; background:${isChecked?'#fff':'#f9fafb'}; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; color:${isChecked?'#1f2937':'#9ca3af'}; font-weight:normal; margin:0; cursor:not-allowed; opacity:${isChecked?'1':'0.75'};">
+          <span style="flex:1 1 auto; min-width:0; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${label}</span>
+          <input type="checkbox" ${isChecked?'checked':''} disabled style="margin:0; flex:0 0 auto; cursor:not-allowed;" />
         </label>
       `;
     }).join('');
 
-    const checkedCount = this.editingPolicyAddlLocations.length;
     container.innerHTML = `
-      <div style="display:flex; gap:14px; align-items:center; font-size:11px; color:#6b7280; margin-bottom:6px;">
-        <span>選択中: <strong style="color:#059669;">${checkedCount}/${codes.length}</strong></span>
-        <button type="button" onclick="Shipping.toggleAllAdditionalLocations(true)" style="background:#2563eb; color:#fff; border:none; padding:4px 12px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">✓ 全選択</button>
-        <button type="button" onclick="Shipping.toggleAllAdditionalLocations(false)" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:4px 12px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">全解除</button>
+      <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">
+        ✓ <strong style="color:#059669;">${union.length}/${codes.length}</strong> 地域を eBay の Additional locations として送信 <span style="color:#9ca3af;">(Primary Destinations + Add Service の合計を自動算出 / 読み取り専用)</span>
       </div>
       <div class="ship-dest-grid">${items}</div>
     `;
-  },
-  toggleAdditionalLocation(code, checked) {
-    if (checked) {
-      if (!this.editingPolicyAddlLocations.includes(code)) {
-        this.editingPolicyAddlLocations.push(code);
-      }
-    } else {
-      this.editingPolicyAddlLocations = this.editingPolicyAddlLocations.filter(c => c !== code);
-    }
-    this.renderEditAdditionalLocations();
-  },
-  toggleAllAdditionalLocations(allCheck) {
-    if (allCheck) {
-      this.editingPolicyAddlLocations = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    } else {
-      this.editingPolicyAddlLocations = [];
-    }
-    this.renderEditAdditionalLocations();
   },
 
   // =====================================================================
@@ -9767,15 +9747,16 @@ Object.assign(Shipping, {
     p.excluded = this.editingPolicyExcluded.slice();
     if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
     p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
-    // 📍 Phase 2-H+: Additional locations を policy-level regionIncluded に保存
-    // 全 13 destinations が選択されている場合は "Worldwide" に圧縮
+    // 📍 Phase 2-H++: Additional locations = 全 service destinations の和集合を policy-level regionIncluded に書き込む
+    // これにより eBay 上で Destinations と Additional locations が一致する
+    const union = this.computeAdditionalLocationsUnion();
     const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    const isAllSelected = allCodes.every(c => this.editingPolicyAddlLocations.includes(c)) &&
-                           this.editingPolicyAddlLocations.length === allCodes.length;
+    const isAllSelected = allCodes.every(c => union.includes(c)) && union.length === allCodes.length;
     if (isAllSelected) {
+      // 全 13 destinations 選択 → "Worldwide" に圧縮
       p._raw.shipToLocations.regionIncluded = [{ regionName: 'Worldwide' }];
     } else {
-      p._raw.shipToLocations.regionIncluded = this.editingPolicyAddlLocations.map(c => ({ regionName: c }));
+      p._raw.shipToLocations.regionIncluded = union.map(c => ({ regionName: c }));
     }
 
     // ----- 後処理 -----
