@@ -2557,6 +2557,7 @@
       <button class="ship-bulk-btn" style="background:#7c3aed; color:#fff;" onclick="Shipping.openBulkEditModal()">🔧 一括編集 (全項目)</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国(追加/解除)</button>
+      <button class="ship-bulk-btn" style="background:#fef2f2; color:#991b1b; border:1px solid #fecaca;" onclick="Shipping.bulkDeleteSelected()">🗑️ 選択を削除</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
     </div>
 
@@ -9579,6 +9580,39 @@ Object.assign(Shipping, {
     alert(`${prefix}\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
   },
 
+  // 編集中のポリシーを削除
+  deleteCurrentEditPolicy() {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) return;
+    if (!confirm(`このポリシー "${p.name}" を削除します。\n\n※ ローカル状態のみから削除されます(eBay 上のポリシーは削除されません)。\neBay 反映は Phase 2-G で対応。\n\nよろしいですか?`)) return;
+    this.policies = this.policies.filter(x => x.id !== this.editingPolicyId);
+    this.selected.delete(this.editingPolicyId);
+    this.editingPolicyId = null;
+    this.isCreatingNew = false;
+    this.savePoliciesCache();
+    this.closeModal('shipEditPolicyModal');
+    this.renderList();
+    alert(`✓ ポリシー "${p.name}" をローカルから削除しました`);
+  },
+
+  // 選択中のポリシーを一括削除
+  bulkDeleteSelected() {
+    const selected = this.getSelectedPolicies();
+    if (selected.length === 0) { alert('ポリシーを選択してください'); return; }
+
+    const names = selected.slice(0, 5).map(p => '・' + p.name).join('\n');
+    const moreText = selected.length > 5 ? `\n…他 ${selected.length - 5}件` : '';
+
+    if (!confirm(`選択中の ${selected.length}件のポリシーを削除します。\n\n${names}${moreText}\n\n※ ローカル状態のみから削除(eBay 反映は Phase 2-G)\n\nよろしいですか?`)) return;
+
+    const idsToDelete = new Set(selected.map(p => p.id));
+    this.policies = this.policies.filter(p => !idsToDelete.has(p.id));
+    this.selected.clear();
+    this.savePoliciesCache();
+    this.renderList();
+    alert(`✓ ${idsToDelete.size}件のポリシーをローカルから削除しました`);
+  },
+
   // 編集モーダルを閉じる時、新規作成中ならポリシー配列から除去(キャンセル扱い)
   cancelEditPolicy() {
     if (this.isCreatingNew && this.editingPolicyId) {
@@ -9812,6 +9846,8 @@ Object.assign(Shipping, {
     <h2>✏️ ポリシー編集</h2>
     <div id="shipEditPolicyContent"></div>
     <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" style="background:#fef2f2; color:#991b1b; border-color:#fecaca;" onclick="Shipping.deleteCurrentEditPolicy()">🗑️ このポリシーを削除</button>
+      <span style="flex:1;"></span>
       <button class="ship-btn-cancel" onclick="Shipping.cancelEditPolicy()">キャンセル</button>
       <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">✓ ローカルに保存</button>
     </div>
