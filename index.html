@@ -7358,7 +7358,100 @@ Object.assign(Shipping, {
   },
   toggleRule(id) {
     const r = this.specialRules.find(x => x.id === id);
-    if (r) { r.active = !r.active; this.renderSpecialRules(); }
+    if (!r) return;
+
+    const nextActive = !r.active;
+    const targetPolicies = this.policies.filter(p =>
+      (r.targetServices || []).includes(p.service)
+    );
+    const ruleCountries = r.countries || [];
+
+    if (nextActive) {
+      // ON: 該当ポリシーに国を追加
+      const toAddByPolicy = targetPolicies.map(p => {
+        const cur = new Set(p.excluded || []);
+        const missing = ruleCountries.filter(c => !cur.has(c));
+        return { p, missing };
+      }).filter(x => x.missing.length > 0);
+
+      if (targetPolicies.length === 0) {
+        if (!confirm(`ルール "${r.name}" を有効にしますか?\n\n対象サービス: ${r.targetServices.join(', ')}\n該当ポリシーは現在 0件 です(変更なし)。`)) return;
+      } else {
+        const summary = toAddByPolicy.length === 0
+          ? '\n\n📌 既に該当する全ポリシーで全 ' + ruleCountries.length + 'カ国が除外されています(ローカル変更なし、設定だけ ON にします)'
+          : `\n\n📌 ${toAddByPolicy.length}件のポリシーに ${ruleCountries.length}カ国を追加します(既に除外済の国はスキップ)。\n\n対象サービス: ${r.targetServices.join(', ')}\n総該当ポリシー: ${targetPolicies.length}件`;
+        if (!confirm(`ルール "${r.name}" を有効にしますか?${summary}\n\n※ ローカルのみ反映(eBay には push が必要)`)) return;
+      }
+
+      // 適用
+      let updated = 0;
+      toAddByPolicy.forEach(({ p, missing }) => {
+        const set = new Set(p.excluded || []);
+        missing.forEach(c => set.add(c));
+        p.excluded = Array.from(set);
+        if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
+        p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
+        updated++;
+      });
+      r.active = true;
+      this.savePoliciesCache();
+      try { localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules)); } catch (e) {}
+      this.renderSpecialRules();
+      this.renderList();
+      if (updated > 0) {
+        alert(`✓ ルール "${r.name}" を ON\n${updated}件のポリシーに除外国を自動追加しました(ローカル)\n\n eBay にも反映する場合は各ポリシーで「🚀 eBay に反映」を押してください。`);
+      }
+    } else {
+      // OFF: 該当ポリシーから国を削除(他の active ルールが持つ国は残す)
+      // 他の active ルール countries の合集合を作る
+      const protectedByOther = new Set();
+      (this.specialRules || []).forEach(other => {
+        if (other.id === r.id) return;
+        if (!other.active) return;
+        // 対象サービスが交差する場合のみ "他で守られている" 国とみなす
+        (other.countries || []).forEach(c => protectedByOther.add(c + '__' + (other.targetServices || []).join(',')));
+      });
+
+      const toRemoveByPolicy = targetPolicies.map(p => {
+        const cur = new Set(p.excluded || []);
+        const candidates = ruleCountries.filter(c => cur.has(c));
+        // 他の active ルールが同じサービスでその国を含んでいれば削除しない
+        const filtered = candidates.filter(c => {
+          for (const other of this.specialRules) {
+            if (other.id === r.id) continue;
+            if (!other.active) continue;
+            if ((other.targetServices || []).includes(p.service) && (other.countries || []).includes(c)) {
+              return false; // 他で守られている → 削除しない
+            }
+          }
+          return true;
+        });
+        return { p, toRemove: filtered };
+      }).filter(x => x.toRemove.length > 0);
+
+      const summary = toRemoveByPolicy.length === 0
+        ? '\n\n📌 該当ポリシーには既に該当国が含まれていません(ローカル変更なし、設定だけ OFF にします)'
+        : `\n\n📌 ${toRemoveByPolicy.length}件のポリシーから対象国を削除します(他の active ルールで守られている国は残します)`;
+      if (!confirm(`ルール "${r.name}" を無効にしますか?${summary}\n\n※ ローカルのみ反映(eBay には push が必要)`)) return;
+
+      let updated = 0;
+      toRemoveByPolicy.forEach(({ p, toRemove }) => {
+        const set = new Set(p.excluded || []);
+        toRemove.forEach(c => set.delete(c));
+        p.excluded = Array.from(set);
+        if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
+        p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
+        updated++;
+      });
+      r.active = false;
+      this.savePoliciesCache();
+      try { localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules)); } catch (e) {}
+      this.renderSpecialRules();
+      this.renderList();
+      if (updated > 0) {
+        alert(`✓ ルール "${r.name}" を OFF\n${updated}件のポリシーから除外国を自動削除しました(ローカル)\n\n eBay にも反映する場合は各ポリシーで「🚀 eBay に反映」を押してください。`);
+      }
+    }
   },
 
   // =====================================================================
