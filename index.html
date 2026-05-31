@@ -1164,6 +1164,12 @@
   .ship-status-badge.diff { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
   .ship-status-badge.skip { background: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb; }
 
+  /* 一括編集モーダル: サービス別デフォルトモード中は値セル(3列目)のみロック */
+  .be-defaults-mode tbody tr td:nth-child(3) {
+    pointer-events: none;
+    opacity: 0.6;
+  }
+
   /* 編集モーダルでデフォルト差分のあるフィールドを強調 */
   .ship-field.is-diff {
     background: #fffbeb;
@@ -8617,7 +8623,8 @@ Object.assign(Shipping, {
         <div style="font-weight:700; color:#166534; font-size:13px;">🔄 サービス別デフォルトモード ON</div>
         <div style="flex:1; font-size:11px; color:#166534;">
           表示中の値は <strong>${s._dominantService || 'Expedited'}</strong>(優勢サービス)のデフォルト。
-          適用時は<strong>各ポリシーが自分のサービス(Expedited/Economy/Standard)の defaults を適用</strong>します。
+          適用時は<strong>各ポリシーが自分のサービス(Expedited/Economy/Standard)の defaults を適用</strong>。<br>
+          💡 「適用」チェックは外せます(チェックを外した項目は変更されません)。値を変えたい場合は手動モードに切替。
         </div>
         <button class="ship-btn-cancel" style="padding:4px 12px; font-size:11px;" onclick="Shipping.bulkEditExitServiceDefaultsMode()">手動モードに切替</button>
       </div>
@@ -8629,7 +8636,7 @@ Object.assign(Shipping, {
       </div>
       ${serviceDefBanner}
 
-      <table style="width:100%; border-collapse:collapse; font-size:13px; ${s._useServiceDefaults ? 'pointer-events:none; opacity:0.65;' : ''}" title="${s._useServiceDefaults ? 'サービス別デフォルトモード中: 編集するには上のバナーから手動モードに切り替えてください' : ''}">
+      <table class="${s._useServiceDefaults ? 'be-defaults-mode' : ''}" style="width:100%; border-collapse:collapse; font-size:13px;" title="${s._useServiceDefaults ? 'サービス別デフォルトモード中: 適用チェックは外せます。値はデフォルト固定(編集するには手動モードに切替)' : ''}">
         <thead style="background:#f9fafb; border-bottom:2px solid #e5e7eb;">
           <tr>
             <th style="padding:8px; width:40px; text-align:center;">適用</th>
