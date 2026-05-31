@@ -2566,6 +2566,7 @@
       <button class="ship-bulk-btn" style="background:#7c3aed; color:#fff;" onclick="Shipping.openBulkEditModal()">🔧 一括編集 (全項目)</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国(追加/解除)</button>
+      <button class="ship-bulk-btn" style="background:#1e40af; color:#fff; font-weight:700;" onclick="Shipping.openBulkPushModal()">🚀 選択分を eBay に反映</button>
       <button class="ship-bulk-btn" style="background:#dc2626; color:#fff; border:1px solid #b91c1c; font-weight:700;" onclick="Shipping.bulkDeleteSelected()">🗑️ 削除</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
     </div>
@@ -9707,6 +9708,176 @@ Object.assign(Shipping, {
     alert(`${prefix}\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
   },
 
+  // 🚀 Phase 2-G.2.a: 選択ポリシーを一括 eBay PUT
+  _bulkPushAbort: false,
+  openBulkPushModal() {
+    if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
+    const selected = this.getSelectedPolicies();
+    // 新規(local_new_*)は今フェーズでは対象外
+    const eligible = selected.filter(p => !p.id.startsWith('local_new_'));
+    const newOnes = selected.filter(p => p.id.startsWith('local_new_'));
+
+    const content = document.getElementById('shipBulkPushContent');
+    const rate = this.masterRate || 25;
+    const warnHeavy = eligible.length > 20;
+
+    content.innerHTML = `
+      <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:12px; color:#1e40af;">
+        📊 選択 <strong>${selected.length}件</strong> / 既存ポリシー(eBay 反映対象)<strong>${eligible.length}件</strong>
+        ${newOnes.length > 0 ? ` / <span style="color:#92400e;">⚠️ 新規 ${newOnes.length}件はスキップ(Phase 2-G.3 待ち)</span>` : ''}
+      </div>
+
+      ${warnHeavy ? `
+        <div style="background:#fef3c7; border:2px solid #f59e0b; border-radius:8px; padding:12px 14px; margin-bottom:12px; color:#92400e; font-size:13px;">
+          ⚠️ <strong>大量更新の警告</strong>: ${eligible.length}件は多めです。事前に AUTO スナップショットが保存されます。問題があればすぐ復元できます。
+        </div>
+      ` : ''}
+
+      <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px 14px; margin-bottom:12px; color:#991b1b; font-size:12px;">
+        🚨 <strong>注意</strong>: これは eBay 上のポリシーを直接変更します(取り消し不可)。<br>
+        紐づく出品中の listing が全て新しいポリシーで動きます。<br>
+        既に発生した注文は影響なし、未発送注文は変更ポリシーで処理。
+      </div>
+
+      <div style="font-weight:600; margin-bottom:6px;">対象ポリシー(${eligible.length}件):</div>
+      <div style="max-height:280px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead style="background:#f9fafb; border-bottom:1px solid #e5e7eb;">
+            <tr>
+              <th style="padding:6px; text-align:left;">ポリシー名</th>
+              <th style="padding:6px; width:90px;">種別</th>
+              <th style="padding:6px; width:60px; text-align:right;">HT</th>
+              <th style="padding:6px; width:80px; text-align:right;">送料</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${eligible.map(p => `
+              <tr style="border-bottom:1px solid #f3f4f6;">
+                <td style="padding:6px; font-size:11px;">${p.name}</td>
+                <td style="padding:6px; font-size:11px;">${p.service}${p.vero?' VeRO':''}</td>
+                <td style="padding:6px; text-align:right;">${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
+                <td style="padding:6px; text-align:right; font-family:monospace;">$${p.domesticCost.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div id="shipBulkPushProgress" style="display:none; margin-top:14px; padding:12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div style="font-weight:600; color:#92400e;">📡 送信中…</div>
+          <button id="shipBulkPushAbortBtn" class="ship-btn-cancel" style="padding:4px 12px; font-size:11px;" onclick="Shipping._bulkPushAbort = true; this.textContent='中断要求中…'">⏸ 中断</button>
+        </div>
+        <div style="background:#fff; border:1px solid #fcd34d; height:10px; border-radius:5px; overflow:hidden;">
+          <div id="shipBulkPushFill" style="background:#1e40af; height:100%; width:0%; transition:width 0.3s;"></div>
+        </div>
+        <div id="shipBulkPushProgressText" style="font-size:11px; color:#92400e; margin-top:6px;">0 / 0</div>
+      </div>
+      <div id="shipBulkPushResult" style="display:none; margin-top:14px;"></div>
+    `;
+
+    document.getElementById('shipBulkPushModal').classList.add('active');
+    // ボタン状態
+    document.getElementById('shipBulkPushConfirmBtn').disabled = eligible.length === 0;
+  },
+
+  async confirmBulkPush() {
+    const selected = this.getSelectedPolicies();
+    const eligible = selected.filter(p => !p.id.startsWith('local_new_'));
+    if (eligible.length === 0) { alert('対象ポリシーがありません'); return; }
+
+    const confirmText = `${eligible.length}件のポリシーを eBay に PUT 送信します。\n\n` +
+      `※ この操作は eBay 上のポリシーを直接変更します(取り消し不可)。\n` +
+      `AUTO スナップショットは自動保存されます。\n\n` +
+      `本当に開始しますか?`;
+    if (!confirm(confirmText)) return;
+
+    // AUTO スナップショット
+    try { this.createAutoSnapshot(); } catch (e) { console.warn(e); }
+
+    const btn = document.getElementById('shipBulkPushConfirmBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '送信中…'; }
+
+    const progress = document.getElementById('shipBulkPushProgress');
+    const fill = document.getElementById('shipBulkPushFill');
+    const txt = document.getElementById('shipBulkPushProgressText');
+    const resultEl = document.getElementById('shipBulkPushResult');
+    if (progress) progress.style.display = 'block';
+
+    this._bulkPushAbort = false;
+    const total = eligible.length;
+    const results = { success: [], failed: [], skipped: [] };
+
+    for (let i = 0; i < total; i++) {
+      if (this._bulkPushAbort) {
+        results.skipped.push(...eligible.slice(i).map(p => ({ id: p.id, name: p.name, reason: '中断' })));
+        break;
+      }
+
+      const p = eligible[i];
+
+      try {
+        const res = await fetch('/api/ebay-policy-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ policyId: p.id, policy: p._raw, dryRun: false }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          results.success.push({ id: p.id, name: p.name });
+        } else {
+          results.failed.push({
+            id: p.id,
+            name: p.name,
+            error: data.error || ('HTTP ' + res.status),
+            detail: data.detail,
+          });
+        }
+      } catch (e) {
+        results.failed.push({ id: p.id, name: p.name, error: e.message });
+      }
+
+      // 進捗 + レート制限対策の delay
+      const pct = Math.round(((i + 1) / total) * 100);
+      if (fill) fill.style.width = pct + '%';
+      if (txt) txt.textContent = `${i + 1} / ${total} (成功 ${results.success.length} / 失敗 ${results.failed.length}${results.skipped.length > 0 ? ' / 中断 ' + results.skipped.length : ''})`;
+
+      // 次のリクエストまで 300ms 待機(レート制限回避)
+      if (i < total - 1) await new Promise(r => setTimeout(r, 300));
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 eBay に PUT 送信開始'; }
+    const abortBtn = document.getElementById('shipBulkPushAbortBtn');
+    if (abortBtn) abortBtn.style.display = 'none';
+
+    // 結果サマリ
+    if (resultEl) {
+      resultEl.style.display = 'block';
+      const overall = results.failed.length === 0 && results.skipped.length === 0
+        ? { bg: '#f0fdf4', border: '#86efac', color: '#166534', label: '✓ 完了' }
+        : results.failed.length > 0
+        ? { bg: '#fef2f2', border: '#fecaca', color: '#991b1b', label: '⚠️ 一部失敗' }
+        : { bg: '#fef3c7', border: '#fcd34d', color: '#92400e', label: '⏸ 中断' };
+      resultEl.innerHTML = `
+        <div style="background:${overall.bg}; border:1px solid ${overall.border}; border-radius:8px; padding:14px; color:${overall.color};">
+          <div style="font-weight:700; font-size:14px;">
+            ${overall.label}: 成功 ${results.success.length}件 / 失敗 ${results.failed.length}件 / 中断 ${results.skipped.length}件
+          </div>
+          ${results.failed.length > 0 ? `
+            <details style="margin-top:8px;"><summary style="cursor:pointer; font-size:12px;">失敗の詳細(${results.failed.length}件)</summary>
+              <div style="font-size:11px; margin-top:6px; max-height:200px; overflow-y:auto;">
+                ${results.failed.map(f => `<div style="padding:4px 0; border-bottom:1px solid ${overall.border};"><strong>${f.name}</strong>: ${f.error}${f.detail ? '<br><span style="font-size:10px; color:#666;">' + JSON.stringify(f.detail).slice(0, 300) + '</span>' : ''}</div>`).join('')}
+              </div>
+            </details>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    // 失敗時はキャッシュ保存しない(ローカル状態は維持)
+    if (results.success.length > 0) this.savePoliciesCache();
+  },
+
   // 🚀 Phase 2-G.1: 単体ポリシーを eBay に PUT
   async pushSingleToEbay() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
@@ -9962,6 +10133,18 @@ Object.assign(Shipping, {
 </div>
 
 <!-- ===== ✏️ 個別ポリシー編集モーダル ===== -->
+<!-- ===== 🚀 選択分を eBay に反映 モーダル (Phase 2-G.2.a) ===== -->
+<div class="ship-modal-overlay" id="shipBulkPushModal">
+  <div class="ship-modal" style="max-width: 900px;">
+    <h2>🚀 選択ポリシーを eBay に一括 push</h2>
+    <div id="shipBulkPushContent"></div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipBulkPushModal')">キャンセル</button>
+      <button class="ship-btn-save" id="shipBulkPushConfirmBtn" style="background:#1e40af;" onclick="Shipping.confirmBulkPush()">🚀 eBay に PUT 送信開始</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 🔧 一括編集モーダル (全項目対応) ===== -->
 <div class="ship-modal-overlay" id="shipBulkEditModal">
   <div class="ship-modal" style="max-width: 980px;">
