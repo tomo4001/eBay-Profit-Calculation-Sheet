@@ -6211,6 +6211,22 @@ const Shipping = {
       if (Array.isArray(data.policies) && data.policies.length > 0) {
         this.policies = data.policies;
         this.lastFetchAt = data.lastFetchAt ? new Date(data.lastFetchAt) : null;
+        // 🔧 マイグレーション: 各ポリシーの特殊カテゴリ/レガシー判定を現在の名前から再評価
+        // (過去に特殊カテゴリ名を含んでいたが今は外れたポリシーなどを修正)
+        let migrated = 0;
+        this.policies.forEach(p => {
+          if (!p.name) return;
+          const specialMatch = p.name.match(/(Golf Bag\s*Only|Surfboard|Bike|Skateboard|Snowboard)/i);
+          const newSpecial = specialMatch ? specialMatch[1] : null;
+          if (p.special !== newSpecial) { p.special = newSpecial; migrated++; }
+          const n = p.name.toLowerCase();
+          const newIsLegacy = (p.service === 'Other') || !!p.name.match(/^(JP\s|EMS\/|IE\s)/i);
+          if (p.isLegacy !== newIsLegacy) { p.isLegacy = newIsLegacy; migrated++; }
+        });
+        if (migrated > 0) {
+          console.log('[Shipping] ポリシーの特殊カテゴリ/レガシー判定を ' + migrated + ' 件再評価しました');
+          this.savePoliciesCache();
+        }
         return true;
       }
     } catch (e) { console.warn('Shipping cache load failed:', e); }
@@ -9445,6 +9461,11 @@ Object.assign(Shipping, {
         else if (n.startsWith('economy')) service = 'Economy';
         else if (n.startsWith('standard')) service = 'Standard';
         p.service = service;
+        // 特殊カテゴリ(Golf Bag Only / Surfboard 等)を名前から再評価
+        const specialMatch = newName.match(/(Golf Bag\s*Only|Surfboard|Bike|Skateboard|Snowboard)/i);
+        p.special = specialMatch ? specialMatch[1] : null;
+        // レガシー判定も再評価
+        p.isLegacy = service === 'Other' || !!newName.match(/^(JP\s|EMS\/|IE\s)/i);
       }
     }
     // ----- 価格レンジ・VeRO 入力欄からの値で上書き(名前から取れた値より優先) -----
