@@ -6234,8 +6234,36 @@ const Shipping = {
           const newIsLegacy = (p.service === 'Other') || !!p.name.match(/^(JP\s|EMS\/|IE\s)/i);
           if (p.isLegacy !== newIsLegacy) { p.isLegacy = newIsLegacy; migrated++; }
         });
+
+        // 🔧 Phase 2-H+++ マイグレーション: 旧 _disabledRegions を regionIncluded にマージで戻す
+        // (Phase 2-H/H+ で「停止中」だった destinations を復元 → バッジが個別設定に誤判定されるのを修正)
+        let disabledMigrated = 0;
+        this.policies.forEach(p => {
+          if (!p._raw || !Array.isArray(p._raw.shippingOptions)) return;
+          p._raw.shippingOptions.forEach(o => {
+            if (!Array.isArray(o.shippingServices)) return;
+            o.shippingServices.forEach(s => {
+              const st = s.shipToLocations;
+              if (!st || !Array.isArray(st._disabledRegions) || st._disabledRegions.length === 0) return;
+              if (!Array.isArray(st.regionIncluded)) st.regionIncluded = [];
+              const existing = new Set(st.regionIncluded.map(r => r.regionName));
+              st._disabledRegions.forEach(r => {
+                if (!existing.has(r.regionName)) {
+                  st.regionIncluded.push({ regionName: r.regionName });
+                  disabledMigrated++;
+                }
+              });
+              delete st._disabledRegions;
+            });
+          });
+        });
+        if (disabledMigrated > 0) {
+          console.log('[Shipping] 旧 _disabledRegions を ' + disabledMigrated + ' 件 regionIncluded に復元しました');
+          migrated++;
+        }
+
         if (migrated > 0) {
-          console.log('[Shipping] ポリシーの特殊カテゴリ/レガシー判定を ' + migrated + ' 件再評価しました');
+          console.log('[Shipping] ポリシーマイグレーション完了(計 ' + migrated + ' 件)');
           this.savePoliciesCache();
         }
         return true;
