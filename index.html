@@ -9777,8 +9777,14 @@ Object.assign(Shipping, {
     `;
 
     document.getElementById('shipBulkPushModal').classList.add('active');
-    // ボタン状態
-    document.getElementById('shipBulkPushConfirmBtn').disabled = eligible.length === 0;
+    // ボタン状態を初期化(前回の完了状態から戻す)
+    const btn = document.getElementById('shipBulkPushConfirmBtn');
+    if (btn) {
+      btn.disabled = eligible.length === 0;
+      btn.textContent = '🚀 eBay に PUT 送信開始';
+      btn.style.background = '#1e40af';
+      btn.onclick = () => Shipping.confirmBulkPush();
+    }
   },
 
   async confirmBulkPush() {
@@ -9850,7 +9856,19 @@ Object.assign(Shipping, {
       if (i < total - 1) await new Promise(r => setTimeout(r, 300));
     }
 
-    if (btn) { btn.disabled = false; btn.textContent = '🚀 eBay に PUT 送信開始'; }
+    // 完了後はボタンを「閉じる」に変更して二重実行を防ぐ
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✓ 完了 - 閉じる';
+      btn.style.background = '#16a34a';
+      btn.onclick = () => {
+        // 元に戻して閉じる
+        btn.textContent = '🚀 eBay に PUT 送信開始';
+        btn.style.background = '#1e40af';
+        btn.onclick = () => Shipping.confirmBulkPush();
+        Shipping.closeModal('shipBulkPushModal');
+      };
+    }
     const abortBtn = document.getElementById('shipBulkPushAbortBtn');
     if (abortBtn) abortBtn.style.display = 'none';
 
