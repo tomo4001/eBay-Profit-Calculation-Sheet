@@ -1127,7 +1127,17 @@
   }
   .ship-table tbody tr:hover { background: #fafbfc; }
   .ship-table tbody tr.legacy { opacity: 0.5; }
-  .ship-table tbody tr.special { background: #fefce8; }
+  /* サービス種別ごとの行背景(薄め) */
+  .ship-table tbody tr.svc-expedited { background: #eff6ff; }  /* 薄い青 */
+  .ship-table tbody tr.svc-economy   { background: #f0fdf4; }  /* 薄い緑 */
+  .ship-table tbody tr.svc-standard  { background: #fffbeb; }  /* 薄いオレンジ */
+  .ship-table tbody tr.svc-other     { background: #f9fafb; }  /* 薄いグレー */
+  /* 選択時は行背景を上書き(チェック付きが分かりやすいように) */
+  .ship-table tbody tr.selected      { background: #fef3c7 !important; }
+  .ship-table tbody tr.svc-expedited.selected,
+  .ship-table tbody tr.svc-economy.selected,
+  .ship-table tbody tr.svc-standard.selected,
+  .ship-table tbody tr.svc-other.selected { background: #fde68a !important; }
 
   .ship-name { font-weight: 600; color: #1f2937; min-width: 240px; max-width: 360px; }
   .ship-tag {
@@ -6534,7 +6544,9 @@ const Shipping = {
       const tagV = p.vero ? '<span class="ship-tag vero">VeRO</span>' : '';
       const tagS = p.special ? `<span class="ship-tag spec">${p.special}</span>` : '';
       const tagL = p.isLegacy && p.service !== 'Other' ? '<span class="ship-tag leg">Legacy</span>' : '';
-      const rowClass = p.isLegacy ? 'legacy' : (p.special ? 'special' : '');
+      // サービス種別で行背景を決定(レガシーは半透明、特殊カテゴリはタグでのみ示す)
+      const svcClass = `svc-${(p.service || 'other').toLowerCase()}`;
+      const rowClass = p.isLegacy ? `legacy ${svcClass}` : svcClass;
       const exClass = p.excluded.length === 0 ? 'ship-excluded-badge zero' : 'ship-excluded-badge';
       const priceRange = (p.priceMin != null && p.priceMax != null) ? `$${p.priceMin}〜${p.priceMax}` : '-';
       const isChecked = this.selected.has(p.id);
@@ -6571,12 +6583,19 @@ const Shipping = {
         domCostCell = `<span style="font-family:monospace;">$${p.domesticCost.toFixed(2)}</span>`;
       }
 
+      // HT セル: 10日以外は赤太字で強調(デフォルト値からズレてることを視覚化)
+      const htCell = p.handlingTime != null
+        ? (p.handlingTime !== 10
+            ? `<span style="color:#dc2626; font-weight:700;">${p.handlingTime}d</span>`
+            : `${p.handlingTime}d`)
+        : '-';
+
       html += `<tr class="${rowClass}${selectedClass}" data-pid="${p.id}">
         <td><input type="checkbox" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleSelect('${p.id}', this.checked)" /></td>
         <td class="ship-name">${p.name}</td>
         <td>${tagSvc}${tagV}${tagS}${tagL}</td>
         <td>${statusBadge}</td>
-        <td>${p.handlingTime != null ? p.handlingTime + 'd' : '-'}</td>
+        <td>${htCell}</td>
         <td>${priceRange}</td>
         <td class="ship-num">${domCostCell}</td>
         <td><span class="${exClass}" title="${p.excluded.join(', ')}">${p.excluded.length}</span></td>
