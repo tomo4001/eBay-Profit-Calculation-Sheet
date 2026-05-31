@@ -68,6 +68,34 @@ function cleanPolicy(policy) {
   delete cleaned.fulfillmentPolicyId;  // URL に含めるので body には不要
   delete cleaned.warnings;
   delete cleaned.errors;
+
+  // 📍 Phase 2-H: Additional locations の「停止中」destinations を eBay へ送らない
+  // - shipToLocations._disabledRegions は local-only フィールド → 削除
+  // - regionIncluded が空のサービスは eBay 側で reject されるため除外
+  // - shippingServices が空になった shippingOption も除外
+  if (Array.isArray(cleaned.shippingOptions)) {
+    cleaned.shippingOptions.forEach(o => {
+      if (Array.isArray(o.shippingServices)) {
+        o.shippingServices.forEach(s => {
+          if (s.shipToLocations && '_disabledRegions' in s.shipToLocations) {
+            delete s.shipToLocations._disabledRegions;
+          }
+        });
+        // INTERNATIONAL service のうち regionIncluded が空のものを除外
+        if (o.optionType === 'INTERNATIONAL') {
+          o.shippingServices = o.shippingServices.filter(s => {
+            const regions = (s.shipToLocations && s.shipToLocations.regionIncluded) || [];
+            return regions.length > 0;
+          });
+        }
+      }
+    });
+    // shippingServices が空になった shippingOption を除外
+    cleaned.shippingOptions = cleaned.shippingOptions.filter(o =>
+      Array.isArray(o.shippingServices) && o.shippingServices.length > 0
+    );
+  }
+
   return cleaned;
 }
 
