@@ -9806,7 +9806,7 @@ Object.assign(Shipping, {
 
     this._bulkPushAbort = false;
     const total = eligible.length;
-    const results = { success: [], failed: [], skipped: [] };
+    const results = { success: [], noChange: [], failed: [], skipped: [] };
 
     for (let i = 0; i < total; i++) {
       if (this._bulkPushAbort) {
@@ -9824,7 +9824,11 @@ Object.assign(Shipping, {
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          results.success.push({ id: p.id, name: p.name });
+          if (data.noChange) {
+            results.noChange.push({ id: p.id, name: p.name });
+          } else {
+            results.success.push({ id: p.id, name: p.name });
+          }
         } else {
           results.failed.push({
             id: p.id,
@@ -9840,7 +9844,7 @@ Object.assign(Shipping, {
       // 進捗 + レート制限対策の delay
       const pct = Math.round(((i + 1) / total) * 100);
       if (fill) fill.style.width = pct + '%';
-      if (txt) txt.textContent = `${i + 1} / ${total} (成功 ${results.success.length} / 失敗 ${results.failed.length}${results.skipped.length > 0 ? ' / 中断 ' + results.skipped.length : ''})`;
+      if (txt) txt.textContent = `${i + 1} / ${total} (✓更新 ${results.success.length} / ⚪同一 ${results.noChange.length} / ✗失敗 ${results.failed.length}${results.skipped.length > 0 ? ' / ⏸中断 ' + results.skipped.length : ''})`;
 
       // 次のリクエストまで 300ms 待機(レート制限回避)
       if (i < total - 1) await new Promise(r => setTimeout(r, 300));
@@ -9853,16 +9857,21 @@ Object.assign(Shipping, {
     // 結果サマリ
     if (resultEl) {
       resultEl.style.display = 'block';
-      const overall = results.failed.length === 0 && results.skipped.length === 0
-        ? { bg: '#f0fdf4', border: '#86efac', color: '#166534', label: '✓ 完了' }
-        : results.failed.length > 0
+      const overall = results.failed.length > 0
         ? { bg: '#fef2f2', border: '#fecaca', color: '#991b1b', label: '⚠️ 一部失敗' }
-        : { bg: '#fef3c7', border: '#fcd34d', color: '#92400e', label: '⏸ 中断' };
+        : results.skipped.length > 0
+        ? { bg: '#fef3c7', border: '#fcd34d', color: '#92400e', label: '⏸ 中断あり' }
+        : { bg: '#f0fdf4', border: '#86efac', color: '#166534', label: '✓ 完了' };
       resultEl.innerHTML = `
         <div style="background:${overall.bg}; border:1px solid ${overall.border}; border-radius:8px; padding:14px; color:${overall.color};">
           <div style="font-weight:700; font-size:14px;">
-            ${overall.label}: 成功 ${results.success.length}件 / 失敗 ${results.failed.length}件 / 中断 ${results.skipped.length}件
+            ${overall.label}: ✓更新 ${results.success.length}件 / ⚪同一 ${results.noChange.length}件 / ✗失敗 ${results.failed.length}件 / ⏸中断 ${results.skipped.length}件
           </div>
+          ${results.noChange.length > 0 ? `
+            <div style="margin-top:6px; font-size:11px;">
+              <span style="color:#6b7280;">⚪ 同一 = eBay 上のデータが既にローカルと同じだったポリシー(変更不要)</span>
+            </div>
+          ` : ''}
           ${results.failed.length > 0 ? `
             <details style="margin-top:8px;"><summary style="cursor:pointer; font-size:12px;">失敗の詳細(${results.failed.length}件)</summary>
               <div style="font-size:11px; margin-top:6px; max-height:200px; overflow-y:auto;">
@@ -9943,7 +9952,11 @@ Object.assign(Shipping, {
       if (btn) { btn.disabled = false; btn.textContent = origText; }
 
       if (res.ok && data.ok) {
-        alert(`✓ eBay PUT 成功!\n\nポリシーID: ${data.policyId}\nHTTP: ${data.status}\n\n反映されたことを確認するには、いったんモーダルを閉じて「🔄 最新を取得」してみてください。`);
+        if (data.noChange) {
+          alert(`⚪ eBay 上のデータは既に同一(変更不要)\n\nポリシーID: ${data.policyId}\nローカルと eBay は完全同期しています。`);
+        } else {
+          alert(`✓ eBay PUT 成功!\n\nポリシーID: ${data.policyId}\nHTTP: ${data.status}\n\n反映されたことを確認するには、いったんモーダルを閉じて「🔄 最新を取得」してみてください。`);
+        }
         // ローカル状態は既に最新なのでキャッシュ保存のみ
         this.savePoliciesCache();
       } else {
