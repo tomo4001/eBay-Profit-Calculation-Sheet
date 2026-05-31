@@ -2487,6 +2487,7 @@
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
+        <button class="ship-btn-refresh" style="background:#ea580c;" onclick="Shipping.syncAllAdditionalLocations()" title="全ポリシーの Additional locations を Primary Destinations と Add Service の合計に整列">📍 Additional locations 整列</button>
         <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
@@ -6404,6 +6405,71 @@ const Shipping = {
   // 個別ポリシーが「デフォルト通り」か「個別設定あり」かを判定
   //   返り値: { isDefault, diffCount, diffs: [{field,label,def,cur}], compared }
   // ---------------------------------------------------------------------
+  // 📍 全ポリシーの Additional locations を一括整列
+  // option-level shipToLocations + policy-level shipToLocations.regionIncluded を
+  // 全 INTERNATIONAL services の destinations の union に揃える
+  syncAllAdditionalLocations() {
+    if (this.policies.length === 0) { alert('ポリシーがありません。先に「🔄 最新を取得」を押してください。'); return; }
+
+    // Dry-run: 変更が必要なポリシー数を集計
+    const needUpdate = [];
+    this.policies.forEach(p => {
+      if (!p._raw || !Array.isArray(p._raw.shippingOptions)) return;
+      const intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
+      if (!intl || !Array.isArray(intl.shippingServices)) return;
+      // 全 service destinations の union
+      const union = new Set();
+      intl.shippingServices.forEach(s => {
+        const regs = (s.shipToLocations && s.shipToLocations.regionIncluded) || [];
+        regs.forEach(r => union.add(r.regionName));
+      });
+      const unionArr = Array.from(union).sort();
+      const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
+      const isAllSelected = allCodes.every(c => union.has(c)) && unionArr.length === allCodes.length;
+      const expected = isAllSelected ? ['Worldwide'] : unionArr;
+      const expectedSorted = expected.slice().sort();
+
+      // 現在の option-level / policy-level と比較
+      const curOpt = ((intl.shipToLocations && intl.shipToLocations.regionIncluded) || []).map(r => r.regionName).sort();
+      const curPolicy = ((p._raw.shipToLocations && p._raw.shipToLocations.regionIncluded) || []).map(r => r.regionName).sort();
+
+      const optDiffers = curOpt.join('|') !== expectedSorted.join('|');
+      const policyDiffers = curPolicy.join('|') !== expectedSorted.join('|');
+
+      if (optDiffers || policyDiffers) {
+        needUpdate.push({ p, expected, unionArr, optDiffers, policyDiffers });
+      }
+    });
+
+    if (needUpdate.length === 0) {
+      alert('✓ すでに全ポリシーの Additional locations が整列済みです(変更なし)');
+      return;
+    }
+
+    if (!confirm(`📍 Additional locations 整列\n\n` +
+      `${needUpdate.length} 件のポリシーで option-level / policy-level shipToLocations が Primary Destinations と合っていません。\n\n` +
+      `これらを Primary Destinations + Add Service の合計に整列しますか?\n\n` +
+      `※ ローカル状態のみ更新。eBay への反映は別途「🚀 選択分を eBay に反映」で行ってください。`)) return;
+
+    // 適用
+    let applied = 0;
+    needUpdate.forEach(({ p, expected }) => {
+      const intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
+      if (!intl) return;
+      const payload = expected.map(c => ({ regionName: c }));
+      // option-level
+      intl.shipToLocations = { regionIncluded: payload.slice() };
+      // policy-level
+      if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
+      p._raw.shipToLocations.regionIncluded = payload.slice();
+      applied++;
+    });
+
+    this.savePoliciesCache();
+    this.renderList();
+    alert(`✓ ${applied} 件のポリシーの Additional locations を整列しました。\n\n次に「✓ 全選択」→「🚀 選択分を eBay に反映」で eBay に push してください。`);
+  },
+
   // 🔍 raw データを別ウィンドウで表示(デバッグ用)
   showRawDataDebug() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
