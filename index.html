@@ -6404,6 +6404,19 @@ const Shipping = {
   // 個別ポリシーが「デフォルト通り」か「個別設定あり」かを判定
   //   返り値: { isDefault, diffCount, diffs: [{field,label,def,cur}], compared }
   // ---------------------------------------------------------------------
+  // 🔍 バッジクリック時に差分の詳細を alert で表示
+  showDiffDetail(policyId) {
+    const p = this.policies.find(x => x.id === policyId);
+    if (!p) return;
+    const ev = this.evaluatePolicyDefaults(p);
+    if (!ev || ev.isDefault) {
+      alert(`✓ "${p.name}"\n\nデフォルト通りです(差分なし)。`);
+      return;
+    }
+    const lines = ev.diffs.map((d, i) => `${i+1}. ${d.label}\n   現在: ${d.cur}\n   期待(default): ${d.def}`).join('\n\n');
+    alert(`✏️ "${p.name}" の個別設定箇所(${ev.diffCount}項目):\n\n${lines}\n\n対象サービス: ${p.service}${p.vero?' (VeRO)':''}`);
+  },
+
   evaluatePolicyDefaults(p) {
     if (!p || !p._raw) return { isDefault: true, diffCount: 0, diffs: [], compared: 0 };
     // デフォルト設定が無いサービス(Other/Legacy)は判定対象外
@@ -6622,7 +6635,9 @@ const Shipping = {
         statusBadge = '<span class="ship-status-badge ok">✓ デフォルト</span>';
       } else {
         const tip = ev.diffs.map(d => `${d.label}: ${d.cur} (def: ${d.def})`).join('\n');
-        statusBadge = `<span class="ship-status-badge diff" title="${tip.replace(/"/g,'&quot;')}">✏️ 個別設定 (${ev.diffCount})</span>`;
+        // クリック時に差分を alert で表示(title 属性のホバー待機が分かりにくいため)
+        const clickJs = `Shipping.showDiffDetail('${p.id}'); event.stopPropagation();`;
+        statusBadge = `<span class="ship-status-badge diff" title="${tip.replace(/"/g,'&quot;')}" onclick="${clickJs}" style="cursor:pointer;">✏️ 個別設定 (${ev.diffCount})</span>`;
       }
 
       // 期待 Domestic 送料(マスター率ベース)と差分表示
