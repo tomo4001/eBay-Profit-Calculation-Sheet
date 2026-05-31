@@ -6886,6 +6886,27 @@ Object.assign(Shipping, {
         });
       }
     } catch (e) {}
+
+    // 🔧 マイグレーション: Standard の domServiceCode/intlServiceCode が
+    // Expedited 系の値になっていたら、正しい Standard 系に修正
+    const std = this.defaults.Standard;
+    if (std) {
+      let migrated = false;
+      const expDomCodes = ['US_ExpeditedSppedPAK', 'ExpeditedShippingFromOutsideUS', 'US_ExpressSpeedPAK'];
+      if (expDomCodes.includes(std.domServiceCode)) {
+        std.domServiceCode = 'US_StandardSppedPAK';
+        migrated = true;
+      }
+      const expIntlCodes = ['ExpeditedInternational', 'US_IntlExpeditedSppedPAK', 'US_IntlExpressSpeedPAK'];
+      if (expIntlCodes.includes(std.intlServiceCode)) {
+        std.intlServiceCode = 'StandardInternational';
+        migrated = true;
+      }
+      if (migrated) {
+        console.log('[Shipping] Standard デフォルトの Expedited 系サービスコードを Standard 系にマイグレーションしました');
+        try { localStorage.setItem(SHIP_STORAGE_DEFAULTS, JSON.stringify(this.defaults)); } catch (e) {}
+      }
+    }
     try {
       const r = localStorage.getItem(SHIP_STORAGE_RULES);
       if (r) this.specialRules = JSON.parse(r);
