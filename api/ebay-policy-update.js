@@ -145,6 +145,22 @@ export default async function handler(req, res) {
     try { json = text ? JSON.parse(text) : null; } catch (e) {}
 
     if (!apiRes.ok) {
+      // 🔍 eBay 特殊エラー: 20403 "Business Profile information is the same"
+      // → これは「データ同一なので変更不要」を意味する。失敗ではなく noChange として扱う。
+      const errors = (json && Array.isArray(json.errors)) ? json.errors : [];
+      const noChangeError = errors.find(e => e && e.errorId === 20403);
+      if (noChangeError) {
+        res.status(200).json({
+          ok: true,
+          dryRun: false,
+          policyId,
+          status: apiRes.status,
+          noChange: true,
+          message: '⚪ eBay 上のデータが同一(変更不要)',
+        });
+        return;
+      }
+
       res.status(apiRes.status).json({
         ok: false,
         dryRun: false,
