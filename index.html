@@ -8389,66 +8389,86 @@ Object.assign(Shipping, {
   },
 
   // 📍 Phase 2-H: Additional locations (eBay UI 同等)
-  // 全サービスの destinations + disabledDestinations の和集合をチェックボックス表示
-  // チェック外す → そのサービスの destinations から disabledDestinations へ移動(ルール定義は残る)
-  // チェックする → disabledDestinations から destinations へ戻す
+  // 全 13 destinations を常に表示。各 destination のチェック状態:
+  //   - ✓ = どこかのサービスの destinations に含まれている(active)
+  //   - ☐ = どこのサービスにも含まれていない or disabledDestinations にある(inactive)
+  // チェック外す → そのサービスの destinations から disabledDestinations へ移動(ルール残す)
+  // チェック入れる → disabledDestinations から destinations へ戻す or Primary に新規追加
   renderEditAdditionalLocations() {
     const container = document.getElementById('shipEditAdditionalLocsContainer');
     if (!container) return;
 
-    // Pool: code → { serviceIdx, active, cost, serviceCode }
-    // 同じ code が複数 service にある場合は最初に見つかったものを採用
-    const pool = new Map();
+    // 各 destination がどのサービスにあるか・active か disabled か を集計
+    // info: code → { serviceIdx, active, cost, serviceCode }
+    const info = new Map();
     this.editingIntlServices.forEach((s, idx) => {
       (s.destinations || []).forEach(code => {
-        if (!pool.has(code)) pool.set(code, { serviceIdx: idx, active: true, cost: s.cost, serviceCode: s.serviceCode });
+        if (!info.has(code)) info.set(code, { serviceIdx: idx, active: true, cost: s.cost, serviceCode: s.serviceCode });
       });
       (s.disabledDestinations || []).forEach(code => {
-        if (!pool.has(code)) pool.set(code, { serviceIdx: idx, active: false, cost: s.cost, serviceCode: s.serviceCode });
+        if (!info.has(code)) info.set(code, { serviceIdx: idx, active: false, cost: s.cost, serviceCode: s.serviceCode });
       });
     });
 
-    if (pool.size === 0) {
-      container.innerHTML = '<div style="color:#888; font-size:12px; padding:8px 12px; background:#fafafa; border-radius:4px;">まだ destination が設定されていません</div>';
-      return;
-    }
+    // 表示対象: SHIP_INTL_DESTINATIONS の全 13 + サービスに含まれる未知コード
+    const codes = SHIP_INTL_DESTINATIONS.map(d => d.code);
+    info.forEach((_, code) => { if (!codes.includes(code)) codes.push(code); });
 
-    // 表示順: SHIP_INTL_DESTINATIONS の順番に従う
-    const orderedCodes = SHIP_INTL_DESTINATIONS.map(d => d.code).filter(c => pool.has(c));
-    // pool にあるが SHIP_INTL_DESTINATIONS に無いものを末尾に追加(未知のコード)
-    pool.forEach((_, code) => { if (!orderedCodes.includes(code)) orderedCodes.push(code); });
-
-    const items = orderedCodes.map(code => {
-      const info = pool.get(code);
+    const items = codes.map(code => {
       const destInfo = SHIP_INTL_DESTINATIONS.find(d => d.code === code);
       const label = destInfo ? destInfo.label : code;
-      const serviceLabel = info.serviceIdx === 0 ? 'Primary' : `Add #${info.serviceIdx}`;
-      const dimStyle = info.active ? '' : 'opacity:0.55;';
-      const bgColor = info.active ? '#fff' : '#fef3c7';
-      const borderColor = info.active ? '#e5e7eb' : '#fbbf24';
+      const meta = info.get(code);
+
+      let state, bgColor, borderColor, badge;
+      if (meta && meta.active) {
+        // 状態 1: active(どこかのサービスで発送中)
+        state = 'active';
+        bgColor = '#fff';
+        borderColor = '#e5e7eb';
+        const svcLabel = meta.serviceIdx === 0 ? 'Primary' : `Add #${meta.serviceIdx}`;
+        badge = `<span style="color:#6b7280; font-size:10px; font-weight:400; margin-left:6px;">${svcLabel} / $${(meta.cost||0).toFixed(2)}</span>`;
+      } else if (meta && !meta.active) {
+        // 状態 2: disabled(ルールあるが Additional locations で停止中)
+        state = 'disabled';
+        bgColor = '#fef3c7';
+        borderColor = '#fbbf24';
+        const svcLabel = meta.serviceIdx === 0 ? 'Primary' : `Add #${meta.serviceIdx}`;
+        badge = `<span style="color:#6b7280; font-size:10px; font-weight:400; margin-left:6px;">${svcLabel} / $${(meta.cost||0).toFixed(2)}</span><span style="color:#92400e; font-size:10px; font-weight:600; margin-left:6px;">(停止中)</span>`;
+      } else {
+        // 状態 3: not configured(どのサービスにも含まれていない)
+        state = 'none';
+        bgColor = '#f9fafb';
+        borderColor = '#e5e7eb';
+        badge = '<span style="color:#9ca3af; font-size:10px; font-weight:400; margin-left:6px;">未設定</span>';
+      }
+
+      const dimStyle = state === 'active' ? '' : 'opacity:0.7;';
+      const isChecked = (state === 'active');
+
       return `
         <label style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:7px 12px; background:${bgColor}; border:1px solid ${borderColor}; border-radius:4px; font-size:12px; color:#1f2937; cursor:pointer; ${dimStyle}">
           <span style="flex:1; min-width:0; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${label}
-            <span style="color:#6b7280; font-size:10px; font-weight:400; margin-left:6px;">${serviceLabel} / $${(info.cost||0).toFixed(2)}</span>
-            ${info.active ? '' : '<span style="color:#92400e; font-size:10px; font-weight:600; margin-left:6px;">(停止中)</span>'}
+            ${label}${badge}
           </span>
-          <input type="checkbox" ${info.active?'checked':''} onchange="Shipping.toggleAdditionalLocation('${code}', this.checked)" style="margin:0; flex:0 0 auto; cursor:pointer;" />
+          <input type="checkbox" ${isChecked?'checked':''} onchange="Shipping.toggleAdditionalLocation('${code}', this.checked)" style="margin:0; flex:0 0 auto; cursor:pointer;" />
         </label>
       `;
     }).join('');
 
-    const activeCount = Array.from(pool.values()).filter(v => v.active).length;
-    const disabledCount = pool.size - activeCount;
+    const activeCount = Array.from(info.values()).filter(v => v.active).length;
+    const disabledCount = Array.from(info.values()).filter(v => !v.active).length;
+    const noneCount = codes.length - activeCount - disabledCount;
     container.innerHTML = `
       <div style="display:flex; gap:14px; font-size:11px; color:#6b7280; margin-bottom:6px;">
         <span>✓ 有効: <strong style="color:#059669;">${activeCount}</strong></span>
         <span>⏸ 停止中: <strong style="color:#d97706;">${disabledCount}</strong></span>
+        <span>− 未設定: <strong style="color:#9ca3af;">${noneCount}</strong></span>
       </div>
       <div class="ship-dest-grid">${items}</div>
     `;
   },
   toggleAdditionalLocation(code, checked) {
+    // すでにいずれかのサービスに含まれているか確認
     for (const s of this.editingIntlServices) {
       if (!s.disabledDestinations) s.disabledDestinations = [];
       if (s.destinations.includes(code)) {
@@ -8462,7 +8482,7 @@ Object.assign(Shipping, {
       }
       if (s.disabledDestinations.includes(code)) {
         if (!checked) return; // すでに disabled
-        // disabled → active へ移動
+        // disabled → active へ戻す
         s.disabledDestinations = s.disabledDestinations.filter(d => d !== code);
         if (!s.destinations.includes(code)) s.destinations.push(code);
         this.renderEditIntlServices();
@@ -8470,6 +8490,16 @@ Object.assign(Shipping, {
         return;
       }
     }
+    // どのサービスにも含まれていない → Primary に新規追加(または無視)
+    if (checked) {
+      const primary = this.editingIntlServices[0];
+      if (primary) {
+        if (!primary.destinations.includes(code)) primary.destinations.push(code);
+        this.renderEditIntlServices();
+        this.renderEditAdditionalLocations();
+      }
+    }
+    // unchecked かつどのサービスにも含まれない場合は何もしない
   },
 
   // =====================================================================
