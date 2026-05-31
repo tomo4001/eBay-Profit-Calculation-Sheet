@@ -7947,6 +7947,15 @@ Object.assign(Shipping, {
 
     this.renderEditPolicyForm();
     document.getElementById('shipEditPolicyModal').classList.add('active');
+
+    // 🚀 eBay 反映ボタンの状態をリセット(前回 push 完了状態だった場合の対策)
+    const pushBtn = document.getElementById('shipSinglePushBtn');
+    if (pushBtn) {
+      pushBtn.disabled = false;
+      pushBtn.textContent = '🚀 eBay に反映';
+      pushBtn.style.background = '#1e40af';
+      pushBtn.onclick = () => Shipping.pushSingleToEbay();
+    }
   },
 
   renderEditPolicyForm() {
@@ -10031,9 +10040,26 @@ Object.assign(Shipping, {
     if (!confirm(confirmText)) return;
 
     // 4) 実 PUT 送信
-    const btn = event && event.target;
-    const origText = btn ? btn.textContent : '';
+    // event.target ではなく id で固定取得(success 後の onclick 書き換えに耐える)
+    const btn = document.getElementById('shipSinglePushBtn');
+    const origText = '🚀 eBay に反映';
+    const origBg = '#1e40af';
     if (btn) { btn.disabled = true; btn.textContent = '📡 送信中…'; }
+
+    // ボタンを「完了 - 閉じる」状態に変化させるヘルパー
+    const markBtnAsComplete = (color, label) => {
+      if (!btn) return;
+      btn.disabled = false;
+      btn.textContent = label;
+      btn.style.background = color;
+      btn.onclick = () => {
+        // 元に戻して閉じる
+        btn.textContent = origText;
+        btn.style.background = origBg;
+        btn.onclick = () => Shipping.pushSingleToEbay();
+        Shipping.closeModal('shipEditPolicyModal');
+      };
+    };
 
     try {
       const res = await fetch('/api/ebay-policy-update', {
@@ -10042,23 +10068,26 @@ Object.assign(Shipping, {
         body: JSON.stringify({ policyId: pUpdated.id, policy: pUpdated._raw, dryRun: false }),
       });
       const data = await res.json();
-      if (btn) { btn.disabled = false; btn.textContent = origText; }
 
       if (res.ok && data.ok) {
         if (data.noChange) {
           alert(`⚪ eBay 上のデータは既に同一(変更不要)\n\nポリシーID: ${data.policyId}\nローカルと eBay は完全同期しています。`);
+          markBtnAsComplete('#6b7280', '⚪ 変更なし - 閉じる');
         } else {
           alert(`✓ eBay PUT 成功!\n\nポリシーID: ${data.policyId}\nHTTP: ${data.status}\n\n反映されたことを確認するには、いったんモーダルを閉じて「🔄 最新を取得」してみてください。`);
+          markBtnAsComplete('#16a34a', '✓ 完了 - 閉じる');
         }
         // ローカル状態は既に最新なのでキャッシュ保存のみ
         this.savePoliciesCache();
       } else {
+        // 失敗時はボタンを元に戻して再試行を可能にする
+        if (btn) { btn.disabled = false; btn.textContent = origText; btn.style.background = origBg; }
         const detail = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail, null, 2)) : '(不明)';
         alert(`❌ eBay PUT 失敗\n\nHTTP: ${data.status || res.status}\nメッセージ: ${data.error || data.message || '(不明)'}\n\n詳細:\n${detail.slice(0, 1000)}\n\nローカル変更はそのまま保持されています。`);
         console.error('[Shipping] eBay PUT 失敗:', data);
       }
     } catch (e) {
-      if (btn) { btn.disabled = false; btn.textContent = origText; }
+      if (btn) { btn.disabled = false; btn.textContent = origText; btn.style.background = origBg; }
       alert(`❌ ネットワークエラー: ${e.message}\nVercel 関数が応答していない可能性があります。`);
     }
   },
@@ -10366,7 +10395,7 @@ Object.assign(Shipping, {
       <span style="flex:1;"></span>
       <button class="ship-btn-cancel" onclick="Shipping.cancelEditPolicy()">キャンセル</button>
       <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">✓ ローカルに保存</button>
-      <button class="ship-btn-save" style="background:#1e40af;" onclick="Shipping.pushSingleToEbay()" title="ローカル変更を eBay に PUT 送信">🚀 eBay に反映</button>
+      <button class="ship-btn-save" id="shipSinglePushBtn" style="background:#1e40af;" onclick="Shipping.pushSingleToEbay()" title="ローカル変更を eBay に PUT 送信">🚀 eBay に反映</button>
     </div>
     <div style="font-size:11px; color:#888; margin-top:8px;">
       💡 「保存」はローカル(画面 + キャッシュ)のみに反映されます。eBay 本体への書き込みは <strong>Phase 2-G(最終段階)</strong> で実装します。
