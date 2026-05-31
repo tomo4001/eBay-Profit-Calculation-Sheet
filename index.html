@@ -6490,11 +6490,18 @@ const Shipping = {
       }
     }
 
-    // 5) 除外国 (baseExcluded + VeROなら Europe)
+    // 5) 除外国 (baseExcluded + VeROなら Europe + 特別設定で追加される国)
     if (def.baseExcluded) {
       compared++;
       const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
-      const expected = Array.from(new Set([...(def.baseExcluded||[]), ...veroAdds])).sort();
+      // 🔧 Phase 2-H+++: アクティブな特別設定で、このポリシーの service が対象になっているルールの countries も期待値に含める
+      const specialAdds = [];
+      (this.specialRules || []).forEach(rule => {
+        if (!rule.active) return;
+        if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+        (rule.countries || []).forEach(c => specialAdds.push(c));
+      });
+      const expected = Array.from(new Set([...(def.baseExcluded||[]), ...veroAdds, ...specialAdds])).sort();
       const cur = (p.excluded || []).slice().sort();
       if (cur.join('|') !== expected.join('|')) {
         const onlyInCur = cur.filter(c => !expected.includes(c));
