@@ -6779,7 +6779,7 @@ const SHIP_DOMESTIC_SERVICES = [
 // 国名はeBay APIから動的取得して補完される
 const SHIP_COUNTRY_GROUPS = {
   '🌍 地域指定・特殊 (一括除外オプション)': {
-    items: ['Africa','South America','Central America and Caribbean','Alaska/Hawaii','APO/FPO','PO Box','US Protectorates'],
+    items: ['Europe','Africa','South America','Central America and Caribbean','Alaska/Hawaii','APO/FPO','PO Box','US Protectorates'],
     isRegion: true
   },
   '🇪🇺 ヨーロッパ (49)': {
@@ -6977,6 +6977,7 @@ Object.assign(Shipping, {
 
     // 地域→国の対応(地域がONなら、その地域の国も実質除外として扱う)
     const REGION_TO_GROUP_NAME = {
+      'Europe': '🇪🇺 ヨーロッパ (49)',
       'Africa': '🌍 アフリカ (55)',
       'South America': '🌎 南米 (14)',
       'Central America and Caribbean': '🌎 中米・カリブ (30)',
@@ -7837,6 +7838,7 @@ Object.assign(Shipping, {
     // 除外国チェックボックス UI
     const excludedSet = new Set(this.editingPolicyExcluded);
     const REGION_TO_GROUP_NAME = {
+      'Europe': '🇪🇺 ヨーロッパ (49)',
       'Africa': '🌍 アフリカ (55)',
       'South America': '🌎 南米 (14)',
       'Central America and Caribbean': '🌎 中米・カリブ (30)',
