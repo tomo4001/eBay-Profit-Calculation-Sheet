@@ -9783,10 +9783,11 @@ Object.assign(Shipping, {
     }
 
     // ----- International 設定 -----
+    let intl = null;
     if (this.editingIntlServices.length >= 0) {
       if (!Array.isArray(p._raw.shippingOptions)) p._raw.shippingOptions = [];
       // 既存の INTERNATIONAL を更新 or 新規
-      let intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
+      intl = p._raw.shippingOptions.find(o => o.optionType === 'INTERNATIONAL');
       if (!intl) {
         intl = { optionType: 'INTERNATIONAL', costType: 'FLAT_RATE' };
         p._raw.shippingOptions.push(intl);
@@ -9802,21 +9803,27 @@ Object.assign(Shipping, {
       }));
     }
 
-    // ----- Excluded countries + 📍 Additional locations (policy-level shipToLocations) -----
+    // ----- Excluded countries + 📍 Additional locations -----
     p.excluded = this.editingPolicyExcluded.slice();
     if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
     p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
-    // 📍 Phase 2-H++: Additional locations = 全 service destinations の和集合を policy-level regionIncluded に書き込む
-    // これにより eBay 上で Destinations と Additional locations が一致する
+
+    // 📍 Phase 2-H+++ FIX: Additional locations = 全 service destinations の和集合
+    // eBay の Additional locations は INTERNATIONAL option-level shipToLocations.regionIncluded に対応
+    // 念のため policy-level にも書き込む(eBay が両方を見る可能性あり)
     const union = this.computeAdditionalLocationsUnion();
     const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
     const isAllSelected = allCodes.every(c => union.includes(c)) && union.length === allCodes.length;
-    if (isAllSelected) {
-      // 全 13 destinations 選択 → "Worldwide" に圧縮
-      p._raw.shipToLocations.regionIncluded = [{ regionName: 'Worldwide' }];
-    } else {
-      p._raw.shipToLocations.regionIncluded = union.map(c => ({ regionName: c }));
+    const regionIncludedPayload = isAllSelected
+      ? [{ regionName: 'Worldwide' }]
+      : union.map(c => ({ regionName: c }));
+
+    // (a) INTERNATIONAL option-level に書き込み
+    if (intl) {
+      intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
     }
+    // (b) policy-level にも書き込み(top-level)
+    p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
 
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
