@@ -6343,14 +6343,8 @@ const Shipping = {
     const diffs = [];
     let compared = 0;
 
-    // 1) Handling Time
-    const ht = p.handlingTime;
-    if (ht != null && def.handlingTime != null) {
-      compared++;
-      if (parseInt(ht) !== parseInt(def.handlingTime)) {
-        diffs.push({ field: 'handlingTime', label: 'Handling Time', def: def.handlingTime+'d', cur: ht+'d' });
-      }
-    }
+    // 1) Handling Time — バッジ判定からは除外(ユーザー要望)
+    // ※ HT は商品種別やシーズンで変動するため、デフォルトと一致してなくても「個別設定」扱いしない
 
     // 2) Shipping Method (policy level)
     if (raw.shippingMethod && def.shippingMethod) {
