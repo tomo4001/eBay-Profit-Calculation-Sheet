@@ -6404,6 +6404,34 @@ const Shipping = {
   // 個別ポリシーが「デフォルト通り」か「個別設定あり」かを判定
   //   返り値: { isDefault, diffCount, diffs: [{field,label,def,cur}], compared }
   // ---------------------------------------------------------------------
+  // 🔍 raw データを別ウィンドウで表示(デバッグ用)
+  showRawDataDebug() {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) { alert('編集中のポリシーがありません'); return; }
+    const w = window.open('', '_blank', 'width=800,height=900');
+    if (!w) { alert('ポップアップがブロックされました。許可してください。'); return; }
+    const intl = (p._raw.shippingOptions || []).find(o => o.optionType === 'INTERNATIONAL');
+    const summary = {
+      'ポリシー名': p.name,
+      'service種別': p.service,
+      'policy-level shipToLocations.regionIncluded': p._raw.shipToLocations?.regionIncluded || null,
+      'policy-level shipToLocations.regionExcluded (count)': (p._raw.shipToLocations?.regionExcluded || []).length,
+      'INTERNATIONAL option-level shipToLocations': intl?.shipToLocations || null,
+      'INTERNATIONAL services 件数': (intl?.shippingServices || []).length,
+      'Primary Service regionIncluded': (intl?.shippingServices?.[0]?.shipToLocations?.regionIncluded || []).map(r => r.regionName),
+    };
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${p.name} — raw データ</title>
+      <style>body{font-family:monospace; padding:20px; font-size:12px;} pre{background:#f3f4f6; padding:12px; border-radius:6px; overflow:auto; white-space:pre-wrap; word-break:break-all;} h2{font-size:14px; margin-top:20px; color:#1e40af;} h3{font-size:13px; margin-top:14px; color:#dc2626;}</style>
+    </head><body>
+      <h2>📊 サマリ (重要フィールドのみ)</h2>
+      <pre>${JSON.stringify(summary, null, 2)}</pre>
+      <h2>📦 _raw 全体</h2>
+      <pre>${JSON.stringify(p._raw, null, 2)}</pre>
+      <h3>👉 この内容をコピーして Claude に貼り付けてください</h3>
+    </body></html>`);
+    w.document.close();
+  },
+
   // 🔍 バッジクリック時に差分の詳細を alert で表示
   showDiffDetail(policyId) {
     const p = this.policies.find(x => x.id === policyId);
@@ -10449,6 +10477,7 @@ Object.assign(Shipping, {
     <div id="shipEditPolicyContent"></div>
     <div class="ship-modal-footer">
       <button class="ship-btn-cancel" style="background:#dc2626; color:#fff; border-color:#b91c1c; font-weight:700;" onclick="Shipping.deleteCurrentEditPolicy()">🗑️ 削除</button>
+      <button class="ship-btn-cancel" style="background:#fef3c7; color:#92400e; border-color:#f59e0b; font-weight:600;" onclick="Shipping.showRawDataDebug()" title="このポリシーの raw データを表示(デバッグ用)">🔍 raw データ</button>
       <span style="flex:1;"></span>
       <button class="ship-btn-cancel" onclick="Shipping.cancelEditPolicy()">キャンセル</button>
       <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">✓ ローカルに保存</button>
