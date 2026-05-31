@@ -9580,6 +9580,106 @@ Object.assign(Shipping, {
     alert(`${prefix}\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
   },
 
+  // 🚀 Phase 2-G.1: 単体ポリシーを eBay に PUT
+  async pushSingleToEbay() {
+    const p = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!p) return;
+    if (!p._raw) { alert('内部エラー: _raw データがありません'); return; }
+    if (p.id.startsWith('local_new_')) {
+      alert('⚠️ 新規作成ポリシーは Phase 2-G.3(POST 実装)で対応予定です。\n既存ポリシーの更新のみ Phase 2-G.1 で対応中。');
+      return;
+    }
+
+    // 念のためまずフォーム値を _raw に反映(保存と同じロジック)
+    this.saveEditedPolicyToLocalOnly();
+    const pUpdated = this.policies.find(x => x.id === this.editingPolicyId);
+
+    // 1) Dry-run でクライアントサイド検証
+    let dryRunResult;
+    try {
+      const dryRes = await fetch('/api/ebay-policy-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policyId: pUpdated.id, policy: pUpdated._raw, dryRun: true }),
+      });
+      dryRunResult = await dryRes.json();
+      if (!dryRes.ok || dryRunResult.validationFailed) {
+        alert(`❌ 事前検証エラー\n\n${(dryRunResult.errors || []).map(e => '・' + e).join('\n')}\n\n修正してから再試行してください。`);
+        return;
+      }
+    } catch (e) {
+      alert(`❌ 検証API呼び出し失敗: ${e.message}\nVercel デプロイ状況・OAuth設定を確認してください。`);
+      return;
+    }
+
+    // 2) 安全策: スナップショット自動保存
+    try {
+      this.createAutoSnapshot();
+    } catch (e) { console.warn('スナップショット保存失敗:', e); }
+
+    // 3) 最終確認(2段階)
+    const confirmText = `🚀 eBay にこのポリシーを反映します。\n\n` +
+      `ポリシーID: ${pUpdated.id}\n` +
+      `名前: ${pUpdated.name}\n` +
+      `Domestic送料: $${pUpdated.domesticCost.toFixed(2)}\n` +
+      `HT: ${pUpdated.handlingTime}日\n` +
+      `除外国: ${pUpdated.excluded.length}項目\n\n` +
+      `※ この操作は eBay 上のポリシーを直接変更します(取り消し不可)。\n` +
+      `紐づく listing がある場合、全 listing に影響します。\n` +
+      `事前 AUTO スナップショットは保存済みです。\n\n` +
+      `本当に実行しますか?`;
+    if (!confirm(confirmText)) return;
+
+    // 4) 実 PUT 送信
+    const btn = event && event.target;
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '📡 送信中…'; }
+
+    try {
+      const res = await fetch('/api/ebay-policy-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policyId: pUpdated.id, policy: pUpdated._raw, dryRun: false }),
+      });
+      const data = await res.json();
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+
+      if (res.ok && data.ok) {
+        alert(`✓ eBay PUT 成功!\n\nポリシーID: ${data.policyId}\nHTTP: ${data.status}\n\n反映されたことを確認するには、いったんモーダルを閉じて「🔄 最新を取得」してみてください。`);
+        // ローカル状態は既に最新なのでキャッシュ保存のみ
+        this.savePoliciesCache();
+      } else {
+        const detail = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail, null, 2)) : '(不明)';
+        alert(`❌ eBay PUT 失敗\n\nHTTP: ${data.status || res.status}\nメッセージ: ${data.error || data.message || '(不明)'}\n\n詳細:\n${detail.slice(0, 1000)}\n\nローカル変更はそのまま保持されています。`);
+        console.error('[Shipping] eBay PUT 失敗:', data);
+      }
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+      alert(`❌ ネットワークエラー: ${e.message}\nVercel 関数が応答していない可能性があります。`);
+    }
+  },
+
+  // saveEditedPolicy の本体だけ抜き出した「ローカル保存のみ」版
+  // (eBay 送信前に最新の編集値を _raw に反映するために使う、UI は閉じない)
+  saveEditedPolicyToLocalOnly() {
+    // 既存の saveEditedPolicy のロジックを安全に内部呼び出しで使うため、
+    // モーダルが現在編集中であることを前提に同じ処理を実行する。
+    // ※ closeModal / renderList / alert は呼ばないので保存だけ行う。
+    const _origAlert = window.alert;
+    const _origClose = this.closeModal;
+    let calledAlert = false;
+    try {
+      window.alert = () => { calledAlert = true; };
+      this.closeModal = () => {};
+      this.saveEditedPolicy();
+    } catch (e) {
+      console.warn('saveEditedPolicyToLocalOnly: 内部保存失敗', e);
+    } finally {
+      window.alert = _origAlert;
+      this.closeModal = _origClose;
+    }
+  },
+
   // 編集中のポリシーを削除
   deleteCurrentEditPolicy() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
@@ -9850,6 +9950,7 @@ Object.assign(Shipping, {
       <span style="flex:1;"></span>
       <button class="ship-btn-cancel" onclick="Shipping.cancelEditPolicy()">キャンセル</button>
       <button class="ship-btn-save" onclick="Shipping.saveEditedPolicy()">✓ ローカルに保存</button>
+      <button class="ship-btn-save" style="background:#1e40af;" onclick="Shipping.pushSingleToEbay()" title="ローカル変更を eBay に PUT 送信">🚀 eBay に反映</button>
     </div>
     <div style="font-size:11px; color:#888; margin-top:8px;">
       💡 「保存」はローカル(画面 + キャッシュ)のみに反映されます。eBay 本体への書き込みは <strong>Phase 2-G(最終段階)</strong> で実装します。
