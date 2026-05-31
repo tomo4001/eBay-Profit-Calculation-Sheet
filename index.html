@@ -1433,6 +1433,15 @@
   }
   .ship-checkbox-item.covered:hover { background: #fef3c7; }
   .ship-checkbox-item.covered input { cursor: not-allowed; }
+  /* 🕊️ 特別設定で除外されている国(オレンジ系) */
+  .ship-checkbox-item.rule-applied {
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+  }
+  .ship-checkbox-item.rule-applied:hover { background: #ffedd5; }
+  .ship-checkbox-item.rule-applied input[type="checkbox"] {
+    accent-color: #d97706;  /* オレンジ */
+  }
 
   .ship-edit-btn {
     background: #fff; border: 1px solid #2563eb; color: #2563eb;
@@ -7887,6 +7896,16 @@ Object.assign(Shipping, {
       }
       return false;
     };
+
+    // 🕊️ 特別設定(active)で除外される国を集合化(このポリシーの service が対象になっているもののみ)
+    const ruleAppliedCountries = new Set();
+    const matchingRules = [];
+    (this.specialRules || []).forEach(rule => {
+      if (!rule.active) return;
+      if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+      matchingRules.push(rule);
+      (rule.countries || []).forEach(c => ruleAppliedCountries.add(c));
+    });
     let groupsHtml = '';
     Object.entries(SHIP_COUNTRY_GROUPS).forEach(([groupName, group], gIdx) => {
       const items = group.items;
@@ -7901,14 +7920,19 @@ Object.assign(Shipping, {
         const isDirectChecked = excludedSet.has(c);
         const isCovered = !isRegionGroup && isCoveredByRegion(c);
         const isChecked = isDirectChecked || isCovered;
+        const isRuleApplied = ruleAppliedCountries.has(c);
         const disabled = isCovered && !isDirectChecked ? 'disabled' : '';
-        const itemClass = isCovered && !isDirectChecked ? 'ship-checkbox-item covered' : 'ship-checkbox-item';
+        // クラス: covered(地域指定で除外) / rule-applied(特別設定で除外)
+        let itemClass = 'ship-checkbox-item';
+        if (isCovered && !isDirectChecked) itemClass += ' covered';
+        if (isRuleApplied && isDirectChecked) itemClass += ' rule-applied';
         let label;
         if (isRegionGroup) {
           label = `<strong>${c}</strong>${REGION_TO_GROUP_NAME[c] ? ` (${SHIP_COUNTRY_GROUPS[REGION_TO_GROUP_NAME[c]].items.length}カ国)` : ''}`;
         } else {
           label = shipDisplayCountry(c);
           if (isCovered && !isDirectChecked) label += ' <span style="color:#9ca3af; font-size:10px;">(地域指定で除外中)</span>';
+          if (isRuleApplied && isDirectChecked) label += ' <span style="color:#d97706; font-size:10px; font-weight:600;">🕊️ 特別設定</span>';
         }
         return `
           <label class="${itemClass}">
@@ -7928,6 +7952,15 @@ Object.assign(Shipping, {
         </details>
       `;
     });
+
+    // 適用中の特別設定一覧バナー(編集モーダル上部に出す)
+    const matchingRulesBanner = matchingRules.length > 0 ? `
+      <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:11px; color:#92400e;">
+        🕊️ <strong>このポリシーには特別設定が適用されています:</strong>
+        ${matchingRules.map(r => `<span style="margin-left:8px;">${r.name}(${r.countries.length}カ国)</span>`).join('')}
+        <br><span style="font-size:10px; color:#92400e;">オレンジ枠のチェックボックスがルール由来の除外国です。</span>
+      </div>
+    ` : '';
 
     // 元のDescription取得(API由来)
     const rawDescription = (p._raw && p._raw.description) || '';
@@ -8094,6 +8127,7 @@ Object.assign(Shipping, {
 
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">🌐 除外国 (チェックで除外)</div>
+        ${matchingRulesBanner}
         ${diffByField['excluded'] ? `
           <div class="ship-section-diff-banner">
             <span>⚠️ 除外国がデフォルトと異なります(default: <strong>${diffByField['excluded'].def}</strong> / 現在: <strong>${diffByField['excluded'].cur}</strong>)</span>
