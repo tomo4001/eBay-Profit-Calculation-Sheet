@@ -61,43 +61,69 @@ export default async function handler(req, res) {
   try {
     const accessToken = await getAccessToken(appId, certId, refreshToken);
 
-    const apiUrl = `https://api.ebay.com/sell/account/v1/fulfillment_policy?marketplace_id=${encodeURIComponent(marketplace)}`;
-    const apiRes = await fetch(apiUrl, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
+    // 🔄 ページネーション対応: limit=200(eBayの最大値) で全件取得
+    const allPolicies = [];
+    let offset = 0;
+    const limit = 200;
+    let totalReported = null;
+    let pages = 0;
+    const maxPages = 20; // 安全上限(=最大 4000 件)
 
-    if (!apiRes.ok) {
-      const text = await apiRes.text();
-      res.status(apiRes.status).json({
-        error: `eBay ポリシー取得失敗 (HTTP ${apiRes.status})`,
-        detail: text.slice(0, 500),
-        marketplace,
+    while (pages < maxPages) {
+      const apiUrl = `https://api.ebay.com/sell/account/v1/fulfillment_policy?marketplace_id=${encodeURIComponent(marketplace)}&limit=${limit}&offset=${offset}`;
+      const apiRes = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
       });
-      return;
+
+      if (!apiRes.ok) {
+        const text = await apiRes.text();
+        res.status(apiRes.status).json({
+          error: `eBay ポリシー取得失敗 (HTTP ${apiRes.status})`,
+          detail: text.slice(0, 500),
+          marketplace,
+          offset,
+          collectedSoFar: allPolicies.length,
+        });
+        return;
+      }
+
+      const data = await apiRes.json();
+      const policies = data.fulfillmentPolicies || [];
+      if (totalReported == null && typeof data.total === 'number') totalReported = data.total;
+
+      allPolicies.push(...policies);
+      pages++;
+
+      // 次ページがあるか判定:
+      //   - data.next (eBay が返す次URL) があれば続く
+      //   - もしくは取得件数が limit 以上なら次ページを試す
+      //   - 取得件数が limit 未満なら最終ページ
+      if (policies.length < limit) break;
+      offset += limit;
     }
-
-    const data = await apiRes.json();
-
-    // 件数のサマリと、わかりやすく整形して返す
-    const policies = data.fulfillmentPolicies || [];
 
     res.status(200).json({
       ok: true,
       marketplace,
-      total: policies.length,
+      total: allPolicies.length,
+      pages,
+      reportedTotal: totalReported,
       hint: '生データを確認したい場合は raw を見てください',
-      summary: policies.map(p => ({
+      summary: allPolicies.map(p => ({
         id: p.fulfillmentPolicyId,
         name: p.name,
         handlingTime: p.handlingTime,
         shippingOptionsCount: (p.shippingOptions || []).length,
         excludedCountries: ((p.shipToLocations && p.shipToLocations.regionExcluded) || []).map(r => r.regionName),
       })),
-      raw: data,
+      raw: {
+        fulfillmentPolicies: allPolicies,
+        total: allPolicies.length,
+      },
     });
 
   } catch (e) {
