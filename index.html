@@ -7926,6 +7926,7 @@ Object.assign(Shipping, {
   editingPolicyId: null,
   editingPolicyExcluded: [], // 編集中の除外国
   editingIntlServices: [],   // 編集中の International services
+  editingPolicyAddlLocations: [],  // 📍 Phase 2-H+: Additional locations (policy-level shipToLocations.regionIncluded)
   _editFormSnapshot: null,    // resetFieldToDefault による一時保存(re-render時に復元)
 
   openEditPolicyModal(id) {
@@ -7941,11 +7942,20 @@ Object.assign(Shipping, {
           serviceCode: s.shippingServiceCode || '',
           cost: parseFloat((s.shippingCost && s.shippingCost.value) || 0),
           addtlCost: parseFloat((s.additionalShippingCost && s.additionalShippingCost.value) || 0),
-          destinations: ((s.shipToLocations && s.shipToLocations.regionIncluded) || []).map(r => r.regionName),
-          // 📍 Phase 2-H: Additional locations 用の「一時無効」destinations(eBay PUT には送らないが local には保持)
-          disabledDestinations: ((s.shipToLocations && s.shipToLocations._disabledRegions) || []).map(r => r.regionName)
+          destinations: ((s.shipToLocations && s.shipToLocations.regionIncluded) || []).map(r => r.regionName)
         }))
       : [];
+
+    // 📍 Phase 2-H+: Additional locations は policy.shipToLocations.regionIncluded を直接編集
+    // "Worldwide" が入っている場合は全 13 destinations に展開
+    const rawAddl = ((p._raw && p._raw.shipToLocations && p._raw.shipToLocations.regionIncluded) || [])
+      .map(r => r.regionName);
+    if (rawAddl.includes('Worldwide')) {
+      this.editingPolicyAddlLocations = SHIP_INTL_DESTINATIONS.map(d => d.code);
+    } else {
+      this.editingPolicyAddlLocations = rawAddl.slice();
+    }
+
     this.renderEditPolicyForm();
     document.getElementById('shipEditPolicyModal').classList.add('active');
   },
@@ -8207,16 +8217,15 @@ Object.assign(Shipping, {
         <div id="shipEditIntlServicesContainer"></div>
         <button class="ship-btn-add" style="margin-top:8px;" onclick="Shipping.addEditIntlService()">+ Add Service(別の国に別の送料を設定)</button>
 
-        <!-- 📍 Additional locations (optional) — eBay UI と同等の発送先 ON/OFF スイッチ -->
+        <!-- 📍 Additional locations (optional) — policy 全体の ship-to(per-service Destinations とは独立) -->
         <div style="margin-top:16px; padding-top:14px; border-top:1px dashed #d1d5db;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <div style="font-size:12px; font-weight:700; color:#4b5563;">📍 Additional locations (optional)</div>
-            <div style="font-size:11px; color:#6b7280;">eBay UI と同等: チェックを外すとルール定義は残るが発送停止</div>
+            <div style="font-size:11px; color:#6b7280;">policy.shipToLocations.regionIncluded</div>
           </div>
           <div style="font-size:11px; color:#6b7280; margin-bottom:8px; padding:6px 10px; background:#f9fafb; border-radius:4px;">
-            ・全サービスで設定された destinations の <strong>和集合</strong>を表示<br>
-            ・<strong>チェック外す</strong> → その destination をサービスから一時的に除外(再度チェックで復活)<br>
-            ・サービス定義(料金/コード)はそのまま保持され、eBay PUT 時のみ反映されます
+            eBay UI の「Additional locations (optional)」と同じ項目。<br>
+            ポリシー全体の発送可能国(per-service の Destinations とは別フィールド)。チェック切替で eBay に同期されます。
           </div>
           <div id="shipEditAdditionalLocsContainer"></div>
         </div>
@@ -8348,158 +8357,86 @@ Object.assign(Shipping, {
   toggleIntlServiceDest(idx, code, checked) {
     const s = this.editingIntlServices[idx];
     if (!s) return;
-    if (!s.disabledDestinations) s.disabledDestinations = [];
     if (checked) {
       if (!s.destinations.includes(code)) s.destinations.push(code);
-      // ⛓️ Additional locations の disabled 状態だった場合はクリア(再活性化)
-      s.disabledDestinations = s.disabledDestinations.filter(d => d !== code);
     } else {
       s.destinations = s.destinations.filter(d => d !== code);
-      // per-service Destinations でのチェック外しは「完全除去」: disabled からも除去
-      s.disabledDestinations = s.disabledDestinations.filter(d => d !== code);
     }
-    this.renderEditAdditionalLocations();
   },
   toggleAllIntlDest(idx, allCheck) {
     const s = this.editingIntlServices[idx];
     if (!s) return;
-    if (!s.disabledDestinations) s.disabledDestinations = [];
     if (allCheck) {
       s.destinations = SHIP_INTL_DESTINATIONS.map(d => d.code);
-      s.disabledDestinations = [];
     } else {
       s.destinations = [];
-      s.disabledDestinations = [];
     }
     this.renderEditIntlServices();
-    this.renderEditAdditionalLocations();
   },
   addEditIntlService() {
     this.editingIntlServices.push({
       serviceCode: SHIP_INTERNATIONAL_SERVICES[0].code,
-      cost: 0, addtlCost: 0, destinations: [], disabledDestinations: []
+      cost: 0, addtlCost: 0, destinations: []
     });
     this.renderEditIntlServices();
-    this.renderEditAdditionalLocations();
   },
   removeEditIntlService(idx) {
     this.editingIntlServices.splice(idx, 1);
     this.renderEditIntlServices();
-    this.renderEditAdditionalLocations();
   },
 
-  // 📍 Phase 2-H: Additional locations (eBay UI 同等)
-  // 全 13 destinations を常に表示。各 destination のチェック状態:
-  //   - ✓ = どこかのサービスの destinations に含まれている(active)
-  //   - ☐ = どこのサービスにも含まれていない or disabledDestinations にある(inactive)
-  // チェック外す → そのサービスの destinations から disabledDestinations へ移動(ルール残す)
-  // チェック入れる → disabledDestinations から destinations へ戻す or Primary に新規追加
+  // 📍 Phase 2-H+: Additional locations = policy.shipToLocations.regionIncluded
+  // per-service の destinations とは独立した「ポリシー全体の ship-to」フィールド
+  // チェック切替 → policy.shipToLocations.regionIncluded を直接編集
   renderEditAdditionalLocations() {
     const container = document.getElementById('shipEditAdditionalLocsContainer');
     if (!container) return;
 
-    // 各 destination がどのサービスにあるか・active か disabled か を集計
-    // info: code → { serviceIdx, active, cost, serviceCode }
-    const info = new Map();
-    this.editingIntlServices.forEach((s, idx) => {
-      (s.destinations || []).forEach(code => {
-        if (!info.has(code)) info.set(code, { serviceIdx: idx, active: true, cost: s.cost, serviceCode: s.serviceCode });
-      });
-      (s.disabledDestinations || []).forEach(code => {
-        if (!info.has(code)) info.set(code, { serviceIdx: idx, active: false, cost: s.cost, serviceCode: s.serviceCode });
-      });
-    });
-
-    // 表示対象: SHIP_INTL_DESTINATIONS の全 13 + サービスに含まれる未知コード
     const codes = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    info.forEach((_, code) => { if (!codes.includes(code)) codes.push(code); });
+    const checkedSet = new Set(this.editingPolicyAddlLocations);
+
+    // SHIP_INTL_DESTINATIONS に無いコードも末尾に追加
+    this.editingPolicyAddlLocations.forEach(c => { if (!codes.includes(c)) codes.push(c); });
 
     const items = codes.map(code => {
       const destInfo = SHIP_INTL_DESTINATIONS.find(d => d.code === code);
       const label = destInfo ? destInfo.label : code;
-      const meta = info.get(code);
-
-      let state, bgColor, borderColor, badge;
-      if (meta && meta.active) {
-        // 状態 1: active(どこかのサービスで発送中)
-        state = 'active';
-        bgColor = '#fff';
-        borderColor = '#e5e7eb';
-        const svcLabel = meta.serviceIdx === 0 ? 'Primary' : `Add #${meta.serviceIdx}`;
-        badge = `<span style="color:#6b7280; font-size:10px; font-weight:400; margin-left:6px;">${svcLabel} / $${(meta.cost||0).toFixed(2)}</span>`;
-      } else if (meta && !meta.active) {
-        // 状態 2: disabled(ルールあるが Additional locations で停止中)
-        state = 'disabled';
-        bgColor = '#fef3c7';
-        borderColor = '#fbbf24';
-        const svcLabel = meta.serviceIdx === 0 ? 'Primary' : `Add #${meta.serviceIdx}`;
-        badge = `<span style="color:#6b7280; font-size:10px; font-weight:400; margin-left:6px;">${svcLabel} / $${(meta.cost||0).toFixed(2)}</span><span style="color:#92400e; font-size:10px; font-weight:600; margin-left:6px;">(停止中)</span>`;
-      } else {
-        // 状態 3: not configured(どのサービスにも含まれていない)
-        state = 'none';
-        bgColor = '#f9fafb';
-        borderColor = '#e5e7eb';
-        badge = '<span style="color:#9ca3af; font-size:10px; font-weight:400; margin-left:6px;">未設定</span>';
-      }
-
-      const dimStyle = state === 'active' ? '' : 'opacity:0.7;';
-      const isChecked = (state === 'active');
-
+      const isChecked = checkedSet.has(code);
       return `
-        <label style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:7px 12px; background:${bgColor}; border:1px solid ${borderColor}; border-radius:4px; font-size:12px; color:#1f2937; cursor:pointer; ${dimStyle}">
-          <span style="flex:1; min-width:0; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${label}${badge}
-          </span>
+        <label class="ship-dest-item" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; color:#1f2937; font-weight:normal; cursor:pointer; margin:0;">
+          <span style="flex:1 1 auto; min-width:0; font-weight:500; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${label}</span>
           <input type="checkbox" ${isChecked?'checked':''} onchange="Shipping.toggleAdditionalLocation('${code}', this.checked)" style="margin:0; flex:0 0 auto; cursor:pointer;" />
         </label>
       `;
     }).join('');
 
-    const activeCount = Array.from(info.values()).filter(v => v.active).length;
-    const disabledCount = Array.from(info.values()).filter(v => !v.active).length;
-    const noneCount = codes.length - activeCount - disabledCount;
+    const checkedCount = this.editingPolicyAddlLocations.length;
     container.innerHTML = `
-      <div style="display:flex; gap:14px; font-size:11px; color:#6b7280; margin-bottom:6px;">
-        <span>✓ 有効: <strong style="color:#059669;">${activeCount}</strong></span>
-        <span>⏸ 停止中: <strong style="color:#d97706;">${disabledCount}</strong></span>
-        <span>− 未設定: <strong style="color:#9ca3af;">${noneCount}</strong></span>
+      <div style="display:flex; gap:14px; align-items:center; font-size:11px; color:#6b7280; margin-bottom:6px;">
+        <span>選択中: <strong style="color:#059669;">${checkedCount}/${codes.length}</strong></span>
+        <button type="button" onclick="Shipping.toggleAllAdditionalLocations(true)" style="background:#2563eb; color:#fff; border:none; padding:4px 12px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">✓ 全選択</button>
+        <button type="button" onclick="Shipping.toggleAllAdditionalLocations(false)" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:4px 12px; border-radius:5px; cursor:pointer; font-size:11px; font-weight:600;">全解除</button>
       </div>
       <div class="ship-dest-grid">${items}</div>
     `;
   },
   toggleAdditionalLocation(code, checked) {
-    // すでにいずれかのサービスに含まれているか確認
-    for (const s of this.editingIntlServices) {
-      if (!s.disabledDestinations) s.disabledDestinations = [];
-      if (s.destinations.includes(code)) {
-        if (checked) return; // すでに active
-        // active → disabled へ移動
-        s.destinations = s.destinations.filter(d => d !== code);
-        if (!s.disabledDestinations.includes(code)) s.disabledDestinations.push(code);
-        this.renderEditIntlServices();
-        this.renderEditAdditionalLocations();
-        return;
-      }
-      if (s.disabledDestinations.includes(code)) {
-        if (!checked) return; // すでに disabled
-        // disabled → active へ戻す
-        s.disabledDestinations = s.disabledDestinations.filter(d => d !== code);
-        if (!s.destinations.includes(code)) s.destinations.push(code);
-        this.renderEditIntlServices();
-        this.renderEditAdditionalLocations();
-        return;
-      }
-    }
-    // どのサービスにも含まれていない → Primary に新規追加(または無視)
     if (checked) {
-      const primary = this.editingIntlServices[0];
-      if (primary) {
-        if (!primary.destinations.includes(code)) primary.destinations.push(code);
-        this.renderEditIntlServices();
-        this.renderEditAdditionalLocations();
+      if (!this.editingPolicyAddlLocations.includes(code)) {
+        this.editingPolicyAddlLocations.push(code);
       }
+    } else {
+      this.editingPolicyAddlLocations = this.editingPolicyAddlLocations.filter(c => c !== code);
     }
-    // unchecked かつどのサービスにも含まれない場合は何もしない
+    this.renderEditAdditionalLocations();
+  },
+  toggleAllAdditionalLocations(allCheck) {
+    if (allCheck) {
+      this.editingPolicyAddlLocations = SHIP_INTL_DESTINATIONS.map(d => d.code);
+    } else {
+      this.editingPolicyAddlLocations = [];
+    }
+    this.renderEditAdditionalLocations();
   },
 
   // =====================================================================
@@ -9592,22 +9529,15 @@ Object.assign(Shipping, {
       intl.shippingServices.forEach(s => {
         if (!s.shipToLocations) s.shipToLocations = {};
         if (!Array.isArray(s.shipToLocations.regionIncluded)) s.shipToLocations.regionIncluded = [];
-        if (!Array.isArray(s.shipToLocations._disabledRegions)) s.shipToLocations._disabledRegions = [];
         const current = new Set(s.shipToLocations.regionIncluded.map(r => r.regionName));
-        const disabled = new Set(s.shipToLocations._disabledRegions.map(r => r.regionName));
         codes.forEach(c => {
           if (mode === 'add') {
             if (!current.has(c)) { current.add(c); policyChanged = true; }
-            // 📍 Phase 2-H: bulk add 時は disabled からも除去(active 化)
-            if (disabled.has(c)) { disabled.delete(c); policyChanged = true; }
           } else {
             if (current.has(c)) { current.delete(c); policyChanged = true; }
-            // 📍 Phase 2-H: bulk remove 時は disabled からも除去(完全削除)
-            if (disabled.has(c)) { disabled.delete(c); policyChanged = true; }
           }
         });
         s.shipToLocations.regionIncluded = Array.from(current).map(r => ({ regionName: r }));
-        s.shipToLocations._disabledRegions = Array.from(disabled).map(r => ({ regionName: r }));
       });
       if (policyChanged) updated++;
     });
@@ -9828,17 +9758,25 @@ Object.assign(Shipping, {
         shippingCost:           { value: (s.cost || 0).toFixed(2),     currency: 'USD' },
         additionalShippingCost: { value: (s.addtlCost || 0).toFixed(2), currency: 'USD' },
         shipToLocations: {
-          regionIncluded: (s.destinations || []).map(d => ({ regionName: d })),
-          // 📍 Phase 2-H: Local-only field(eBay PUT 時は API 側で除去される)
-          _disabledRegions: (s.disabledDestinations || []).map(d => ({ regionName: d }))
+          regionIncluded: (s.destinations || []).map(d => ({ regionName: d }))
         }
       }));
     }
 
-    // ----- Excluded countries (p と _raw 両方に保存) -----
+    // ----- Excluded countries + 📍 Additional locations (policy-level shipToLocations) -----
     p.excluded = this.editingPolicyExcluded.slice();
     if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
     p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
+    // 📍 Phase 2-H+: Additional locations を policy-level regionIncluded に保存
+    // 全 13 destinations が選択されている場合は "Worldwide" に圧縮
+    const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
+    const isAllSelected = allCodes.every(c => this.editingPolicyAddlLocations.includes(c)) &&
+                           this.editingPolicyAddlLocations.length === allCodes.length;
+    if (isAllSelected) {
+      p._raw.shipToLocations.regionIncluded = [{ regionName: 'Worldwide' }];
+    } else {
+      p._raw.shipToLocations.regionIncluded = this.editingPolicyAddlLocations.map(c => ({ regionName: c }));
+    }
 
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
