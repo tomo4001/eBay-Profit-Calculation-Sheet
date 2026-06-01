@@ -2570,6 +2570,7 @@
       <button class="ship-bulk-btn" style="background:#7c3aed; color:#fff;" onclick="Shipping.openBulkEditModal()">🔧 一括編集 (全項目)</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国(追加/解除)</button>
+      <button class="ship-bulk-btn" style="background:#a16207; color:#fff;" onclick="Shipping.regenerateSelectedNamesForce()" title="選択ポリシーの名前を現在値で強制再生成(パターン判定スキップ)">🏷️ 名前 再生成</button>
       <button class="ship-bulk-btn" style="background:#1e40af; color:#fff; font-weight:700;" onclick="Shipping.openBulkPushModal()">🚀 選択分を eBay に反映</button>
       <button class="ship-bulk-btn" style="background:#dc2626; color:#fff; border:1px solid #b91c1c; font-weight:700;" onclick="Shipping.bulkDeleteSelected()">🗑️ 削除</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
@@ -6492,6 +6493,41 @@ const Shipping = {
     URL.revokeObjectURL(url);
 
     console.log('[Shipping] CSV エクスポート完了: ' + sorted.length + ' 件');
+  },
+
+  // 🏷️ 選択中のポリシーの名前を現在値から強制再生成(パターン判定スキップ)
+  regenerateSelectedNamesForce() {
+    const selected = this.getSelectedPolicies();
+    if (selected.length === 0) { alert('ポリシーを選択してください'); return; }
+
+    // 全件分の preview を作成
+    const previews = selected.map(p => {
+      const auto = this.computeAutoTitleForPolicy(p);
+      return { p, old: p.name, new: auto };
+    });
+
+    // 変更があるものだけ
+    const changes = previews.filter(x => x.old !== x.new);
+    if (changes.length === 0) {
+      alert(`全ポリシー名はすでに最新です(変更なし)\n\n選択 ${selected.length} 件全部、現在値と一致してます。`);
+      return;
+    }
+
+    // プレビュー表示
+    const previewText = changes.slice(0, 20).map(c => `${c.old}\n  → ${c.new}`).join('\n\n');
+    const moreText = changes.length > 20 ? `\n\n…他 ${changes.length - 20} 件` : '';
+
+    if (!confirm(`${changes.length} 件のポリシー名を強制再生成します。\n(パターン判定をスキップ、現在値からそのまま生成)\n\n変更プレビュー(最初の 20 件):\n${previewText}${moreText}\n\nよろしいですか?`)) return;
+
+    // 適用
+    changes.forEach(({ p, new: newName }) => {
+      p.name = newName;
+      if (p._raw) p._raw.name = newName;
+    });
+
+    this.savePoliciesCache();
+    this.renderList();
+    alert(`✓ ${changes.length} 件のポリシー名を再生成しました。\n\n次に「🚀 選択分を eBay に反映」で eBay 側も更新してください。`);
   },
 
   // 🏷️ 全ポリシーの名前を現在の値で再生成(自動生成パターンに従うもののみ)
