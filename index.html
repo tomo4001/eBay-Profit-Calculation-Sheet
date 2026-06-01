@@ -10596,10 +10596,10 @@ Object.assign(Shipping, {
     // eBay 削除を先に実行
     if (deleteFromEbay) {
       try {
-        const res = await fetch('/api/ebay-policy-delete', {
+        const res = await fetch('/api/ebay-policy-update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ policyId: p.id }),
+          body: JSON.stringify({ policyId: p.id, action: 'delete' }),
         });
         const data = await res.json();
         if (!res.ok || !data.ok) {
