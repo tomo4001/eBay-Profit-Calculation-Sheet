@@ -2488,6 +2488,7 @@
         <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
         <button class="ship-btn-refresh" style="background:#ea580c;" onclick="Shipping.syncAllAdditionalLocations()" title="全ポリシーの Additional locations を Primary Destinations と Add Service の合計に整列">📍 Additional locations 整列</button>
+        <button class="ship-btn-refresh" style="background:#a16207;" onclick="Shipping.regenerateAllAutoNames()" title="ポリシー名を現在の値で再生成(送料額が古いままの時に使用)">🏷️ 名前 再生成</button>
         <button class="ship-btn-refresh" style="background:#0891b2;" onclick="Shipping.exportPoliciesToCSV()" title="ローカル(ツール)状態をポリシー CSV でダウンロード">📄 ローカル CSV</button>
         <button class="ship-btn-refresh" style="background:#7c2d12;" onclick="Shipping.exportEbayPoliciesToCSV()" title="eBay から直接ポリシーを取得して CSV ダウンロード(ローカル状態と分けて取得)">📦 eBay 取得 CSV</button>
         <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
@@ -6491,6 +6492,38 @@ const Shipping = {
     URL.revokeObjectURL(url);
 
     console.log('[Shipping] CSV エクスポート完了: ' + sorted.length + ' 件');
+  },
+
+  // 🏷️ 全ポリシーの名前を現在の値で再生成(自動生成パターンに従うもののみ)
+  regenerateAllAutoNames() {
+    if (this.policies.length === 0) { alert('ポリシーがありません'); return; }
+
+    const updated = [];
+    const skipped = [];
+    this.policies.forEach(p => {
+      if (!this.policyFollowsAutoTitlePattern(p)) {
+        skipped.push(p.name);
+        return;
+      }
+      const auto = this.computeAutoTitleForPolicy(p);
+      if (auto && auto !== p.name) {
+        const oldName = p.name;
+        p.name = auto;
+        if (p._raw) p._raw.name = auto;
+        updated.push({ old: oldName, new: auto });
+      }
+    });
+
+    if (updated.length === 0) {
+      alert(`全ポリシー名はすでに最新です(変更なし)\n\n自動生成パターン外: ${skipped.length}件\n${skipped.slice(0, 5).map(n => '・' + n).join('\n')}${skipped.length > 5 ? '\n…他' : ''}`);
+      return;
+    }
+
+    this.savePoliciesCache();
+    this.renderList();
+
+    const preview = updated.slice(0, 15).map(u => `${u.old}\n  → ${u.new}`).join('\n\n');
+    alert(`✓ ${updated.length}件 のポリシー名を再生成しました\n${skipped.length > 0 ? `(自動生成パターン外 ${skipped.length}件 はスキップ)\n` : ''}\n変更例:\n${preview}${updated.length > 15 ? `\n…他 ${updated.length - 15}件` : ''}\n\n次に「🚀 選択分を eBay に反映」で eBay 側も更新してください。`);
   },
 
   // 📦 eBay から直接ポリシーを取得して CSV エクスポート(localStorage は触らない)
