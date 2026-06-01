@@ -2488,6 +2488,7 @@
         <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
         <button class="ship-btn-refresh" style="background:#ea580c;" onclick="Shipping.syncAllAdditionalLocations()" title="全ポリシーの Additional locations を Primary Destinations と Add Service の合計に整列">📍 Additional locations 整列</button>
+        <button class="ship-btn-refresh" style="background:#0891b2;" onclick="Shipping.exportPoliciesToCSV()" title="ポリシー一覧を CSV でダウンロード(Excel で開けます)">📄 ポリシー CSV</button>
         <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
@@ -6405,6 +6406,92 @@ const Shipping = {
   // 個別ポリシーが「デフォルト通り」か「個別設定あり」かを判定
   //   返り値: { isDefault, diffCount, diffs: [{field,label,def,cur}], compared }
   // ---------------------------------------------------------------------
+  // 📄 ポリシー一覧を CSV でダウンロード(Excel 互換)
+  exportPoliciesToCSV() {
+    if (this.policies.length === 0) { alert('ポリシーがありません。先に「🔄 最新を取得」を押してください。'); return; }
+
+    // ヘッダ + 各ポリシーのデータ
+    const rows = [[
+      'Policy Name',
+      'Service',
+      'Price Min',
+      'Price Max',
+      'Domestic Cost($)',
+      'Intl Service',
+      'Intl Cost($)',
+      'HT (Days)',
+      'VeRO',
+      'Special',
+      'Legacy',
+      'Destinations Count',
+      'Excluded Count',
+      'Policy ID'
+    ]];
+
+    // サービス順 → 価格レンジ順でソート
+    const sorted = this.policies.slice().sort((a, b) => {
+      const svcOrder = { Expedited: 0, Economy: 1, Standard: 2, Other: 3 };
+      const sa = svcOrder[a.service] ?? 99;
+      const sb = svcOrder[b.service] ?? 99;
+      if (sa !== sb) return sa - sb;
+      const pa = a.priceMin ?? 999999;
+      const pb = b.priceMin ?? 999999;
+      if (pa !== pb) return pa - pb;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    sorted.forEach(p => {
+      const raw = p._raw || {};
+      const intlOpt = (raw.shippingOptions || []).find(o => o.optionType === 'INTERNATIONAL');
+      const intlSvc = intlOpt && intlOpt.shippingServices && intlOpt.shippingServices[0];
+      const intlSvcCode = intlSvc ? intlSvc.shippingServiceCode : '';
+      const intlCost = intlSvc && intlSvc.shippingCost ? parseFloat(intlSvc.shippingCost.value || 0) : 0;
+      const destCount = ((intlSvc && intlSvc.shipToLocations && intlSvc.shipToLocations.regionIncluded) || []).length;
+
+      rows.push([
+        p.name || '',
+        p.service || '',
+        p.priceMin != null ? p.priceMin : '',
+        p.priceMax != null ? p.priceMax : '',
+        p.domesticCost != null ? p.domesticCost.toFixed(2) : '',
+        intlSvcCode,
+        intlCost.toFixed(2),
+        p.handlingTime != null ? p.handlingTime : '',
+        p.vero ? 'Yes' : '',
+        p.special || '',
+        p.isLegacy ? 'Yes' : '',
+        destCount,
+        (p.excluded || []).length,
+        p.id || ''
+      ]);
+    });
+
+    // CSV 形式に変換(値内のカンマ・改行・ダブルクォートをエスケープ)
+    const csv = rows.map(r =>
+      r.map(c => {
+        const s = String(c == null ? '' : c);
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      }).join(',')
+    ).join('\n');
+
+    // UTF-8 BOM を先頭につけて Excel での文字化けを防ぐ
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const today = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `shipping_policies_${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    console.log('[Shipping] CSV エクスポート完了: ' + sorted.length + ' 件');
+  },
+
   // 📍 全ポリシーの Additional locations を一括整列
   // option-level shipToLocations + policy-level shipToLocations.regionIncluded を
   // 全 INTERNATIONAL services の destinations の union に揃える
