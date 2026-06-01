@@ -2488,7 +2488,8 @@
         <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
         <button class="ship-btn-refresh" style="background:#ea580c;" onclick="Shipping.syncAllAdditionalLocations()" title="全ポリシーの Additional locations を Primary Destinations と Add Service の合計に整列">📍 Additional locations 整列</button>
-        <button class="ship-btn-refresh" style="background:#0891b2;" onclick="Shipping.exportPoliciesToCSV()" title="ポリシー一覧を CSV でダウンロード(Excel で開けます)">📄 ポリシー CSV</button>
+        <button class="ship-btn-refresh" style="background:#0891b2;" onclick="Shipping.exportPoliciesToCSV()" title="ローカル(ツール)状態をポリシー CSV でダウンロード">📄 ローカル CSV</button>
+        <button class="ship-btn-refresh" style="background:#7c2d12;" onclick="Shipping.exportEbayPoliciesToCSV()" title="eBay から直接ポリシーを取得して CSV ダウンロード(ローカル状態と分けて取得)">📦 eBay 取得 CSV</button>
         <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
@@ -6490,6 +6491,136 @@ const Shipping = {
     URL.revokeObjectURL(url);
 
     console.log('[Shipping] CSV エクスポート完了: ' + sorted.length + ' 件');
+  },
+
+  // 📦 eBay から直接ポリシーを取得して CSV エクスポート(localStorage は触らない)
+  async exportEbayPoliciesToCSV() {
+    if (!confirm('eBay から直接ポリシー一覧を取得して CSV ダウンロードします。\n\n※ ツールのローカル状態(変更中のポリシー含む)は変更されません。')) return;
+
+    try {
+      const btn = event && event.target;
+      if (btn) { btn.disabled = true; btn.textContent = '📡 取得中…'; }
+
+      const res = await fetch('/api/ebay-policies-list?marketplace=EBAY_US');
+      const data = await res.json();
+
+      if (btn) { btn.disabled = false; btn.textContent = '📦 eBay 取得 CSV'; }
+
+      if (!res.ok || !data.ok) {
+        alert('eBay からの取得に失敗:\n' + (data.error || 'unknown error'));
+        return;
+      }
+
+      const policies = (data.raw && data.raw.fulfillmentPolicies) || [];
+      if (policies.length === 0) {
+        alert('eBay から取得したポリシーがありません');
+        return;
+      }
+
+      // ポリシー名から情報を推測
+      const parseFromName = (name) => {
+        const m = name || '';
+        const serviceMatch = m.match(/^(Expedited|Economy|Standard)/i);
+        const service = serviceMatch ? serviceMatch[1] : 'Other';
+        const priceMatch = m.match(/(\d+(?:\.\d+)?)[~\-](\d+(?:\.\d+)?)\$/);
+        const priceMin = priceMatch ? parseFloat(priceMatch[1]) : null;
+        const priceMax = priceMatch ? parseFloat(priceMatch[2]) : null;
+        const isVero = /vero/i.test(m);
+        const specialMatch = m.match(/(Golf Bag\s*Only|Surfboard|Bike|Skateboard|Snowboard)/i);
+        const special = specialMatch ? specialMatch[1] : '';
+        const isLegacy = service === 'Other' || /^(JP\s|EMS\/|IE\s)/i.test(m);
+        return { service, priceMin, priceMax, isVero, special, isLegacy };
+      };
+
+      // ヘッダ
+      const rows = [[
+        'Policy Name',
+        'Service',
+        'Price Min',
+        'Price Max',
+        'Domestic Cost($)',
+        'Intl Service',
+        'Intl Cost($)',
+        'HT (Days)',
+        'VeRO',
+        'Special',
+        'Legacy',
+        'Destinations Count',
+        'Excluded Count',
+        'Policy ID'
+      ]];
+
+      // ソート: service → 価格レンジ → 名前
+      const enriched = policies.map(p => ({ raw: p, parsed: parseFromName(p.name) }));
+      enriched.sort((a, b) => {
+        const svcOrder = { Expedited: 0, Economy: 1, Standard: 2, Other: 3 };
+        const sa = svcOrder[a.parsed.service] ?? 99;
+        const sb = svcOrder[b.parsed.service] ?? 99;
+        if (sa !== sb) return sa - sb;
+        const pa = a.parsed.priceMin ?? 999999;
+        const pb = b.parsed.priceMin ?? 999999;
+        if (pa !== pb) return pa - pb;
+        return (a.raw.name || '').localeCompare(b.raw.name || '');
+      });
+
+      enriched.forEach(({ raw, parsed }) => {
+        const opts = raw.shippingOptions || [];
+        const dom = opts.find(o => o.optionType === 'DOMESTIC');
+        const intl = opts.find(o => o.optionType === 'INTERNATIONAL');
+        const domSvc = dom && dom.shippingServices && dom.shippingServices[0];
+        const intlSvc = intl && intl.shippingServices && intl.shippingServices[0];
+        const domCost = domSvc && domSvc.shippingCost ? parseFloat(domSvc.shippingCost.value || 0) : 0;
+        const intlSvcCode = intlSvc ? intlSvc.shippingServiceCode || '' : '';
+        const intlCost = intlSvc && intlSvc.shippingCost ? parseFloat(intlSvc.shippingCost.value || 0) : 0;
+        const destCount = ((intlSvc && intlSvc.shipToLocations && intlSvc.shipToLocations.regionIncluded) || []).length;
+        const ht = (raw.handlingTime && raw.handlingTime.value) || '';
+        const excludedCount = ((raw.shipToLocations && raw.shipToLocations.regionExcluded) || []).length;
+
+        rows.push([
+          raw.name || '',
+          parsed.service,
+          parsed.priceMin != null ? parsed.priceMin : '',
+          parsed.priceMax != null ? parsed.priceMax : '',
+          domCost.toFixed(2),
+          intlSvcCode,
+          intlCost.toFixed(2),
+          ht,
+          parsed.isVero ? 'Yes' : '',
+          parsed.special,
+          parsed.isLegacy ? 'Yes' : '',
+          destCount,
+          excludedCount,
+          raw.fulfillmentPolicyId || ''
+        ]);
+      });
+
+      // CSV 形式に変換
+      const csv = rows.map(r =>
+        r.map(c => {
+          const s = String(c == null ? '' : c);
+          if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+            return '"' + s.replace(/"/g, '""') + '"';
+          }
+          return s;
+        }).join(',')
+      ).join('\n');
+
+      // UTF-8 BOM
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `ebay_policies_${today}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      alert(`✓ eBay 直接取得 CSV ダウンロード完了\n\n${policies.length} 件のポリシーを ebay_policies_${today}.csv に出力しました。\n\n※ ローカル(ツール)状態は変更していません。`);
+    } catch (e) {
+      alert('エラー: ' + e.message);
+    }
   },
 
   // 📍 全ポリシーの Additional locations を一括整列
