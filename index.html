@@ -10568,10 +10568,56 @@ Object.assign(Shipping, {
   },
 
   // 編集中のポリシーを削除
-  deleteCurrentEditPolicy() {
+  async deleteCurrentEditPolicy() {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
-    if (!confirm(`このポリシー "${p.name}" を削除します。\n\n※ ローカル状態のみから削除されます(eBay 上のポリシーは削除されません)。\neBay 反映は Phase 2-G で対応。\n\nよろしいですか?`)) return;
+
+    const isLocalNew = p.id && p.id.startsWith('local_new_');
+    // ローカル専用なら eBay 削除選択不要
+    let deleteFromEbay = false;
+    if (!isLocalNew) {
+      // 2段階確認: まずはeBay削除するか聞く
+      const choice = confirm(
+        `このポリシー "${p.name}" を削除します。\n\n` +
+        `📍 eBay 側でも削除しますか?\n\n` +
+        `[OK]   = eBay と ローカル 両方から削除(取り消し不可)\n` +
+        `[キャンセル] = ローカルのみ削除(eBay 上には残す)`
+      );
+      deleteFromEbay = choice;
+    }
+
+    // 最終確認
+    const detail = deleteFromEbay
+      ? `⚠️ eBay 上のポリシーも削除されます(取り消し不可)\n   policy ID: ${p.id}\n\n` +
+        `リスティングが紐づいている場合 eBay は削除を拒否します。`
+      : `※ ローカル(画面 + キャッシュ)のみから削除\n   eBay 上には残ります`;
+    if (!confirm(`削除を実行しますか?\n\n対象: "${p.name}"\n\n${detail}\n\n本当に実行しますか?`)) return;
+
+    // eBay 削除を先に実行
+    if (deleteFromEbay) {
+      try {
+        const res = await fetch('/api/ebay-policy-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ policyId: p.id }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert(`❌ eBay 側の削除に失敗\n\nHTTP: ${data.status || res.status}\nエラー: ${data.error || '(不明)'}\n詳細: ${JSON.stringify(data.detail || {}).slice(0, 500)}\n\n→ ローカル削除は中止します(eBay と整合性を保つため)。`);
+          return;
+        }
+        if (data.notFound) {
+          console.log('[Shipping] eBay 上に該当ポリシー無し(既に削除済み)');
+        } else {
+          console.log('[Shipping] eBay 削除成功:', p.id);
+        }
+      } catch (e) {
+        alert(`❌ eBay 削除 API 呼び出しエラー: ${e.message}\n\nローカル削除は中止します。`);
+        return;
+      }
+    }
+
+    // ローカル削除
     this.policies = this.policies.filter(x => x.id !== this.editingPolicyId);
     this.selected.delete(this.editingPolicyId);
     this.editingPolicyId = null;
@@ -10579,25 +10625,83 @@ Object.assign(Shipping, {
     this.savePoliciesCache();
     this.closeModal('shipEditPolicyModal');
     this.renderList();
-    alert(`✓ ポリシー "${p.name}" をローカルから削除しました`);
+    const ebayMsg = deleteFromEbay ? '\n(eBay 側も削除済み)' : '\n(eBay 上には残ってます)';
+    alert(`✓ ポリシー "${p.name}" を削除しました${ebayMsg}`);
   },
 
   // 選択中のポリシーを一括削除
-  bulkDeleteSelected() {
+  async bulkDeleteSelected() {
     const selected = this.getSelectedPolicies();
     if (selected.length === 0) { alert('ポリシーを選択してください'); return; }
 
     const names = selected.slice(0, 5).map(p => '・' + p.name).join('\n');
     const moreText = selected.length > 5 ? `\n…他 ${selected.length - 5}件` : '';
 
-    if (!confirm(`選択中の ${selected.length}件のポリシーを削除します。\n\n${names}${moreText}\n\n※ ローカル状態のみから削除(eBay 反映は Phase 2-G)\n\nよろしいですか?`)) return;
+    // ローカル専用とそれ以外を分ける
+    const localOnly = selected.filter(p => p.id && p.id.startsWith('local_new_'));
+    const ebayPolicies = selected.filter(p => !p.id || !p.id.startsWith('local_new_'));
 
-    const idsToDelete = new Set(selected.map(p => p.id));
+    let deleteFromEbay = false;
+    if (ebayPolicies.length > 0) {
+      const choice = confirm(
+        `選択中の ${selected.length} 件 (eBay 紐付き: ${ebayPolicies.length}件 / ローカル専用: ${localOnly.length}件) を削除します。\n\n` +
+        `${names}${moreText}\n\n` +
+        `📍 eBay 側でも削除しますか?\n\n` +
+        `[OK]   = eBay と ローカル 両方から削除\n` +
+        `[キャンセル] = ローカルのみ削除`
+      );
+      deleteFromEbay = choice;
+    }
+
+    // 最終確認
+    const detail = deleteFromEbay
+      ? `⚠️ eBay 上の ${ebayPolicies.length} 件も削除されます(取り消し不可)。リスティング紐付きは失敗します。`
+      : `※ ローカルのみ削除`;
+    if (!confirm(`削除を実行しますか?\n\n${detail}\n\n本当に実行しますか?`)) return;
+
+    let ebaySuccess = 0, ebayFailed = [];
+    if (deleteFromEbay) {
+      // eBay 削除を順次実行
+      for (const p of ebayPolicies) {
+        try {
+          const res = await fetch('/api/ebay-policy-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ policyId: p.id }),
+          });
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            ebaySuccess++;
+          } else {
+            ebayFailed.push({ name: p.name, id: p.id, error: data.error || JSON.stringify(data.detail || {}).slice(0, 200) });
+          }
+          // レート制限対策の delay
+          await new Promise(r => setTimeout(r, 200));
+        } catch (e) {
+          ebayFailed.push({ name: p.name, id: p.id, error: e.message });
+        }
+      }
+    }
+
+    // ローカル削除: eBay 削除に失敗したものはローカルにも残す
+    const failedIds = new Set(ebayFailed.map(f => f.id));
+    const toRemoveLocal = selected.filter(p => !failedIds.has(p.id));
+    const idsToDelete = new Set(toRemoveLocal.map(p => p.id));
     this.policies = this.policies.filter(p => !idsToDelete.has(p.id));
     this.selected.clear();
     this.savePoliciesCache();
     this.renderList();
-    alert(`✓ ${idsToDelete.size}件のポリシーをローカルから削除しました`);
+
+    let msg = `✓ ${idsToDelete.size} 件のポリシーを削除しました\n`;
+    if (deleteFromEbay) {
+      msg += `\neBay 削除: 成功 ${ebaySuccess} / 失敗 ${ebayFailed.length}`;
+      if (ebayFailed.length > 0) {
+        msg += '\n\n失敗詳細:\n' + ebayFailed.slice(0, 5).map(f => `・${f.name}: ${f.error}`).join('\n');
+        if (ebayFailed.length > 5) msg += `\n…他 ${ebayFailed.length - 5}件`;
+        msg += '\n\n※ eBay 削除に失敗したポリシーはローカルにも残してます。';
+      }
+    }
+    alert(msg);
   },
 
   // 編集モーダルを閉じる時、新規作成中ならポリシー配列から除去(キャンセル扱い)
