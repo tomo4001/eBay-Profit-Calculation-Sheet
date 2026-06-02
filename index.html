@@ -1585,12 +1585,12 @@
   <div class="card manual-input" style="border-left:4px solid #1565c0;">
     <h2 style="color:#1565c0;">🔗 ライバル商品URLから自動取得</h2>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... を貼り付け" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
-      <button class="btn" id="ebayFetchBtn" style="padding:8px 18px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">取得</button>
-      <button class="btn" id="ebayImageDlBtn" style="padding:8px 18px; font-size:13px; background:#7c2d12; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="この URL の出品から画像を ZIP でダウンロード">📷 画像 DL</button>
+      <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... または他サイトの URL を貼り付け" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
+      <button class="btn" id="ebayFetchBtn" style="padding:8px 18px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="eBay URL のみ対応">取得</button>
+      <button class="btn" id="ebayImageDlBtn" style="padding:8px 18px; font-size:13px; background:#7c2d12; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="URL のページから画像を ZIP でダウンロード(eBay は API 経由、他サイトは HTML 解析)">📷 画像 DL</button>
       <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
     </div>
-    <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=商品タイトル・カテゴリーNo.・ライバル合計価格($) を自動入力 / 「📷 画像 DL」=出品画像を ZIP で一括ダウンロード</div>
+    <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=eBay URL から 商品タイトル・カテゴリーNo.・価格 を自動入力 / 「📷 画像 DL」=<strong>eBay 含む任意のサイトの URL</strong> から画像を ZIP 一括ダウンロード</div>
   </div>
 
   <!-- ===== SKU生成カード ===== -->
