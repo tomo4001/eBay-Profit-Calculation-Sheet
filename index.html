@@ -1587,9 +1587,10 @@
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... を貼り付け" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
       <button class="btn" id="ebayFetchBtn" style="padding:8px 18px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">取得</button>
+      <button class="btn" id="ebayImageDlBtn" style="padding:8px 18px; font-size:13px; background:#7c2d12; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="この URL の出品から画像を ZIP でダウンロード">📷 画像 DL</button>
       <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
     </div>
-    <div style="font-size:11px; color:#888; margin-top:6px;">商品タイトル・カテゴリーNo.・ライバル合計価格($) を自動入力します</div>
+    <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=商品タイトル・カテゴリーNo.・ライバル合計価格($) を自動入力 / 「📷 画像 DL」=出品画像を ZIP で一括ダウンロード</div>
   </div>
 
   <!-- ===== SKU生成カード ===== -->
@@ -2623,6 +2624,9 @@
   </div>
 </div>
 
+<!-- 📷 ZIP ライブラリ(画像一括 DL 用) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
 <script>
 // ============================================================
 // 既定の送料レンジテーブル（既存シートから）
@@ -3548,10 +3552,115 @@ async function fetchEbayItem() {
 function attachEbayUrlEvents() {
   const btn = document.getElementById('ebayFetchBtn');
   const urlEl = document.getElementById('ebayUrl');
+  const imgBtn = document.getElementById('ebayImageDlBtn');
   if (btn) btn.addEventListener('click', fetchEbayItem);
   if (urlEl) urlEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); fetchEbayItem(); }
   });
+  if (imgBtn) imgBtn.addEventListener('click', downloadEbayImages);
+}
+
+// =============================================================================
+// 📷 eBay URL から画像を一括ダウンロード(ZIP形式)
+// =============================================================================
+async function downloadEbayImages() {
+  const urlEl = document.getElementById('ebayUrl');
+  const btn = document.getElementById('ebayImageDlBtn');
+  const status = document.getElementById('ebayFetchStatus');
+  if (!urlEl) return;
+
+  const url = (urlEl.value || '').trim();
+  if (!url) {
+    status.textContent = '⚠ URLを入力してください';
+    status.style.color = '#c0504d';
+    return;
+  }
+
+  if (typeof JSZip === 'undefined') {
+    status.textContent = '⚠ JSZip 未ロード(リロードしてください)';
+    status.style.color = '#c0504d';
+    return;
+  }
+
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '📡 画像URL取得中…';
+  status.textContent = '';
+
+  try {
+    // 1) ebay-item API から画像 URL を取得
+    const res = await fetch('/api/ebay-item?url=' + encodeURIComponent(url));
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      status.textContent = '⚠ ' + (data.error || ('HTTP ' + res.status));
+      status.style.color = '#c0504d';
+      return;
+    }
+
+    const imageUrls = Array.isArray(data.imageUrls) ? data.imageUrls : [];
+    if (imageUrls.length === 0) {
+      status.textContent = '⚠ この出品に画像が見つかりません';
+      status.style.color = '#c0504d';
+      return;
+    }
+
+    // 2) 各画像を fetch して ZIP に追加
+    const zip = new JSZip();
+    let success = 0;
+    let failed = 0;
+    const baseName = (data.title || 'ebay_' + (data.itemId || 'item'))
+      .replace(/[\\/:*?"<>|]/g, '_')  // ファイル名禁止文字を除去
+      .slice(0, 60)
+      .trim();
+
+    for (let i = 0; i < imageUrls.length; i++) {
+      const imgUrl = imageUrls[i];
+      btn.textContent = `📡 画像 ${i+1}/${imageUrls.length}…`;
+      try {
+        const imgRes = await fetch(imgUrl, { mode: 'cors' });
+        if (!imgRes.ok) { failed++; continue; }
+        const blob = await imgRes.blob();
+        const ext = (blob.type && blob.type.includes('png')) ? 'png'
+                  : (blob.type && blob.type.includes('webp')) ? 'webp'
+                  : 'jpg';
+        const seq = String(i + 1).padStart(2, '0');
+        zip.file(`${seq}.${ext}`, blob);
+        success++;
+      } catch (e) {
+        console.warn('画像取得失敗:', imgUrl, e);
+        failed++;
+      }
+    }
+
+    if (success === 0) {
+      status.textContent = '⚠ 画像のダウンロードに全て失敗(CORS の可能性)';
+      status.style.color = '#c0504d';
+      return;
+    }
+
+    // 3) ZIP 生成 → ダウンロード
+    btn.textContent = '📦 ZIP 作成中…';
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipUrl = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = zipUrl;
+    a.download = `${baseName || 'images'}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(zipUrl);
+
+    status.textContent = `✓ ${success} 枚 ダウンロード${failed > 0 ? ` (失敗 ${failed} 枚)` : ''}`;
+    status.style.color = '#2e7d32';
+
+  } catch (e) {
+    status.textContent = '⚠ 通信エラー: ' + e.message;
+    status.style.color = '#c0504d';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
 }
 
 // =============================================================================
