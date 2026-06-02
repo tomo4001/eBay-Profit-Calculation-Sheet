@@ -118,6 +118,38 @@ function extractImagesFromHtml(html, baseUrl) {
     addAbs(src);
   }
 
+  // 🔍 Aggressive: HTML 全体から画像 URL パターンをスキャン
+  // (Next.js の __NEXT_DATA__ / SPA の inline JSON に埋め込まれた画像 URL を拾う)
+  // パターン: https?://...拡張子.jpg|jpeg|png|webp|gif|avif (クエリ任意)
+  const aggressiveRegex = /https?:\\?\/\\?\/[^"'\s<>(){}\[\]]+?\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"'\s<>(){}\[\]]*)?/gi;
+  while ((m = aggressiveRegex.exec(html)) !== null) {
+    // JSON 内のエスケープを除去(\/  → /)
+    let u = m[0].replace(/\\\//g, '/');
+    // 細かい除外: アイコン, ロゴ, プレースホルダ, アバター, OG 画像のサイズ違いコピー等は別途排除
+    if (/icon|logo|sprite|spacer|placeholder|loading|favicon/i.test(u)) continue;
+    // アバター / プロフィール画像系は除外(個別商品とは無関係)
+    if (/avatar|profile|user[-_]?img/i.test(u)) continue;
+    addAbs(u);
+  }
+
+  // 🔍 メルカリ / 主要 CDN の URL を念のため別途検出(拡張子なしの場合あり)
+  // 例: https://static.mercdn.net/item/detail/orig/photos/m123456789_1.jpg
+  //     https://static.mercdn.net/c!/.../photos/m123_1
+  const cdnPatterns = [
+    /https?:\\?\/\\?\/static\.mercdn\.net\/[^"'\s<>(){}\[\]]+/gi,        // メルカリ
+    /https?:\\?\/\\?\/[^"'\s<>(){}\[\]]*?\.akamaized\.net\/[^"'\s<>(){}\[\]]+/gi,  // Akamai CDN
+    /https?:\\?\/\\?\/[^"'\s<>(){}\[\]]*?\.cloudfront\.net\/[^"'\s<>(){}\[\]]+/gi, // CloudFront
+  ];
+  for (const re of cdnPatterns) {
+    while ((m = re.exec(html)) !== null) {
+      let u = m[0].replace(/\\\//g, '/');
+      if (/icon|logo|sprite|favicon|avatar|profile/i.test(u)) continue;
+      // 末尾のクォート文字などの除去
+      u = u.replace(/[,;)\]}'"`]+$/, '');
+      addAbs(u);
+    }
+  }
+
   return Array.from(urls);
 }
 
