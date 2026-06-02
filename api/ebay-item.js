@@ -60,6 +60,78 @@ async function getAppToken(appId, certId) {
   return data.access_token;
 }
 
+// 📷 汎用 HTML から画像 URL を抽出(eBay 以外のサイト用)
+function extractImagesFromHtml(html, baseUrl) {
+  const urls = new Set();
+  const addAbs = (raw) => {
+    if (!raw) return;
+    let u = raw.trim();
+    if (!u || u.startsWith('data:')) return;
+    if (u.startsWith('//')) u = 'https:' + u;
+    else if (u.startsWith('/')) {
+      try { u = new URL(baseUrl).origin + u; } catch (e) { return; }
+    } else if (!/^https?:/i.test(u)) {
+      try { u = new URL(u, baseUrl).href; } catch (e) { return; }
+    }
+    urls.add(u);
+  };
+
+  // og:image / og:image:secure_url / og:image:url
+  const ogRegex = /<meta[^>]+property=["']og:image(?::secure_url|:url)?["'][^>]+content=["']([^"']+)["']/gi;
+  let m;
+  while ((m = ogRegex.exec(html)) !== null) addAbs(m[1]);
+  const ogRegex2 = /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url|:url)?["']/gi;
+  while ((m = ogRegex2.exec(html)) !== null) addAbs(m[1]);
+
+  // twitter:image
+  const twRegex = /<meta[^>]+(?:name|property)=["']twitter:image["'][^>]+content=["']([^"']+)["']/gi;
+  while ((m = twRegex.exec(html)) !== null) addAbs(m[1]);
+
+  // JSON-LD product images
+  const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  while ((m = ldRegex.exec(html)) !== null) {
+    try {
+      const ld = JSON.parse(m[1].trim());
+      const collect = (obj) => {
+        if (obj == null) return;
+        if (typeof obj === 'string') {
+          if (/^https?:\/\//.test(obj) && /\.(jpg|jpeg|png|webp|gif|avif)/i.test(obj)) addAbs(obj);
+          return;
+        }
+        if (Array.isArray(obj)) { obj.forEach(collect); return; }
+        if (typeof obj === 'object') {
+          if (obj.image) collect(obj.image);
+          if (obj.url && obj['@type'] && /image/i.test(obj['@type'])) collect(obj.url);
+          if (obj['@graph']) collect(obj['@graph']);
+        }
+      };
+      collect(ld);
+    } catch (e) {}
+  }
+
+  // <img src/data-src/data-zoom-image/...>
+  const imgRegex = /<img[^>]+(?:src|data-src|data-zoom-image|data-large|data-original|data-lazy)=["']([^"']+)["']/gi;
+  while ((m = imgRegex.exec(html)) !== null) {
+    const src = m[1];
+    if (/icon|logo|sprite|spacer|placeholder|loading/i.test(src)) continue;
+    if (/\.svg(\?|$)/i.test(src)) continue;
+    addAbs(src);
+  }
+
+  return Array.from(urls);
+}
+
+function extractTitleFromHtml(html) {
+  let t = '';
+  let m = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+  if (m) t = m[1];
+  if (!t) {
+    m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (m) t = m[1];
+  }
+  return t.trim();
+}
+
 export default async function handler(req, res) {
   // CORS(同一オリジンだが念のため)
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -67,6 +139,45 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   const url = req.query.url || '';
+  if (!url) {
+    res.status(400).json({ error: 'URL を指定してください' });
+    return;
+  }
+
+  // 📷 eBay 以外: 汎用 HTML 抽出モード
+  const isEbay = /(^|\.)ebay\./i.test(url);
+  if (!isEbay) {
+    try {
+      const htmlRes = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
+        },
+        redirect: 'follow',
+      });
+      if (!htmlRes.ok) {
+        res.status(htmlRes.status).json({ error: `HTML 取得失敗 (HTTP ${htmlRes.status})`, url });
+        return;
+      }
+      const html = await htmlRes.text();
+      const imageUrls = extractImagesFromHtml(html, url);
+      const title = extractTitleFromHtml(html);
+      res.status(200).json({
+        ok: true,
+        generic: true,
+        title,
+        imageUrls,
+        imageCount: imageUrls.length,
+      });
+      return;
+    } catch (e) {
+      res.status(500).json({ error: '汎用 HTML 取得エラー: ' + (e.message || String(e)), url });
+      return;
+    }
+  }
+
+  // 以下、eBay モード(既存処理)
   const itemId = extractItemId(url);
   if (!itemId) {
     res.status(400).json({ error: 'eBayアイテムIDをURLから抽出できませんでした。URLを確認してください。' });
