@@ -2487,10 +2487,7 @@
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="ship-btn-refresh" style="background:#16a34a;" onclick="Shipping.openCreatePolicyChooser()">➕ 新規ポリシー作成</button>
         <button class="ship-btn-refresh" style="background:#1e40af;" onclick="Shipping.openMasterRateApplyModal()">🌍 マスター率を全ポリシーに適用</button>
-        <button class="ship-btn-refresh" style="background:#ea580c;" onclick="Shipping.syncAllAdditionalLocations()" title="全ポリシーの Additional locations を Primary Destinations と Add Service の合計に整列">📍 Additional locations 整列</button>
-        <button class="ship-btn-refresh" style="background:#a16207;" onclick="Shipping.regenerateAllAutoNames()" title="ポリシー名を現在の値で再生成(送料額が古いままの時に使用)">🏷️ 名前 再生成</button>
-        <button class="ship-btn-refresh" style="background:#0891b2;" onclick="Shipping.exportPoliciesToCSV()" title="ローカル(ツール)状態をポリシー CSV でダウンロード">📄 ローカル CSV</button>
-        <button class="ship-btn-refresh" style="background:#7c2d12;" onclick="Shipping.exportEbayPoliciesToCSV()" title="eBay から直接ポリシーを取得して CSV ダウンロード(ローカル状態と分けて取得)">📦 eBay 取得 CSV</button>
+        <button class="ship-btn-refresh" style="background:#0891b2;" onclick="Shipping.exportPoliciesToCSV()" title="ポリシー一覧を CSV でダウンロード(Excel で開けます)">📄 ポリシー CSV</button>
         <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
@@ -2570,7 +2567,6 @@
       <button class="ship-bulk-btn" style="background:#7c3aed; color:#fff;" onclick="Shipping.openBulkEditModal()">🔧 一括編集 (全項目)</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国(追加/解除)</button>
-      <button class="ship-bulk-btn" style="background:#a16207; color:#fff;" onclick="Shipping.regenerateSelectedNamesForce()" title="選択ポリシーの名前を現在値で強制再生成(パターン判定スキップ)">🏷️ 名前 再生成</button>
       <button class="ship-bulk-btn" style="background:#d97706; color:#fff;" onclick="Shipping.bulkSetCustomShipRate()" title="選択ポリシーの送料率をまとめて上書き(製造国・素材で関税率が違う商品向け)">📌 送料率 一括設定</button>
       <button class="ship-bulk-btn" style="background:#1e40af; color:#fff; font-weight:700;" onclick="Shipping.openBulkPushModal()">🚀 選択分を eBay に反映</button>
       <button class="ship-bulk-btn" style="background:#dc2626; color:#fff; border:1px solid #b91c1c; font-weight:700;" onclick="Shipping.bulkDeleteSelected()">🗑️ 削除</button>
