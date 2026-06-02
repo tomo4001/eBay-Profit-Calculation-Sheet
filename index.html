@@ -2571,6 +2571,7 @@
       <button class="ship-bulk-btn" onclick="Shipping.openBulkDestModal()">🌐 Destinations</button>
       <button class="ship-bulk-btn" onclick="Shipping.openBulkExcludedModal()">🚫 除外国(追加/解除)</button>
       <button class="ship-bulk-btn" style="background:#a16207; color:#fff;" onclick="Shipping.regenerateSelectedNamesForce()" title="選択ポリシーの名前を現在値で強制再生成(パターン判定スキップ)">🏷️ 名前 再生成</button>
+      <button class="ship-bulk-btn" style="background:#d97706; color:#fff;" onclick="Shipping.bulkSetCustomShipRate()" title="選択ポリシーの送料率をまとめて上書き(製造国・素材で関税率が違う商品向け)">📌 送料率 一括設定</button>
       <button class="ship-bulk-btn" style="background:#1e40af; color:#fff; font-weight:700;" onclick="Shipping.openBulkPushModal()">🚀 選択分を eBay に反映</button>
       <button class="ship-bulk-btn" style="background:#dc2626; color:#fff; border:1px solid #b91c1c; font-weight:700;" onclick="Shipping.bulkDeleteSelected()">🗑️ 削除</button>
       <button class="ship-bulk-btn" onclick="Shipping.clearSelection()">選択解除</button>
@@ -6495,6 +6496,78 @@ const Shipping = {
     console.log('[Shipping] CSV エクスポート完了: ' + sorted.length + ' 件');
   },
 
+  // 📌 Phase 2-I: 選択ポリシーの送料率を一括上書き
+  bulkSetCustomShipRate() {
+    const selected = this.getSelectedPolicies();
+    if (selected.length === 0) { alert('ポリシーを選択してください'); return; }
+
+    const masterRate = this.masterRate || 25;
+    const input = prompt(
+      `📌 送料率の一括上書き\n\n` +
+      `選択中: ${selected.length} 件\n` +
+      `マスター率: ${masterRate}%\n\n` +
+      `新しい送料率(%)を入力してください。\n` +
+      `(空欄 or "clear" で上書き解除 → マスター率使用に戻る)\n\n` +
+      `例: 30 → 30% で個別計算\n` +
+      `例: clear → 上書き解除`,
+      ''
+    );
+    if (input === null) return;  // キャンセル
+
+    let newRate;
+    const trimmed = input.trim();
+    if (trimmed === '' || trimmed.toLowerCase() === 'clear') {
+      newRate = null;  // クリア
+    } else {
+      const parsed = parseFloat(trimmed);
+      if (isNaN(parsed) || parsed < 0 || parsed > 100) {
+        alert('⚠️ 0〜100 の数値、または "clear" を入力してください');
+        return;
+      }
+      newRate = parsed;
+    }
+
+    const actionLabel = newRate === null ? 'マスター率使用に戻す' : `送料率 ${newRate}% に上書き`;
+    if (!confirm(`${selected.length} 件のポリシーを「${actionLabel}」します。\n\nDomestic 送料も新しい率で再計算され、名前も自動更新されます。\n\nよろしいですか?`)) return;
+
+    let updated = 0;
+    let skipped = 0;
+    selected.forEach(p => {
+      if (newRate === null) {
+        if (p.customShipRate == null) { skipped++; return; }
+        delete p.customShipRate;
+      } else {
+        if (p.customShipRate === newRate) { skipped++; return; }
+        p.customShipRate = newRate;
+      }
+
+      // Domestic 送料を再計算
+      const effectiveRate = (newRate === null ? masterRate : newRate) / 100;
+      if (p.priceMax != null && p._raw && Array.isArray(p._raw.shippingOptions)) {
+        const dom = p._raw.shippingOptions.find(o => o.optionType === 'DOMESTIC');
+        if (dom && dom.shippingServices && dom.shippingServices[0]) {
+          const newCost = Math.round(p.priceMax * effectiveRate * 100) / 100;
+          dom.shippingServices[0].shippingCost = { value: newCost.toFixed(2), currency: 'USD' };
+          dom.shippingServices[0].additionalShippingCost = { value: newCost.toFixed(2), currency: 'USD' };
+          p.domesticCost = newCost;
+        }
+      }
+      // 名前も自動更新(パターンに従う場合)
+      if (this.policyFollowsAutoTitlePattern(p)) {
+        const auto = this.computeAutoTitleForPolicy(p);
+        if (auto && auto !== p.name) {
+          p.name = auto;
+          if (p._raw) p._raw.name = auto;
+        }
+      }
+      updated++;
+    });
+
+    this.savePoliciesCache();
+    this.renderList();
+    alert(`✓ 完了: ${updated} 件更新 / ${skipped} 件スキップ(既に同じ値)\n\n次に「🚀 選択分を eBay に反映」で eBay 側も更新してください。`);
+  },
+
   // 🏷️ 選択中のポリシーの名前を現在値から強制再生成(パターン判定スキップ)
   regenerateSelectedNamesForce() {
     const selected = this.getSelectedPolicies();
@@ -7006,6 +7079,8 @@ const Shipping = {
       const tagV = p.vero ? '<span class="ship-tag vero">VeRO</span>' : '';
       const tagS = p.special ? `<span class="ship-tag spec">${p.special}</span>` : '';
       const tagL = p.isLegacy && p.service !== 'Other' ? '<span class="ship-tag leg">Legacy</span>' : '';
+      // 📌 Phase 2-I: 個別送料率の上書きバッジ
+      const tagCR = (p.customShipRate != null) ? `<span class="ship-tag" style="background:#fef3c7; color:#92400e; border-color:#fbbf24;" title="マスター率 ${this.masterRate}% ではなく ${p.customShipRate}% を使用">📌 ${p.customShipRate}%</span>` : '';
       // サービス種別で行背景を決定(レガシーは半透明、特殊カテゴリはタグでのみ示す)
       const svcClass = `svc-${(p.service || 'other').toLowerCase()}`;
       const rowClass = p.isLegacy ? `legacy ${svcClass}` : svcClass;
@@ -7057,7 +7132,7 @@ const Shipping = {
       html += `<tr class="${rowClass}${selectedClass}" data-pid="${p.id}">
         <td><input type="checkbox" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleSelect('${p.id}', this.checked)" /></td>
         <td class="ship-name">${p.name}</td>
-        <td>${tagSvc}${tagV}${tagS}${tagL}</td>
+        <td>${tagSvc}${tagV}${tagS}${tagL}${tagCR}</td>
         <td>${statusBadge}</td>
         <td>${htCell}</td>
         <td>${priceRange}</td>
@@ -8198,7 +8273,11 @@ Object.assign(Shipping, {
         continue;
       }
 
-      const expected = Math.round(p.priceMax * rate * 100) / 100;
+      // 📌 Phase 2-I: 個別送料率の上書きがあれば優先
+      const effectiveRate = (p.customShipRate != null)
+        ? p.customShipRate / 100
+        : rate;
+      const expected = Math.round(p.priceMax * effectiveRate * 100) / 100;
 
       // _raw をディープコピーして cost を書き換え (ローカルのみ)
       const updated = JSON.parse(JSON.stringify(p._raw));
@@ -8685,6 +8764,23 @@ Object.assign(Shipping, {
               ${[1,2,3,4,5,10,15,20,30,40].map(v => `<option value="${v}" ${p.handlingTime===v?'selected':''}>${v} 営業日</option>`).join('')}
             </select>
             ${fieldResetBanner('handlingTime')}
+          </div>
+        </div>
+      </div>
+
+      <!-- 📌 Phase 2-I: 個別送料率の上書き(製造国・素材で関税率が違う商品向け) -->
+      <div class="ship-modal-section">
+        <div class="ship-modal-section-title">📌 送料率(個別オーバーライド) ${p.customShipRate!=null?`<span style="font-size:11px; color:#d97706; background:#fef3c7; padding:2px 8px; border-radius:4px; margin-left:8px;">上書き中: ${p.customShipRate}%</span>`:''}</div>
+        <div class="ship-field">
+          <label>送料率(%)</label>
+          <div style="flex:1; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <input type="number" id="shipEditCustomRate" step="0.1" min="0" max="100" placeholder="マスター率 ${this.masterRate||25}% を使用" value="${p.customShipRate!=null?p.customShipRate:''}" style="width:120px;" oninput="Shipping.updateTitlePreview()" />
+            <span style="color:#888; font-size:11px;">%</span>
+            <button type="button" onclick="document.getElementById('shipEditCustomRate').value=''; Shipping.updateTitlePreview();" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">クリア(マスター率使用)</button>
+            <span style="color:#6b7280; font-size:11px; flex:1 1 100%;">
+              💡 空欄 = マスター率(${this.masterRate||25}%)を使用 / 数値入力 = このポリシーだけ別の率で計算<br>
+              例: 関税 30% の商品なら 30 と入力 → このポリシーの送料 = 30% × 価格上限 ${p.priceMax||'?'}$
+            </span>
           </div>
         </div>
       </div>
@@ -10130,6 +10226,32 @@ Object.assign(Shipping, {
     }
     const veroEl = document.getElementById('shipEditVeroFlag');
     if (veroEl) p.vero = veroEl.checked;
+
+    // ----- 📌 Phase 2-I: 個別送料率の上書き -----
+    const customRateEl = document.getElementById('shipEditCustomRate');
+    if (customRateEl) {
+      const v = customRateEl.value.trim();
+      if (v === '') {
+        // 空欄 = マスター率使用(オーバーライド解除)
+        p.customShipRate = null;
+        delete p.customShipRate;
+      } else {
+        const parsed = parseFloat(v);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+          p.customShipRate = parsed;
+          // 個別送料率に応じて Domestic 送料も即座に再計算
+          if (p.priceMax != null && p._raw && Array.isArray(p._raw.shippingOptions)) {
+            const dom = p._raw.shippingOptions.find(o => o.optionType === 'DOMESTIC');
+            if (dom && dom.shippingServices && dom.shippingServices[0]) {
+              const newCost = Math.round(p.priceMax * (parsed/100) * 100) / 100;
+              dom.shippingServices[0].shippingCost = { value: newCost.toFixed(2), currency: 'USD' };
+              dom.shippingServices[0].additionalShippingCost = { value: newCost.toFixed(2), currency: 'USD' };
+              p.domesticCost = newCost;
+            }
+          }
+        }
+      }
+    }
 
     // ----- Description -----
     const descEl = document.getElementById('shipEditPolicyDescription');
