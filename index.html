@@ -3600,8 +3600,20 @@ async function downloadEbayImages() {
 
     const imageUrls = Array.isArray(data.imageUrls) ? data.imageUrls : [];
     if (imageUrls.length === 0) {
-      status.textContent = '⚠ この出品に画像が見つかりません';
+      status.textContent = '⚠ 画像が見つかりません';
       status.style.color = '#c0504d';
+      // 🆕 診断情報があればコンソール出力(F12 で確認できる)
+      if (data.diagnostics) {
+        console.warn('[画像 DL] 0件:', {
+          url,
+          httpStatus: data.diagnostics.httpStatus,
+          contentType: data.diagnostics.contentType,
+          charset: data.diagnostics.detectedCharset,
+          htmlSize: data.diagnostics.htmlSize,
+          sampleHtmlStart: data.diagnostics.sampleHtmlStart,
+        });
+        console.warn('[画像 DL] HTML 先頭サンプル:\n', data.diagnostics.sampleHtmlStart);
+      }
       return;
     }
 
