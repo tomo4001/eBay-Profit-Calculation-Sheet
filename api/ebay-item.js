@@ -387,8 +387,27 @@ export default async function handler(req, res) {
         return;
       }
 
-      const imageUrls = extractImagesFromHtml(html, url);
+      let imageUrls = extractImagesFromHtml(html, url);
       const title = extractTitleFromHtml(html);
+
+      // 🆕 楽天専用フィルタ: 商品画像ドメインだけに絞る
+      // image.rakuten.co.jp と shop.r10s.jp が商品画像のホスト
+      // r.r10s.jp(バナー)、anz.rd.rakuten.co.jp(広告)、ashiato.rakuten.co.jp(追跡)等は除外
+      if (/(^|\.)rakuten\.co\.jp/i.test(url)) {
+        imageUrls = imageUrls.filter(u => {
+          // 商品画像ドメイン(これらだけ残す)
+          if (/^https?:\/\/(image\.rakuten\.co\.jp|shop\.r10s\.jp)\//i.test(u)) return true;
+          // それ以外(バナー、広告等)は除外
+          return false;
+        });
+        // Rakuten では cabinet パスが商品画像の典型(banner や headline 画像は除外)
+        // ヘッドライン用と思しき headline / banner / category 等を更に除外
+        imageUrls = imageUrls.filter(u => {
+          if (/\/(headline|banner|category|rank|navi|left-navi)\//i.test(u)) return false;
+          return true;
+        });
+      }
+
       const responseBody = {
         ok: true,
         generic: true,
