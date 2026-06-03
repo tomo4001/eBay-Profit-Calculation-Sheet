@@ -261,7 +261,7 @@ export default async function handler(req, res) {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
+          'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
         },
         redirect: 'follow',
       });
@@ -269,16 +269,59 @@ export default async function handler(req, res) {
         res.status(htmlRes.status).json({ error: `HTML 取得失敗 (HTTP ${htmlRes.status})`, url });
         return;
       }
-      const html = await htmlRes.text();
+      // 🆕 Content-Type の charset を読み取って正しく decode
+      // (楽天は EUC-JP、Yahoo の一部は Shift_JIS など)
+      const contentType = htmlRes.headers.get('content-type') || '';
+      const charsetMatch = contentType.match(/charset=([^;]+)/i);
+      let charset = charsetMatch ? charsetMatch[1].trim().toLowerCase() : 'utf-8';
+      // 別名を統一
+      if (charset === 'sjis' || charset === 'shift-jis') charset = 'shift_jis';
+      if (charset === 'eucjp') charset = 'euc-jp';
+
+      const arrayBuf = await htmlRes.arrayBuffer();
+      let html;
+      try {
+        const decoder = new TextDecoder(charset, { fatal: false });
+        html = decoder.decode(arrayBuf);
+      } catch (e) {
+        // 不明な charset → utf-8 にフォールバック
+        html = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuf);
+      }
+
+      // HTML 内の <meta charset> も確認(http header と違うことがある)
+      const metaCharsetMatch = html.match(/<meta[^>]+charset=["']?([^"'\s/>]+)/i);
+      if (metaCharsetMatch) {
+        let metaCharset = metaCharsetMatch[1].trim().toLowerCase();
+        if (metaCharset === 'sjis' || metaCharset === 'shift-jis') metaCharset = 'shift_jis';
+        if (metaCharset === 'eucjp') metaCharset = 'euc-jp';
+        if (metaCharset !== charset) {
+          // 再デコード
+          try {
+            html = new TextDecoder(metaCharset, { fatal: false }).decode(arrayBuf);
+            charset = metaCharset;
+          } catch (e) {}
+        }
+      }
+
       const imageUrls = extractImagesFromHtml(html, url);
       const title = extractTitleFromHtml(html);
-      res.status(200).json({
+      const responseBody = {
         ok: true,
         generic: true,
         title,
         imageUrls,
         imageCount: imageUrls.length,
-      });
+      };
+      // 🆕 0 件抽出時は診断情報を含める
+      if (imageUrls.length === 0) {
+        responseBody.diagnostics = {
+          htmlSize: html.length,
+          contentType,
+          detectedCharset: charset,
+          sampleHtmlStart: html.slice(0, 800),
+        };
+      }
+      res.status(200).json(responseBody);
       return;
     } catch (e) {
       res.status(500).json({ error: '汎用 HTML 取得エラー: ' + (e.message || String(e)), url });
