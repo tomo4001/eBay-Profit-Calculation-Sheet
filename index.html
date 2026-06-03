@@ -3598,6 +3598,14 @@ async function downloadEbayImages() {
       return;
     }
 
+    // 🆕 WAF ブロック検出時のメッセージ
+    if (data.blocked) {
+      status.textContent = '⚠ ' + (data.error || 'このサイトは bot 防御で自動取得できません(楽天等)');
+      status.style.color = '#c0504d';
+      if (data.diagnostics) console.warn('[画像 DL] WAF ブロック:', data.diagnostics);
+      return;
+    }
+
     const imageUrls = Array.isArray(data.imageUrls) ? data.imageUrls : [];
     if (imageUrls.length === 0) {
       status.textContent = '⚠ 画像が見つかりません';
@@ -3651,9 +3659,20 @@ async function downloadEbayImages() {
 
       if (!blob) { failed++; continue; }
 
-      const ext = (blob.type && blob.type.includes('png')) ? 'png'
-                : (blob.type && blob.type.includes('webp')) ? 'webp'
-                : 'jpg';
+      // 拡張子: URL から推測(.jpg で来てるなら .jpg として保存、WebP の場合は .webp)
+      // URL 末尾のクエリ前 拡張子を見る
+      let ext = 'jpg';
+      const urlExtMatch = imgUrl.match(/\.(jpg|jpeg|png|webp|gif|avif)(?:\?|$)/i);
+      if (urlExtMatch) {
+        ext = urlExtMatch[1].toLowerCase();
+        if (ext === 'jpeg') ext = 'jpg';
+      } else if (blob.type) {
+        // URL に拡張子なし → content-type で判定
+        if (blob.type.includes('png')) ext = 'png';
+        else if (blob.type.includes('webp')) ext = 'webp';
+        else if (blob.type.includes('gif')) ext = 'gif';
+        else if (blob.type.includes('avif')) ext = 'avif';
+      }
       const seq = String(i + 1).padStart(2, '0');
       zip.file(`${seq}.${ext}`, blob);
       success++;
