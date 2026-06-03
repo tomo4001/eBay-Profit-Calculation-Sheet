@@ -253,15 +253,76 @@ export default async function handler(req, res) {
     return;
   }
 
+  // 📷 メルカリ専用: URL パターン推測で画像取得(HTML 解析より確実)
+  // 例: https://jp.mercari.com/item/m12345678 → m{id}_1.jpg, _2.jpg, ... を順次ヒット
+  const mercariMatch = url.match(/(?:mercari\.com|mercari\.jp)\/(?:item|jp\/items)\/(m\d+)/i)
+                     || url.match(/jp\.mercari\.com\/item\/(m\d+)/i);
+  if (mercariMatch) {
+    const itemId = mercariMatch[1];
+    const imageUrls = [];
+    // CDN の orig サイズで取得
+    const maxImages = 20;  // 最大 20 枚試す
+    for (let i = 1; i <= maxImages; i++) {
+      const imgUrl = `https://static.mercdn.net/item/detail/orig/photos/${itemId}_${i}.jpg`;
+      try {
+        const r = await fetch(imgUrl, {
+          method: 'HEAD',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Referer': 'https://jp.mercari.com/',
+          },
+        });
+        if (r.ok) {
+          imageUrls.push(imgUrl);
+        } else {
+          // 404 = この index 以降は画像なし
+          break;
+        }
+      } catch (e) {
+        break;
+      }
+    }
+    if (imageUrls.length === 0) {
+      // fallback: アイテムが存在しない or 別の URL パターン
+      res.status(200).json({
+        ok: false,
+        error: 'メルカリの画像が取得できませんでした(商品 ID パターン違いかも)',
+        url, itemId,
+      });
+      return;
+    }
+    res.status(200).json({
+      ok: true,
+      mercari: true,
+      itemId,
+      title: 'mercari_' + itemId,
+      imageUrls,
+      imageCount: imageUrls.length,
+    });
+    return;
+  }
+
   // 📷 eBay 以外: 汎用 HTML 抽出モード
   const isEbay = /(^|\.)ebay\./i.test(url);
   if (!isEbay) {
     try {
+      // 🆕 ブラウザに近いヘッダー(WAF / bot 防御の bypass を試みる)
       const htmlRes = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'max-age=0',
+          'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+          'Dnt': '1',
         },
         redirect: 'follow',
       });
@@ -301,6 +362,29 @@ export default async function handler(req, res) {
             charset = metaCharset;
           } catch (e) {}
         }
+      }
+
+      // 🆕 WAF / bot 防御ブロック検出(HTML サイズが極端に小さい)
+      const isLikelyBlocked =
+        html.length < 2000 && (
+          /reference\s*#\d+\.[a-f0-9.]+/i.test(html) ||  // Akamai
+          /access denied|forbidden|blocked|captcha|cloudflare|datadome|imperva/i.test(html) ||
+          /you (have been|are) blocked/i.test(html)
+        );
+      if (isLikelyBlocked) {
+        res.status(200).json({
+          ok: false,
+          blocked: true,
+          error: 'このサイトは bot 防御(WAF)でサーバーからのアクセスをブロックしています。残念ながら自動取得できません。',
+          url,
+          diagnostics: {
+            htmlSize: html.length,
+            contentType,
+            detectedCharset: charset,
+            sampleHtmlStart: html.slice(0, 400),
+          },
+        });
+        return;
       }
 
       const imageUrls = extractImagesFromHtml(html, url);
