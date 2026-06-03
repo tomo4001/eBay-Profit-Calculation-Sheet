@@ -390,22 +390,64 @@ export default async function handler(req, res) {
       let imageUrls = extractImagesFromHtml(html, url);
       const title = extractTitleFromHtml(html);
 
-      // 🆕 楽天専用フィルタ: 商品画像ドメインだけに絞る
-      // image.rakuten.co.jp と shop.r10s.jp が商品画像のホスト
-      // r.r10s.jp(バナー)、anz.rd.rakuten.co.jp(広告)、ashiato.rakuten.co.jp(追跡)等は除外
+      // 🆕 楽天専用処理: og:image を起点に連番推測でギャラリー画像を発見
+      // 楽天はギャラリーが JS でロードされるため、初期 HTML には og:image しか無い場合が多い。
+      // → og:image の URL の末尾数字を +1, +2, +3... と試して 200 が返るものを追加する。
       if (/(^|\.)rakuten\.co\.jp/i.test(url)) {
-        imageUrls = imageUrls.filter(u => {
-          // 商品画像ドメイン(これらだけ残す)
-          if (/^https?:\/\/(image\.rakuten\.co\.jp|shop\.r10s\.jp)\//i.test(u)) return true;
-          // それ以外(バナー、広告等)は除外
-          return false;
-        });
-        // Rakuten では cabinet パスが商品画像の典型(banner や headline 画像は除外)
-        // ヘッドライン用と思しき headline / banner / category 等を更に除外
-        imageUrls = imageUrls.filter(u => {
-          if (/\/(headline|banner|category|rank|navi|left-navi)\//i.test(u)) return false;
-          return true;
-        });
+        const ogMatch = html.match(/<meta[^>]+property=["']og:image[^"']*["'][^>]+content=["']([^"']+)["']/i);
+        if (ogMatch) {
+          const ogImg = ogMatch[1];
+          // og:image と同じディレクトリのものに一旦フィルタ(バナー除外)
+          const dirMatch = ogImg.match(/^(https?:\/\/[^/]+\/.+\/)[^/]+\.(jpg|jpeg|png|webp|gif|avif)/i);
+          if (dirMatch) {
+            const prefix = dirMatch[1];
+            imageUrls = imageUrls.filter(u => u.startsWith(prefix));
+          }
+
+          // og:image 自体は確実に追加
+          if (!imageUrls.includes(ogImg)) imageUrls.unshift(ogImg);
+
+          // 連番推測: og:image のファイル名から末尾数字を抽出
+          // 例: imgrc0136149730.jpg → prefix="imgrc" / num="0136149730" / ext=".jpg"
+          // 例: 5572045_a01.jpg → prefix="5572045_a" / num="01" / ext=".jpg"
+          const nameMatch = ogImg.match(/^(.+\/)(.*?)(\d+)(\.[a-z]+)$/i);
+          if (nameMatch) {
+            const dir = nameMatch[1];
+            const numPrefix = nameMatch[2];
+            const numStr = nameMatch[3];
+            const ext = nameMatch[4];
+            const startNum = parseInt(numStr, 10);
+            const digits = numStr.length;
+
+            let consecutiveFailures = 0;
+            const guessed = [];
+            for (let i = 1; i <= 20; i++) {
+              const newNumStr = String(startNum + i).padStart(digits, '0');
+              const guessUrl = dir + numPrefix + newNumStr + ext;
+              if (imageUrls.includes(guessUrl)) continue;  // 既にある
+              try {
+                const r = await fetch(guessUrl, {
+                  method: 'HEAD',
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Referer': 'https://item.rakuten.co.jp/',
+                  },
+                });
+                if (r.ok) {
+                  guessed.push(guessUrl);
+                  consecutiveFailures = 0;
+                } else {
+                  consecutiveFailures++;
+                  if (consecutiveFailures >= 2) break;  // 2 連続失敗で停止
+                }
+              } catch (e) {
+                consecutiveFailures++;
+                if (consecutiveFailures >= 2) break;
+              }
+            }
+            imageUrls.push(...guessed);
+          }
+        }
       }
 
       const responseBody = {
