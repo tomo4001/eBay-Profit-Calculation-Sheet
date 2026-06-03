@@ -3617,20 +3617,34 @@ async function downloadEbayImages() {
     for (let i = 0; i < imageUrls.length; i++) {
       const imgUrl = imageUrls[i];
       btn.textContent = `📡 画像 ${i+1}/${imageUrls.length}…`;
+      let blob = null;
+
+      // 1) 直接 fetch を試す(CORS が許可されてれば成功)
       try {
         const imgRes = await fetch(imgUrl, { mode: 'cors' });
-        if (!imgRes.ok) { failed++; continue; }
-        const blob = await imgRes.blob();
-        const ext = (blob.type && blob.type.includes('png')) ? 'png'
-                  : (blob.type && blob.type.includes('webp')) ? 'webp'
-                  : 'jpg';
-        const seq = String(i + 1).padStart(2, '0');
-        zip.file(`${seq}.${ext}`, blob);
-        success++;
+        if (imgRes.ok) blob = await imgRes.blob();
       } catch (e) {
-        console.warn('画像取得失敗:', imgUrl, e);
-        failed++;
+        // CORS エラー等 → プロキシにフォールバック
       }
+
+      // 2) 直接失敗時はサーバープロキシ経由で取得
+      if (!blob) {
+        try {
+          const proxyRes = await fetch('/api/ebay-item?proxy=' + encodeURIComponent(imgUrl));
+          if (proxyRes.ok) blob = await proxyRes.blob();
+        } catch (e) {
+          console.warn('プロキシも失敗:', imgUrl, e);
+        }
+      }
+
+      if (!blob) { failed++; continue; }
+
+      const ext = (blob.type && blob.type.includes('png')) ? 'png'
+                : (blob.type && blob.type.includes('webp')) ? 'webp'
+                : 'jpg';
+      const seq = String(i + 1).padStart(2, '0');
+      zip.file(`${seq}.${ext}`, blob);
+      success++;
     }
 
     if (success === 0) {
