@@ -61,8 +61,15 @@ async function getAppToken(appId, certId) {
 }
 
 // 📷 汎用 HTML から画像 URL を抽出(eBay 以外のサイト用)
+// Amazon の同一画像複数サイズを正規化(._SX300_.jpg → .jpg)
+function normalizeForDedup(u) {
+  // Amazon: 画像 ID は同じ、サイズ指定 (._SX300_, ._SL1500_, ._AC_UF1000,1000_QL80_) が違うだけ
+  return u.replace(/\._[A-Z0-9,_]+_\./gi, '.');
+}
+
 function extractImagesFromHtml(html, baseUrl) {
   const urls = new Set();
+  const seenNormalized = new Set();  // 重複検出用(正規化後)
   const addAbs = (raw) => {
     if (!raw) return;
     let u = raw.trim();
@@ -73,6 +80,10 @@ function extractImagesFromHtml(html, baseUrl) {
     } else if (!/^https?:/i.test(u)) {
       try { u = new URL(u, baseUrl).href; } catch (e) { return; }
     }
+    // 重複チェック(正規化後 = Amazon の異なるサイズも同じものとみなす)
+    const norm = normalizeForDedup(u);
+    if (seenNormalized.has(norm)) return;
+    seenNormalized.add(norm);
     urls.add(u);
   };
 
@@ -86,6 +97,37 @@ function extractImagesFromHtml(html, baseUrl) {
   // twitter:image
   const twRegex = /<meta[^>]+(?:name|property)=["']twitter:image["'][^>]+content=["']([^"']+)["']/gi;
   while ((m = twRegex.exec(html)) !== null) addAbs(m[1]);
+
+  // 🆕 __NEXT_DATA__ (Next.js / メルカリ等)を明示パース
+  // 構造の中から画像 URL らしき文字列を再帰的に抽出
+  const nextDataMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (nextDataMatch) {
+    try {
+      const nd = JSON.parse(nextDataMatch[1].trim());
+      const collect = (obj) => {
+        if (obj == null) return;
+        if (typeof obj === 'string') {
+          // 画像 URL パターン or 既知の CDN
+          if (/^https?:\/\//.test(obj)) {
+            if (/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(obj)) addAbs(obj);
+            else if (/static\.mercdn\.net|mercari/i.test(obj)) addAbs(obj);
+            else if (/m\.media-amazon\.com\/images/i.test(obj)) addAbs(obj);
+          }
+          return;
+        }
+        if (Array.isArray(obj)) { obj.forEach(collect); return; }
+        if (typeof obj === 'object') {
+          // 既知のキー名を優先(image, photo, photos, imageUrl 等)
+          ['image','images','photo','photos','imageUrl','imageUri','uri','src'].forEach(k => {
+            if (obj[k]) collect(obj[k]);
+          });
+          // それ以外も再帰
+          Object.values(obj).forEach(collect);
+        }
+      };
+      collect(nd);
+    } catch (e) {}
+  }
 
   // JSON-LD product images
   const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -169,6 +211,41 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  // 🆕 画像プロキシモード: ?proxy=<imageUrl> で画像バイナリを CORS 付きで返す
+  // (Yahoo Shopping 等で直接 fetch が CORS で失敗する場合のフォールバック)
+  const proxyUrl = req.query.proxy || '';
+  if (proxyUrl) {
+    try {
+      // Referer は元サイトのドメインを推測(Mercari の画像は Referer 必須の場合あり)
+      let referer = '';
+      try {
+        const u = new URL(proxyUrl);
+        referer = u.origin + '/';
+      } catch (e) {}
+      const imgRes = await fetch(proxyUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          ...(referer ? { 'Referer': referer } : {}),
+        },
+        redirect: 'follow',
+      });
+      if (!imgRes.ok) {
+        res.status(imgRes.status).json({ error: `画像取得失敗 HTTP ${imgRes.status}`, url: proxyUrl });
+        return;
+      }
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      const ct = imgRes.headers.get('content-type') || 'image/jpeg';
+      res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.status(200).send(buf);
+      return;
+    } catch (e) {
+      res.status(500).json({ error: '画像プロキシエラー: ' + (e.message || String(e)), url: proxyUrl });
+      return;
+    }
+  }
 
   const url = req.query.url || '';
   if (!url) {
