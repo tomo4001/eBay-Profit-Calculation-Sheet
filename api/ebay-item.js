@@ -397,11 +397,19 @@ export default async function handler(req, res) {
         const ogMatch = html.match(/<meta[^>]+property=["']og:image[^"']*["'][^>]+content=["']([^"']+)["']/i);
         if (ogMatch) {
           const ogImg = ogMatch[1];
-          // og:image と同じディレクトリのものに一旦フィルタ(バナー除外)
-          const dirMatch = ogImg.match(/^(https?:\/\/[^/]+\/.+\/)[^/]+\.(jpg|jpeg|png|webp|gif|avif)/i);
-          if (dirMatch) {
-            const prefix = dirMatch[1];
-            imageUrls = imageUrls.filter(u => u.startsWith(prefix));
+          // og:image と同じパスのものに一旦フィルタ(バナー除外)
+          // 注意: ギャラリー画像は image.rakuten.co.jp、og:image は shop.r10s.jp の場合がある
+          //       → ドメインは無視してパス部分だけで比較する
+          const pathMatch = ogImg.match(/^https?:\/\/[^/]+(\/.+\/)[^/]+\.(jpg|jpeg|png|webp|gif|avif)/i);
+          if (pathMatch) {
+            const pathPrefix = pathMatch[1];
+            imageUrls = imageUrls.filter(u => {
+              // shop.r10s.jp と image.rakuten.co.jp の両方を許可
+              if (!/^https?:\/\/(shop\.r10s\.jp|image\.rakuten\.co\.jp|thumbnail\.image\.rakuten\.co\.jp)\//i.test(u)) return false;
+              // パス部分が一致するか
+              const m = u.match(/^https?:\/\/[^/]+(\/.+\/)[^/]+\.[a-z]+/i);
+              return m && m[1] === pathPrefix;
+            });
           }
 
           // og:image 自体は確実に追加
