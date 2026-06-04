@@ -1861,6 +1861,12 @@
           <div class="service-row" data-svc="jp_ems"><button class="svc-toggle" data-svc="jp_ems" title="最高利益検索から除外/復帰">✓</button><span class="service-name">EMS</span><span class="service-price placeholder" data-svc="jp_ems">—</span></div>
           <div class="service-row" data-svc="jp_shojo"><button class="svc-toggle" data-svc="jp_shojo" title="最高利益検索から除外/復帰">✓</button><span class="service-name">書状（書留）</span><span class="service-price placeholder" data-svc="jp_shojo">—</span></div>
           <div class="service-row" data-svc="jp_epacket"><button class="svc-toggle" data-svc="jp_epacket" title="最高利益検索から除外/復帰">✓</button><span class="service-name">eパケットライト</span><span class="service-price placeholder" data-svc="jp_epacket">—</span></div>
+          <!-- 📦 ゆうパック: 国内鑑定センター送付用(排他モード) -->
+          <div class="service-row" data-svc="jp_yupack" title="ブランド鑑定センターなど国内発送向け / 有効化すると他の発送方法は全部除外">
+            <button class="svc-toggle" data-svc="jp_yupack" title="有効化すると他の発送方法を全部除外(国内専用モード)">✕</button>
+            <span class="service-name">ゆうパック<br><span style="font-size:9px; color:#888; font-weight:normal;">国内鑑定センター送付</span></span>
+            <input type="number" id="jp_yupack_price" placeholder="¥手入力" min="0" step="1" style="width:80px; padding:3px 6px; border:1px solid #c0504d; border-radius:4px; font-size:11px; text-align:right;" />
+          </div>
         </div>
       </div>
 
@@ -3950,6 +3956,10 @@ function loadExcludedServices() {
     const s = localStorage.getItem(EXCLUDE_KEY);
     if (s) excludedServices = new Set(JSON.parse(s));
   } catch (e) {}
+  // 📦 デフォルト: ゆうパックは初期除外(国内モードは明示的に有効化が必要)
+  if (!localStorage.getItem(EXCLUDE_KEY)) {
+    excludedServices.add('jp_yupack');
+  }
 }
 function saveExcludedServices() {
   try {
@@ -3962,10 +3972,36 @@ function isExcluded(svcKey) {
 function toggleExcluded(svcKey) {
   if (excludedServices.has(svcKey)) excludedServices.delete(svcKey);
   else excludedServices.add(svcKey);
+
+  // 📦 ゆうパック専用ロジック: 国内鑑定センター送付モード(排他)
+  if (svcKey === 'jp_yupack') {
+    if (!excludedServices.has('jp_yupack')) {
+      // ゆうパックを有効化 → 他の全サービスを除外
+      ALL_SVC_KEYS.forEach(k => { if (k !== 'jp_yupack') excludedServices.add(k); });
+    } else {
+      // ゆうパックを無効化 → 全サービスの除外解除(他もデフォルト復帰)
+      excludedServices.clear();
+      excludedServices.add('jp_yupack');  // ゆうパック自体はデフォルト除外に戻す
+    }
+  } else if (svcKey !== 'jp_yupack' && !excludedServices.has(svcKey)) {
+    // ゆうパック以外を有効化した時、ゆうパックが有効なら排他のため除外
+    if (!excludedServices.has('jp_yupack')) {
+      excludedServices.add('jp_yupack');
+    }
+  }
+
   saveExcludedServices();
   applyExclusionUi();
+  if (typeof recalc === 'function') recalc();
   if (typeof updateWinnerDisplay === 'function') updateWinnerDisplay();
 }
+
+// 📦 全 svc キー一覧(排他ロジックで使用)
+const ALL_SVC_KEYS = [
+  'jp_ems', 'jp_shojo', 'jp_epacket', 'jp_yupack',
+  'cpass_economy', 'cpass_dhl', 'cpass_ficp', 'cpass_ipenv', 'cpass_ippak', 'cpass_ippkg',
+  'elogi_economy', 'elogi_dhl', 'elogi_ficp', 'elogi_ipenv', 'elogi_ippak', 'elogi_ippkg', 'elogi_iepkg', 'elogi_ups',
+];
 function applyExclusionUi() {
   document.querySelectorAll('.svc-toggle').forEach(btn => {
     const k = btn.dataset.svc;
@@ -3990,6 +4026,7 @@ function getSvcKey(carrier, method) {
     if (method === 'EMS') return 'jp_ems';
     if (method === '書状（書留）') return 'jp_shojo';
     if (method === 'eパケットライト') return 'jp_epacket';
+    if (method === 'ゆうパック') return 'jp_yupack';
   }
   if (carrier === 'CPaSS') {
     if (method === 'Economy') return 'cpass_economy';
@@ -4785,6 +4822,14 @@ function pickBestMethod() {
   if (jp.epacket.price !== null) {
     const r = calcProfit({ ...ctxBase, shipCostYen: jp.epacket.price });
     candidates.push({ carrier: '日本郵便', method: 'eパケットライト', shipCost: jp.epacket.price, ...r });
+  }
+  // 📦 ゆうパック(国内鑑定センター送付モード) — 手入力金額を使用
+  if (!isExcluded('jp_yupack')) {
+    const yupackPrice = parseFloat(document.getElementById('jp_yupack_price')?.value || '0');
+    if (yupackPrice > 0) {
+      const r = calcProfit({ ...ctxBase, shipCostYen: yupackPrice });
+      candidates.push({ carrier: '日本郵便', method: 'ゆうパック', shipCost: yupackPrice, ...r });
+    }
   }
 
   // CPaSS_Economy
@@ -6264,6 +6309,15 @@ function init() {
       if (k) toggleExcluded(k);
     });
   });
+
+  // 📦 ゆうパック価格入力 → 即座に再計算
+  const ypInput = document.getElementById('jp_yupack_price');
+  if (ypInput) {
+    ypInput.addEventListener('input', () => {
+      if (typeof recalc === 'function') recalc();
+      if (typeof updateWinnerDisplay === 'function') updateWinnerDisplay();
+    });
+  }
 
   refreshEbayFeeDerived();
   updateDdpUi();
