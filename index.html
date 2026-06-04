@@ -1593,56 +1593,35 @@
     <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=eBay URL から 商品タイトル・カテゴリーNo.・価格 を自動入力 / 「📷 画像 DL」=<strong>eBay 含む任意のサイトの URL</strong> から画像を ZIP 一括ダウンロード</div>
   </div>
 
-  <!-- ===== 🛒 ソーシング比較カード ===== -->
+  <!-- ===== 🛒 ソーシング比較カード(v2: キーワード型) ===== -->
   <div class="card manual-input" style="border-left:4px solid #047857;">
     <h2 style="color:#047857;">🛒 ソーシング比較
-      <span style="font-size:11px; color:#666; margin-left:8px; font-weight:normal;">複数サイト比較 → 最安値を 仕入値(¥) に自動反映</span>
+      <span style="font-size:11px; color:#666; margin-left:8px; font-weight:normal;">キーワード → 各サイトを横並びで価格比較 → 最安値を 仕入値(¥) に自動反映</span>
     </h2>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-      <input type="text" id="rivalUrl" placeholder="商品 URL を貼り付け(自動取得)" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #a7d4b8; border-radius:6px; font-size:13px; background:#fff;" />
-      <button class="btn" id="rivalAddBtn" style="padding:8px 18px; font-size:13px; background:#047857; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">➕ 追加</button>
-      <button class="btn" id="rivalManualToggle" type="button" style="padding:8px 14px; font-size:13px; background:#fff; color:#047857; border:1px solid #047857; border-radius:6px; cursor:pointer; font-weight:600;">✏️ 手動入力</button>
-      <span id="rivalStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
-    </div>
-    <!-- 手動入力フォーム(初期非表示) -->
-    <div id="rivalManualForm" style="display:none; background:#f0fdf4; border:1px solid #86efac; padding:10px 12px; border-radius:8px; margin-bottom:10px;">
-      <div style="font-size:11px; color:#15803d; margin-bottom:6px; font-weight:600;">✏️ 手動入力(Mercari Shops / Amazon / Yodobashi など自動取得不可サイト用)</div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <select id="rivalManualSite" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; min-width:140px;">
-          <option value="Amazon">Amazon</option>
-          <option value="楽天">楽天</option>
-          <option value="Yahoo!ショッピング">Yahoo!ショッピング</option>
-          <option value="メルカリ">メルカリ</option>
-          <option value="メルカリショップ">メルカリショップ</option>
-          <option value="Yahoo!フリマ">Yahoo!フリマ</option>
-          <option value="ラクマ">ラクマ</option>
-          <option value="ヤフオク">ヤフオク</option>
-          <option value="オフモール">オフモール</option>
-          <option value="Yodobashi">Yodobashi</option>
-          <option value="その他">その他</option>
-        </select>
-        <input type="number" id="rivalManualJpy" placeholder="価格 (¥)" min="1" step="1" style="width:130px; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
-        <input type="text" id="rivalManualUrl" placeholder="URL(任意)" style="flex:1; min-width:200px; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
-        <button class="btn" id="rivalManualAddBtn" type="button" style="padding:8px 18px; font-size:13px; background:#15803d; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">追加</button>
-      </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+      <input type="text" id="sourcingKeyword" placeholder="検索キーワード(eBayタイトルの和訳など)" style="flex:1; min-width:260px; padding:8px 12px; border:1px solid #a7d4b8; border-radius:6px; font-size:13px; background:#fff;" />
+      <button class="btn" id="sourcingGenerateBtn" type="button" style="padding:8px 18px; font-size:13px; background:#047857; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">🔍 各サイトの検索URL生成</button>
+      <button class="btn" id="sourcingClearBtn" type="button" style="padding:8px 14px; font-size:13px; background:#fff; color:#888; border:1px solid #ddd; border-radius:6px; cursor:pointer;">クリア</button>
+      <span id="sourcingStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
     </div>
     <div style="font-size:11px; color:#888; margin-bottom:8px;">
-      自動取得対応: 楽天 / Yahoo!ショッピング / メルカリ(/item/) / Yahoo!フリマ / ラクマ / ヤフオク(即決のみ) / オフモール ／ <span style="color:#c0504d;">手動入力: Mercari Shops / Amazon / Yodobashi(Bot検知)</span>
+      🤖 自動取得可: 楽天 / Yahoo!ショッピング / メルカリ(/item/) / Yahoo!フリマ / ラクマ / ヤフオク(即決) / オフモール&nbsp;&nbsp;
+      <span style="color:#c0504d;">✋ 手動入力のみ: Mercari Shops / Amazon / Yodobashi(Bot検知)</span>
     </div>
-    <table id="rivalTable" style="width:100%; border-collapse:collapse; font-size:12px; display:none;">
+    <table id="sourcingTable" style="width:100%; border-collapse:collapse; font-size:12px;">
       <thead>
         <tr style="background:#f3f4f6;">
-          <th style="padding:6px 8px; text-align:left; border:1px solid #d1d5db;">サイト</th>
-          <th style="padding:6px 8px; text-align:right; border:1px solid #d1d5db;">JPY</th>
-          <th style="padding:6px 8px; text-align:right; border:1px solid #d1d5db;">USD</th>
-          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db;">状態</th>
-          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db;">URL</th>
-          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db; width:40px;">削除</th>
+          <th style="padding:6px 8px; text-align:left; border:1px solid #d1d5db; width:150px;">サイト</th>
+          <th style="padding:6px 8px; text-align:left; border:1px solid #d1d5db;">URL (検索 or 商品)</th>
+          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db; width:140px;">操作</th>
+          <th style="padding:6px 8px; text-align:right; border:1px solid #d1d5db; width:110px;">価格 (¥)</th>
+          <th style="padding:6px 8px; text-align:right; border:1px solid #d1d5db; width:80px;">USD</th>
+          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db; width:70px;">状態</th>
         </tr>
       </thead>
-      <tbody id="rivalTableBody"></tbody>
+      <tbody id="sourcingTableBody"></tbody>
     </table>
-    <div id="rivalLowest" style="font-size:12px; color:#047857; font-weight:700; margin-top:8px; display:none;"></div>
+    <div id="sourcingLowest" style="font-size:13px; color:#047857; font-weight:700; margin-top:10px; padding:8px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:6px; display:none;"></div>
   </div>
 
   <!-- ===== SKU生成カード ===== -->
@@ -3617,258 +3596,274 @@ function attachEbayUrlEvents() {
   });
   if (imgBtn) imgBtn.addEventListener('click', downloadEbayImages);
 
-  // 🛒 ソーシング比較
-  const rBtn = document.getElementById('rivalAddBtn');
-  const rUrl = document.getElementById('rivalUrl');
-  if (rBtn) rBtn.addEventListener('click', addRivalPrice);
-  if (rUrl) rUrl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addRivalPrice(); }
-  });
-  // 手動入力モード切替
-  const rManToggle = document.getElementById('rivalManualToggle');
-  const rManForm = document.getElementById('rivalManualForm');
-  if (rManToggle && rManForm) {
-    rManToggle.addEventListener('click', () => {
-      const isOpen = rManForm.style.display !== 'none';
-      rManForm.style.display = isOpen ? 'none' : '';
-      rManToggle.textContent = isOpen ? '✏️ 手動入力' : '× 閉じる';
-    });
-  }
-  // 手動入力 追加ボタン
-  const rManAddBtn = document.getElementById('rivalManualAddBtn');
-  if (rManAddBtn) rManAddBtn.addEventListener('click', addRivalPriceManual);
-  // 手動入力 価格 Enter で追加
-  const rManJpy = document.getElementById('rivalManualJpy');
-  if (rManJpy) rManJpy.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addRivalPriceManual(); }
-  });
-  loadRivalPrices();
-}
-
-// 🛒 ソーシング比較 — 手動入力
-function addRivalPriceManual() {
-  const siteEl = document.getElementById('rivalManualSite');
-  const jpyEl = document.getElementById('rivalManualJpy');
-  const urlEl = document.getElementById('rivalManualUrl');
-  const statusEl = document.getElementById('rivalStatus');
-  if (!siteEl || !jpyEl) return;
-  const site = siteEl.value;
-  const jpy = parseFloat(jpyEl.value);
-  const url = (urlEl?.value || '').trim();
-  if (!isFinite(jpy) || jpy <= 0) {
-    if (statusEl) { statusEl.textContent = '⚠ 価格を入力してください'; statusEl.style.color = '#c0504d'; }
-    jpyEl.focus();
-    return;
-  }
-  addRivalRowToTable({ site, jpy, url });
-  saveRivalPrices();
-  updateRivalLowest();
-  jpyEl.value = '';
-  if (urlEl) urlEl.value = '';
-  if (statusEl) {
-    statusEl.textContent = `✓ ${site}: ¥${jpy.toLocaleString()} 追加(手動)`;
-    statusEl.style.color = '#15803d';
-  }
+  // 🛒 ソーシング比較 v2 (キーワードベース固定行グリッド)
+  initSourcingTable();
+  loadSourcingState();
 }
 
 // =============================================================================
-// 💰 ライバル価格比較
+// 🛒 ソーシング比較 v2 — キーワード入力 → 全サイト固定行グリッド
 // =============================================================================
-const RIVAL_STORAGE_KEY = 'profitCalcV1_rivalPrices';
+const SOURCING_STORAGE_KEY = 'profitCalcV1_sourcingV2';
 
-function detectRivalSite(url) {
-  const u = url.toLowerCase();
-  if (/amazon\./.test(u)) return 'Amazon';
-  if (/mercari-shops/.test(u)) return 'メルカリshops';
-  if (/(jp\.|www\.)?mercari\.com/.test(u)) return 'メルカリ';
-  if (/item\.rakuten\.co\.jp/.test(u)) return '楽天';
-  if (/(store\.)?shopping\.yahoo\.co\.jp/.test(u)) return 'Yahoo!Shop';
-  if (/paypayfleamarket\.yahoo\.co\.jp/.test(u)) return 'Yahoo!フリマ';
-  if (/auctions\.yahoo\.co\.jp/.test(u)) return 'ヤフオク';
-  if (/(item\.)?fril\.jp|rakuma\.rakuten/.test(u)) return 'ラクマ';
-  if (/netmall\.hardoff/.test(u)) return 'オフモール';
-  if (/yodobashi/.test(u)) return 'Yodobashi';
-  if (/ebay\./.test(u)) return 'eBay';
-  return '不明';
-}
-
-function loadRivalPrices() {
-  try {
-    const raw = localStorage.getItem(RIVAL_STORAGE_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(list)) {
-      list.forEach(r => addRivalRowToTable(r));
-      updateRivalLowest();
-    }
-  } catch (e) {}
-}
-
-function saveRivalPrices() {
-  const rows = Array.from(document.querySelectorAll('#rivalTableBody tr'));
-  const list = rows.map(tr => ({
-    site: tr.dataset.site,
-    jpy:  parseFloat(tr.dataset.jpy) || 0,
-    url:  tr.dataset.url || '',
-  }));
-  try {
-    localStorage.setItem(RIVAL_STORAGE_KEY, JSON.stringify(list));
-  } catch (e) {}
-}
+const SOURCING_SITES = [
+  { id: 'amazon',     name: 'Amazon',          searchUrl: 'https://www.amazon.co.jp/s?k=%s',                              autoFetch: false },
+  { id: 'rakuten',    name: '楽天',            searchUrl: 'https://search.rakuten.co.jp/search/mall/%s/',                  autoFetch: true  },
+  { id: 'yshop',      name: 'Yahoo!ショピング', searchUrl: 'https://shopping.yahoo.co.jp/search?p=%s',                      autoFetch: true  },
+  { id: 'mercari',    name: 'メルカリ',        searchUrl: 'https://jp.mercari.com/search?keyword=%s',                      autoFetch: true  },
+  { id: 'mshops',     name: 'メルカリShops',   searchUrl: 'https://jp.mercari.com/search?keyword=%s&shop_type=shop',       autoFetch: false },
+  { id: 'yfurima',    name: 'Yahoo!フリマ',    searchUrl: 'https://paypayfleamarket.yahoo.co.jp/search/%s',                autoFetch: true  },
+  { id: 'rakuma',     name: 'ラクマ',          searchUrl: 'https://fril.jp/s?query=%s',                                    autoFetch: true  },
+  { id: 'yauc',       name: 'ヤフオク(即決)',  searchUrl: 'https://auctions.yahoo.co.jp/search/search?p=%s&fixed=1',       autoFetch: true  },
+  { id: 'offmall',    name: 'オフモール',      searchUrl: 'https://netmall.hardoff.co.jp/search/?keyword=%s',              autoFetch: true  },
+  { id: 'yodobashi',  name: 'Yodobashi',      searchUrl: 'https://www.yodobashi.com/?word=%s',                            autoFetch: false },
+];
 
 function getJpyUsdRate() {
-  // 為替変換カードの USD レートを取得
-  // jpyToUsdRate 変数があれば使用、なければ要素から取得
   const el = document.getElementById('fxRate') || document.getElementById('currentJpyUsd');
   if (el && el.value) {
     const v = parseFloat(el.value);
     if (v > 0) return v;
   }
-  // フォールバック: globalな fxRate 変数 / 150 (近似値)
   if (typeof currentFxRate === 'number' && currentFxRate > 0) return currentFxRate;
   return 150;
 }
 
-function addRivalRowToTable(row) {
-  const tbody = document.getElementById('rivalTableBody');
-  const tbl = document.getElementById('rivalTable');
-  if (!tbody || !tbl) return;
-  tbl.style.display = '';
-
-  const tr = document.createElement('tr');
-  tr.dataset.site = row.site || '不明';
-  tr.dataset.jpy  = String(row.jpy || 0);
-  tr.dataset.url  = row.url || '';
-  const rate = getJpyUsdRate();
-  const usd = rate > 0 ? (row.jpy / rate) : 0;
-
-  tr.innerHTML = `
-    <td style="padding:4px 8px; border:1px solid #d1d5db;">${row.site || '不明'}</td>
-    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:right; font-family:monospace;">¥${(row.jpy || 0).toLocaleString()}</td>
-    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:right; font-family:monospace;">$${usd.toFixed(2)}</td>
-    <td class="rival-status" style="padding:4px 8px; border:1px solid #d1d5db; text-align:center; font-size:11px;"></td>
-    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:center;"><a href="${row.url || '#'}" target="_blank" style="color:#1565c0; text-decoration:none; font-size:11px;">🔗</a></td>
-    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:center;"><button class="rival-del" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:2px 8px; border-radius:4px; cursor:pointer; font-size:11px;">✕</button></td>
-  `;
-  const delBtn = tr.querySelector('.rival-del');
-  if (delBtn) delBtn.addEventListener('click', () => {
-    tr.remove();
-    saveRivalPrices();
-    updateRivalLowest();
-    if (document.querySelectorAll('#rivalTableBody tr').length === 0) {
-      tbl.style.display = 'none';
-    }
+function initSourcingTable() {
+  const tbody = document.getElementById('sourcingTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  SOURCING_SITES.forEach(site => {
+    const tr = document.createElement('tr');
+    tr.dataset.siteId = site.id;
+    const tagAuto = site.autoFetch
+      ? '<span title="自動取得可" style="font-size:10px; color:#15803d; background:#dcfce7; padding:1px 5px; border-radius:3px; margin-left:4px;">🤖</span>'
+      : '<span title="手動入力のみ" style="font-size:10px; color:#92400e; background:#fef3c7; padding:1px 5px; border-radius:3px; margin-left:4px;">✋</span>';
+    tr.innerHTML = `
+      <td style="padding:6px 8px; border:1px solid #d1d5db; font-weight:600; vertical-align:middle;">${site.name}${tagAuto}</td>
+      <td style="padding:4px 6px; border:1px solid #d1d5db; vertical-align:middle;">
+        <input type="text" class="sourcing-url" placeholder="キーワード生成後、検索URLが自動入力。商品URLに置き換えも可" style="width:100%; padding:5px 8px; border:1px solid #ddd; border-radius:4px; font-size:11px; font-family:monospace;" />
+      </td>
+      <td style="padding:4px 6px; border:1px solid #d1d5db; text-align:center; vertical-align:middle; white-space:nowrap;">
+        <button class="btn sourcing-open" type="button" title="新しいタブで開く" style="padding:3px 8px; font-size:11px; background:#1565c0; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">🔗 開く</button>
+        ${site.autoFetch ? '<button class="btn sourcing-fetch" type="button" title="URLから価格を自動取得" style="padding:3px 8px; font-size:11px; background:#16a34a; color:#fff; border:none; border-radius:4px; cursor:pointer; margin-left:4px; font-weight:600;">📥 取得</button>' : ''}
+      </td>
+      <td style="padding:4px 6px; border:1px solid #d1d5db; vertical-align:middle;">
+        <input type="number" class="sourcing-price" placeholder="価格" min="0" step="1" style="width:100%; padding:5px 8px; border:1px solid #ddd; border-radius:4px; font-size:12px; text-align:right; font-family:monospace;" />
+      </td>
+      <td class="sourcing-usd" style="padding:4px 6px; border:1px solid #d1d5db; text-align:right; font-family:monospace; font-size:11px; vertical-align:middle; color:#666;">—</td>
+      <td class="sourcing-status" style="padding:4px 6px; border:1px solid #d1d5db; text-align:center; vertical-align:middle;"></td>
+    `;
+    tbody.appendChild(tr);
   });
-  tbody.appendChild(tr);
+
+  // 各行のハンドラ
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const urlInput = tr.querySelector('.sourcing-url');
+    const openBtn = tr.querySelector('.sourcing-open');
+    const fetchBtn = tr.querySelector('.sourcing-fetch');
+    const priceInput = tr.querySelector('.sourcing-price');
+
+    openBtn?.addEventListener('click', () => {
+      const url = (urlInput.value || '').trim();
+      if (!url) {
+        flashSourcingStatus('⚠ URL が空です。先にキーワードを入力して「🔍 各サイトの検索URL生成」をクリックしてください', '#c0504d');
+        return;
+      }
+      window.open(url, '_blank', 'noopener');
+    });
+
+    fetchBtn?.addEventListener('click', async () => {
+      const url = (urlInput.value || '').trim();
+      if (!url) { flashSourcingStatus('⚠ URL を入力してください', '#c0504d'); return; }
+      // 検索結果URLでは商品ページを取得できないので警告
+      const isSearchUrl = /[?&](k|p|query|keyword|word)=/.test(url) || /\/search/.test(url);
+      if (isSearchUrl && !/\/(item|product|g|dp)\//.test(url)) {
+        if (!confirm('これは検索結果ページの URL のようです。商品ページの URL に置き換えてから取得してください。\n\n強制的に試しますか?')) return;
+      }
+      fetchBtn.disabled = true;
+      const origText = fetchBtn.textContent;
+      fetchBtn.textContent = '取得中…';
+      try {
+        const res = await fetch('/api/ebay-item?url=' + encodeURIComponent(url));
+        const data = await res.json();
+        const price = (typeof data.price === 'number' && data.price > 0) ? data.price : null;
+        if (price) {
+          priceInput.value = price;
+          flashSourcingStatus(`✓ ${SOURCING_SITES.find(s => s.id === tr.dataset.siteId)?.name}: ¥${price.toLocaleString()} 取得`, '#15803d');
+          updateSourcingTotals();
+          saveSourcingState();
+        } else {
+          flashSourcingStatus('⚠ 自動取得失敗 — 価格欄に手動で入力してください', '#c0504d');
+          priceInput.focus();
+        }
+      } catch (e) {
+        flashSourcingStatus('⚠ 通信エラー: ' + e.message, '#c0504d');
+      } finally {
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = origText;
+      }
+    });
+
+    priceInput.addEventListener('input', () => { updateSourcingTotals(); saveSourcingState(); });
+    urlInput.addEventListener('input', () => { saveSourcingState(); });
+  });
+
+  // キーワード入力 & ボタン
+  const genBtn = document.getElementById('sourcingGenerateBtn');
+  if (genBtn) genBtn.addEventListener('click', generateSourcingSearchUrls);
+  const kwEl = document.getElementById('sourcingKeyword');
+  if (kwEl) {
+    kwEl.addEventListener('input', saveSourcingState);
+    kwEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); generateSourcingSearchUrls(); }
+    });
+  }
+  const clrBtn = document.getElementById('sourcingClearBtn');
+  if (clrBtn) clrBtn.addEventListener('click', clearSourcing);
 }
 
-function updateRivalLowest() {
-  const tbody = document.getElementById('rivalTableBody');
-  const lowestEl = document.getElementById('rivalLowest');
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-  if (rows.length === 0) {
-    if (lowestEl) lowestEl.style.display = 'none';
+function generateSourcingSearchUrls() {
+  const kwEl = document.getElementById('sourcingKeyword');
+  const kw = (kwEl?.value || '').trim();
+  if (!kw) {
+    flashSourcingStatus('⚠ キーワードを入力してください', '#c0504d');
+    kwEl?.focus();
     return;
   }
+  const enc = encodeURIComponent(kw);
+  let count = 0;
+  document.querySelectorAll('#sourcingTableBody tr').forEach(tr => {
+    const site = SOURCING_SITES.find(s => s.id === tr.dataset.siteId);
+    if (!site) return;
+    const urlInput = tr.querySelector('.sourcing-url');
+    if (urlInput) {
+      urlInput.value = site.searchUrl.replace('%s', enc);
+      count++;
+    }
+  });
+  saveSourcingState();
+  flashSourcingStatus(`✓ ${count} サイト分の検索URLを生成しました`, '#15803d');
+}
+
+function clearSourcing() {
+  if (!confirm('全行のURL・価格をクリアしますか?(キーワードは残ります)')) return;
+  document.querySelectorAll('#sourcingTableBody tr').forEach(tr => {
+    tr.querySelector('.sourcing-url').value = '';
+    tr.querySelector('.sourcing-price').value = '';
+    tr.querySelector('.sourcing-usd').textContent = '—';
+    tr.querySelector('.sourcing-status').innerHTML = '';
+  });
+  const lowestEl = document.getElementById('sourcingLowest');
+  if (lowestEl) lowestEl.style.display = 'none';
+  saveSourcingState();
+  flashSourcingStatus('✓ クリアしました', '#666');
+}
+
+function updateSourcingTotals() {
+  const tbody = document.getElementById('sourcingTableBody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  const rate = getJpyUsdRate();
   let lowest = null;
   let highest = null;
+  let priceCount = 0;
+
   rows.forEach(tr => {
-    const jpy = parseFloat(tr.dataset.jpy) || 0;
-    if (jpy > 0 && (lowest === null || jpy < lowest.jpy)) lowest = { tr, jpy };
-    if (jpy > 0 && (highest === null || jpy > highest.jpy)) highest = { tr, jpy };
+    const priceInput = tr.querySelector('.sourcing-price');
+    const usdCell = tr.querySelector('.sourcing-usd');
+    const jpy = parseFloat(priceInput.value) || 0;
+
+    if (jpy > 0) {
+      priceCount++;
+      const usd = rate > 0 ? jpy / rate : 0;
+      usdCell.textContent = '$' + usd.toFixed(2);
+      if (lowest === null || jpy < lowest.jpy) lowest = { tr, jpy };
+      if (highest === null || jpy > highest.jpy) highest = { tr, jpy };
+    } else {
+      usdCell.textContent = '—';
+    }
   });
 
-  // ステータス表示
+  // 状態バッジ
   rows.forEach(tr => {
-    const st = tr.querySelector('.rival-status');
+    const st = tr.querySelector('.sourcing-status');
     if (!st) return;
-    if (lowest && tr === lowest.tr && rows.length > 1) {
-      st.innerHTML = '<span style="background:#dcfce7; color:#166534; padding:2px 6px; border-radius:4px; font-weight:700;">✓ 最安</span>';
-    } else if (highest && tr === highest.tr && rows.length > 1) {
-      st.innerHTML = '<span style="background:#fef3c7; color:#92400e; padding:2px 6px; border-radius:4px;">最高</span>';
+    const jpy = parseFloat(tr.querySelector('.sourcing-price').value) || 0;
+    if (jpy <= 0) { st.innerHTML = ''; return; }
+    if (lowest && tr === lowest.tr && priceCount > 1) {
+      st.innerHTML = '<span style="background:#dcfce7; color:#166534; padding:2px 6px; border-radius:4px; font-weight:700; font-size:11px;">✓ 最安</span>';
+    } else if (highest && tr === highest.tr && priceCount > 1) {
+      st.innerHTML = '<span style="background:#fef3c7; color:#92400e; padding:2px 6px; border-radius:4px; font-size:11px;">最高</span>';
     } else {
       st.innerHTML = '';
     }
   });
 
-  // 最安値を 仕入値(¥) に自動反映
+  // 最安値 → 仕入値(¥) 自動反映
+  const lowestEl = document.getElementById('sourcingLowest');
   if (lowest) {
     const purchaseEl = document.getElementById('purchasePrice');
     if (purchaseEl) {
       purchaseEl.value = lowest.jpy;
-      // 入力イベントを発火させて利益再計算を確実に走らせる
       purchaseEl.dispatchEvent(new Event('input', { bubbles: true }));
       purchaseEl.dispatchEvent(new Event('change', { bubbles: true }));
       if (typeof recalc === 'function') recalc();
       if (typeof saveState === 'function') saveState();
     }
     if (lowestEl) {
+      const siteName = SOURCING_SITES.find(s => s.id === lowest.tr.dataset.siteId)?.name || '';
       lowestEl.style.display = '';
-      lowestEl.textContent = `✓ 最安 ${lowest.tr.dataset.site} ¥${lowest.jpy.toLocaleString()} を「仕入値(¥)」に自動反映`;
+      lowestEl.innerHTML = `✓ 最安 <strong>${siteName} ¥${lowest.jpy.toLocaleString()}</strong> を「仕入値 (¥)」に自動反映しました`;
     }
   } else if (lowestEl) {
     lowestEl.style.display = 'none';
   }
 }
 
-async function addRivalPrice() {
-  const urlEl = document.getElementById('rivalUrl');
-  const statusEl = document.getElementById('rivalStatus');
-  const btn = document.getElementById('rivalAddBtn');
-  if (!urlEl) return;
-  const url = (urlEl.value || '').trim();
-  if (!url) { statusEl.textContent = '⚠ URL を入力してください'; statusEl.style.color = '#c0504d'; return; }
-
-  const site = detectRivalSite(url);
-  if (btn) { btn.disabled = true; btn.textContent = '取得中…'; }
-  statusEl.textContent = '';
-
-  try {
-    const res = await fetch('/api/ebay-item?url=' + encodeURIComponent(url));
-    const data = await res.json();
-
-    if (!res.ok || data.error) {
-      statusEl.textContent = '⚠ ' + (data.error || ('HTTP ' + res.status));
-      statusEl.style.color = '#c0504d';
-      return;
-    }
-
-    let jpy = null;
-    if (typeof data.price === 'number' && data.price > 0) {
-      jpy = data.price;
-    } else if (typeof data.total === 'number' && data.total > 0 && data.currency === 'JPY') {
-      jpy = data.total;
-    }
-
-    if (!jpy) {
-      // サイト別のメッセージ
-      const isMercariShops = /jp\.mercari\.com\/shops\/product/i.test(url);
-      const isAmazon = /amazon\.(co\.)?jp/i.test(url);
-      const isYodobashi = /yodobashi/i.test(url);
-      if (isMercariShops) {
-        statusEl.textContent = '⚠ メルカリShopsは自動取得不可(JS で動的読込) — 手動で入力してください';
-      } else if (isAmazon) {
-        statusEl.textContent = '⚠ Amazonは Bot 検知でブロックされます — 手動で入力してください';
-      } else if (isYodobashi) {
-        statusEl.textContent = '⚠ Yodobashi は WAF でブロックされます — 手動で入力してください';
-      } else {
-        statusEl.textContent = '⚠ 価格を取得できませんでした(サイト構造変更の可能性)';
-      }
-      statusEl.style.color = '#c0504d';
-      return;
-    }
-
-    addRivalRowToTable({ site, jpy, url });
-    saveRivalPrices();
-    updateRivalLowest();
-    urlEl.value = '';
-    statusEl.textContent = `✓ ${site}: ¥${jpy.toLocaleString()} 追加`;
-    statusEl.style.color = '#2e7d32';
-  } catch (e) {
-    statusEl.textContent = '⚠ 通信エラー: ' + e.message;
-    statusEl.style.color = '#c0504d';
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '➕ 追加'; }
+function flashSourcingStatus(text, color) {
+  const el = document.getElementById('sourcingStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || '#15803d';
+  if (color !== '#c0504d') {
+    setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 3500);
   }
+}
+
+function saveSourcingState() {
+  const state = {
+    keyword: document.getElementById('sourcingKeyword')?.value || '',
+    rows: {},
+  };
+  document.querySelectorAll('#sourcingTableBody tr').forEach(tr => {
+    state.rows[tr.dataset.siteId] = {
+      url: tr.querySelector('.sourcing-url').value,
+      price: tr.querySelector('.sourcing-price').value,
+    };
+  });
+  try { localStorage.setItem(SOURCING_STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+function loadSourcingState() {
+  try {
+    const raw = localStorage.getItem(SOURCING_STORAGE_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    if (state.keyword) {
+      const kwEl = document.getElementById('sourcingKeyword');
+      if (kwEl) kwEl.value = state.keyword;
+    }
+    if (state.rows) {
+      Object.entries(state.rows).forEach(([id, data]) => {
+        const tr = document.querySelector(`#sourcingTableBody tr[data-site-id="${id}"]`);
+        if (tr) {
+          tr.querySelector('.sourcing-url').value = data.url || '';
+          tr.querySelector('.sourcing-price').value = data.price || '';
+        }
+      });
+      updateSourcingTotals();
+    }
+  } catch (e) {}
 }
 
 // =============================================================================
