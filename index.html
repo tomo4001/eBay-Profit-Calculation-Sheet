@@ -1593,6 +1593,35 @@
     <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=eBay URL から 商品タイトル・カテゴリーNo.・価格 を自動入力 / 「📷 画像 DL」=<strong>eBay 含む任意のサイトの URL</strong> から画像を ZIP 一括ダウンロード</div>
   </div>
 
+  <!-- ===== 💰 ライバル価格比較カード ===== -->
+  <div class="card manual-input" style="border-left:4px solid #047857;">
+    <h2 style="color:#047857;">💰 ライバル価格比較
+      <span style="font-size:11px; color:#666; margin-left:8px; font-weight:normal;">Amazon / 楽天 / Yahoo / メルカリ / ヤフオク等から価格取得</span>
+    </h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+      <input type="text" id="rivalUrl" placeholder="商品 URL を貼り付け(Amazon, 楽天, メルカリ, ヤフオク他)" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #a7d4b8; border-radius:6px; font-size:13px; background:#fff;" />
+      <button class="btn" id="rivalAddBtn" style="padding:8px 18px; font-size:13px; background:#047857; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">➕ 追加</button>
+      <span id="rivalStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
+    </div>
+    <div style="font-size:11px; color:#888; margin-bottom:8px;">
+      対応: Amazon / 楽天 / Yahoo!ショッピング / メルカリ / メルカリショップ / Yahoo!フリマ / ラクマ / ヤフオク(即決のみ) / オフモール / Yodobashi
+    </div>
+    <table id="rivalTable" style="width:100%; border-collapse:collapse; font-size:12px; display:none;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="padding:6px 8px; text-align:left; border:1px solid #d1d5db;">サイト</th>
+          <th style="padding:6px 8px; text-align:right; border:1px solid #d1d5db;">JPY</th>
+          <th style="padding:6px 8px; text-align:right; border:1px solid #d1d5db;">USD</th>
+          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db;">状態</th>
+          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db;">URL</th>
+          <th style="padding:6px 8px; text-align:center; border:1px solid #d1d5db; width:40px;">削除</th>
+        </tr>
+      </thead>
+      <tbody id="rivalTableBody"></tbody>
+    </table>
+    <div id="rivalLowest" style="font-size:12px; color:#047857; font-weight:700; margin-top:8px; display:none;"></div>
+  </div>
+
   <!-- ===== SKU生成カード ===== -->
   <div class="card manual-input">
     <h2>📦 SKU生成
@@ -3564,6 +3593,202 @@ function attachEbayUrlEvents() {
     if (e.key === 'Enter') { e.preventDefault(); fetchEbayItem(); }
   });
   if (imgBtn) imgBtn.addEventListener('click', downloadEbayImages);
+
+  // 💰 ライバル価格比較
+  const rBtn = document.getElementById('rivalAddBtn');
+  const rUrl = document.getElementById('rivalUrl');
+  if (rBtn) rBtn.addEventListener('click', addRivalPrice);
+  if (rUrl) rUrl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addRivalPrice(); }
+  });
+  loadRivalPrices();
+}
+
+// =============================================================================
+// 💰 ライバル価格比較
+// =============================================================================
+const RIVAL_STORAGE_KEY = 'profitCalcV1_rivalPrices';
+
+function detectRivalSite(url) {
+  const u = url.toLowerCase();
+  if (/amazon\./.test(u)) return 'Amazon';
+  if (/mercari-shops/.test(u)) return 'メルカリshops';
+  if (/(jp\.|www\.)?mercari\.com/.test(u)) return 'メルカリ';
+  if (/item\.rakuten\.co\.jp/.test(u)) return '楽天';
+  if (/(store\.)?shopping\.yahoo\.co\.jp/.test(u)) return 'Yahoo!Shop';
+  if (/paypayfleamarket\.yahoo\.co\.jp/.test(u)) return 'Yahoo!フリマ';
+  if (/auctions\.yahoo\.co\.jp/.test(u)) return 'ヤフオク';
+  if (/(item\.)?fril\.jp|rakuma\.rakuten/.test(u)) return 'ラクマ';
+  if (/netmall\.hardoff/.test(u)) return 'オフモール';
+  if (/yodobashi/.test(u)) return 'Yodobashi';
+  if (/ebay\./.test(u)) return 'eBay';
+  return '不明';
+}
+
+function loadRivalPrices() {
+  try {
+    const raw = localStorage.getItem(RIVAL_STORAGE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(list)) {
+      list.forEach(r => addRivalRowToTable(r));
+      updateRivalLowest();
+    }
+  } catch (e) {}
+}
+
+function saveRivalPrices() {
+  const rows = Array.from(document.querySelectorAll('#rivalTableBody tr'));
+  const list = rows.map(tr => ({
+    site: tr.dataset.site,
+    jpy:  parseFloat(tr.dataset.jpy) || 0,
+    url:  tr.dataset.url || '',
+  }));
+  try {
+    localStorage.setItem(RIVAL_STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function getJpyUsdRate() {
+  // 為替変換カードの USD レートを取得
+  // jpyToUsdRate 変数があれば使用、なければ要素から取得
+  const el = document.getElementById('fxRate') || document.getElementById('currentJpyUsd');
+  if (el && el.value) {
+    const v = parseFloat(el.value);
+    if (v > 0) return v;
+  }
+  // フォールバック: globalな fxRate 変数 / 150 (近似値)
+  if (typeof currentFxRate === 'number' && currentFxRate > 0) return currentFxRate;
+  return 150;
+}
+
+function addRivalRowToTable(row) {
+  const tbody = document.getElementById('rivalTableBody');
+  const tbl = document.getElementById('rivalTable');
+  if (!tbody || !tbl) return;
+  tbl.style.display = '';
+
+  const tr = document.createElement('tr');
+  tr.dataset.site = row.site || '不明';
+  tr.dataset.jpy  = String(row.jpy || 0);
+  tr.dataset.url  = row.url || '';
+  const rate = getJpyUsdRate();
+  const usd = rate > 0 ? (row.jpy / rate) : 0;
+
+  tr.innerHTML = `
+    <td style="padding:4px 8px; border:1px solid #d1d5db;">${row.site || '不明'}</td>
+    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:right; font-family:monospace;">¥${(row.jpy || 0).toLocaleString()}</td>
+    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:right; font-family:monospace;">$${usd.toFixed(2)}</td>
+    <td class="rival-status" style="padding:4px 8px; border:1px solid #d1d5db; text-align:center; font-size:11px;"></td>
+    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:center;"><a href="${row.url || '#'}" target="_blank" style="color:#1565c0; text-decoration:none; font-size:11px;">🔗</a></td>
+    <td style="padding:4px 8px; border:1px solid #d1d5db; text-align:center;"><button class="rival-del" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:2px 8px; border-radius:4px; cursor:pointer; font-size:11px;">✕</button></td>
+  `;
+  const delBtn = tr.querySelector('.rival-del');
+  if (delBtn) delBtn.addEventListener('click', () => {
+    tr.remove();
+    saveRivalPrices();
+    updateRivalLowest();
+    if (document.querySelectorAll('#rivalTableBody tr').length === 0) {
+      tbl.style.display = 'none';
+    }
+  });
+  tbody.appendChild(tr);
+}
+
+function updateRivalLowest() {
+  const tbody = document.getElementById('rivalTableBody');
+  const lowestEl = document.getElementById('rivalLowest');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  if (rows.length === 0) {
+    if (lowestEl) lowestEl.style.display = 'none';
+    return;
+  }
+  let lowest = null;
+  let highest = null;
+  rows.forEach(tr => {
+    const jpy = parseFloat(tr.dataset.jpy) || 0;
+    if (jpy > 0 && (lowest === null || jpy < lowest.jpy)) lowest = { tr, jpy };
+    if (jpy > 0 && (highest === null || jpy > highest.jpy)) highest = { tr, jpy };
+  });
+
+  // ステータス表示
+  rows.forEach(tr => {
+    const st = tr.querySelector('.rival-status');
+    if (!st) return;
+    if (lowest && tr === lowest.tr && rows.length > 1) {
+      st.innerHTML = '<span style="background:#dcfce7; color:#166534; padding:2px 6px; border-radius:4px; font-weight:700;">✓ 最安</span>';
+    } else if (highest && tr === highest.tr && rows.length > 1) {
+      st.innerHTML = '<span style="background:#fef3c7; color:#92400e; padding:2px 6px; border-radius:4px;">最高</span>';
+    } else {
+      st.innerHTML = '';
+    }
+  });
+
+  // 最安値を ライバル合計価格($) に自動反映
+  if (lowest) {
+    const rate = getJpyUsdRate();
+    const usd = rate > 0 ? (lowest.jpy / rate) : 0;
+    const rivalEl = document.getElementById('rivalPrice');
+    if (rivalEl) {
+      rivalEl.value = usd.toFixed(2);
+      if (typeof recalc === 'function') recalc();
+      if (typeof saveState === 'function') saveState();
+    }
+    if (lowestEl) {
+      lowestEl.style.display = '';
+      lowestEl.textContent = `✓ 最安 ${lowest.tr.dataset.site} ¥${lowest.jpy.toLocaleString()} ($${usd.toFixed(2)}) を「ライバル合計価格($)」に自動反映`;
+    }
+  } else if (lowestEl) {
+    lowestEl.style.display = 'none';
+  }
+}
+
+async function addRivalPrice() {
+  const urlEl = document.getElementById('rivalUrl');
+  const statusEl = document.getElementById('rivalStatus');
+  const btn = document.getElementById('rivalAddBtn');
+  if (!urlEl) return;
+  const url = (urlEl.value || '').trim();
+  if (!url) { statusEl.textContent = '⚠ URL を入力してください'; statusEl.style.color = '#c0504d'; return; }
+
+  const site = detectRivalSite(url);
+  if (btn) { btn.disabled = true; btn.textContent = '取得中…'; }
+  statusEl.textContent = '';
+
+  try {
+    const res = await fetch('/api/ebay-item?url=' + encodeURIComponent(url));
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      statusEl.textContent = '⚠ ' + (data.error || ('HTTP ' + res.status));
+      statusEl.style.color = '#c0504d';
+      return;
+    }
+
+    let jpy = null;
+    if (typeof data.price === 'number' && data.price > 0) {
+      jpy = data.price;
+    } else if (typeof data.total === 'number' && data.total > 0 && data.currency === 'JPY') {
+      jpy = data.total;
+    }
+
+    if (!jpy) {
+      statusEl.textContent = '⚠ 価格を取得できませんでした(サイト構造変更の可能性)';
+      statusEl.style.color = '#c0504d';
+      return;
+    }
+
+    addRivalRowToTable({ site, jpy, url });
+    saveRivalPrices();
+    updateRivalLowest();
+    urlEl.value = '';
+    statusEl.textContent = `✓ ${site}: ¥${jpy.toLocaleString()} 追加`;
+    statusEl.style.color = '#2e7d32';
+  } catch (e) {
+    statusEl.textContent = '⚠ 通信エラー: ' + e.message;
+    statusEl.style.color = '#c0504d';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '➕ 追加'; }
+  }
 }
 
 // =============================================================================
