@@ -274,28 +274,68 @@ function extractPriceFromHtml(html, url) {
       if (!m) m = html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
       if (m) price = tryParseAmount(m[1]);
     }
-    // メルカリ / メルカリショップ: __NEXT_DATA__ 内の "price":1234
+    // メルカリ / メルカリショップ: 複数の方法で価格抽出
     else if (/mercari/i.test(urlHost)) {
+      // 方法1: __NEXT_DATA__ の特定パス優先(item.price / data.item.price 等)
       const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
       if (ndMatch) {
         try {
           const nd = JSON.parse(ndMatch[1]);
-          const find = (o) => {
-            if (o == null || typeof o !== 'object') return null;
+          // 優先パス探索: 商品データに含まれる "item" / "product" オブジェクトの price
+          const findItemPrice = (o, depth = 0) => {
+            if (depth > 12 || o == null || typeof o !== 'object') return null;
             if (Array.isArray(o)) {
-              for (const x of o) { const r = find(x); if (r) return r; }
+              for (const x of o) { const r = findItemPrice(x, depth + 1); if (r) return r; }
               return null;
             }
-            if (typeof o.price === 'number' && o.price > 0) return o.price;
+            // 商品オブジェクトの代表的なキー名
+            if (o.item && typeof o.item === 'object' && typeof o.item.price === 'number' && o.item.price > 0) return o.item.price;
+            if (o.product && typeof o.product === 'object' && typeof o.product.price === 'number' && o.product.price > 0) return o.product.price;
+            if (o.data && typeof o.data === 'object') {
+              if (typeof o.data.price === 'number' && o.data.price > 0) return o.data.price;
+              if (o.data.item && typeof o.data.item.price === 'number' && o.data.item.price > 0) return o.data.item.price;
+            }
+            // id / status / name と一緒にある price は商品 price 確率高い
+            if (typeof o.price === 'number' && o.price > 0 && (o.id || o.name || o.status || o.title)) return o.price;
+            // 再帰
             for (const k of Object.keys(o)) {
-              const r = find(o[k]);
+              const r = findItemPrice(o[k], depth + 1);
               if (r) return r;
             }
             return null;
           };
-          const p = find(nd);
+          const p = findItemPrice(nd);
           if (p) price = p;
         } catch (e) {}
+      }
+      // 方法2: HTML 内で "price":数値 を直接検索(__NEXT_DATA__ JSON 解析失敗対策)
+      if (!price) {
+        const directMatches = [...html.matchAll(/"price"\s*:\s*(\d{2,})/g)];
+        if (directMatches.length > 0) {
+          // 最頻値 or 中間値を採用
+          const nums = directMatches.map(m => parseInt(m[1], 10)).filter(n => n >= 100 && n < 100000000);
+          if (nums.length > 0) {
+            // 中央値が安全
+            nums.sort((a,b) => a - b);
+            price = nums[Math.floor(nums.length / 2)];
+          }
+        }
+      }
+      // 方法3: og:description から "¥1,234" を抽出
+      if (!price) {
+        const ogd = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i);
+        if (ogd) {
+          const pm = ogd[1].match(/[¥￥]\s*([0-9,]+)/);
+          if (pm) price = tryParseAmount(pm[1]);
+        }
+      }
+      // 方法4: meta name="twitter:data1" にも価格が入ることがある
+      if (!price) {
+        const tw = html.match(/<meta[^>]+name=["']twitter:data1["'][^>]+content=["']([^"']+)["']/i);
+        if (tw) {
+          const pm = tw[1].match(/[¥￥]\s*([0-9,]+)/);
+          if (pm) price = tryParseAmount(pm[1]);
+        }
       }
     }
     // ヤフオク: 即決価格 のみ
