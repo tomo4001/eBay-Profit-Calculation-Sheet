@@ -207,6 +207,119 @@ function extractTitleFromHtml(html) {
 }
 
 // 💰 汎用 + サイト別の価格抽出(JPY 想定)
+// =============================================================================
+// Mercari Shops 完全分離抽出器
+//   関連商品の price で誤検出されないように、汎用パス一切使わず URL の productId
+//   をキーに __NEXT_DATA__ と HTML 周辺を精密にスキャン。
+// =============================================================================
+function extractMercariShopsPrice(html, url, tryParseAmount) {
+  const result = { price: null, currency: 'JPY', _diag: { steps: [] } };
+  const pidMatch = url.match(/\/shops\/product\/([A-Za-z0-9_-]+)/);
+  const productId = pidMatch ? pidMatch[1] : null;
+  result._diag.productId = productId;
+  if (!productId) {
+    result._diag.steps.push('NO_PRODUCT_ID_IN_URL');
+    return result;
+  }
+
+  // ---- 方法 1: __NEXT_DATA__ の中で productId に一致するノード ----
+  const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  result._diag.hasNextData = !!nd;
+  if (nd) {
+    result._diag.nextDataSize = nd[1].length;
+    try {
+      const data = JSON.parse(nd[1]);
+      // 走査して productId が一致するノード(複数あり得る)を全部集める
+      const matched = [];
+      const stack = [data];
+      const seen = new WeakSet();
+      while (stack.length) {
+        const node = stack.pop();
+        if (!node || typeof node !== 'object') continue;
+        if (seen.has(node)) continue;
+        seen.add(node);
+        if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
+        const idMatches = [node.id, node.productId, node.shopProductId, node.uuid, node.slug]
+          .some(v => v === productId);
+        if (idMatches) matched.push(node);
+        for (const k in node) stack.push(node[k]);
+      }
+      result._diag.matchedCount = matched.length;
+      if (matched.length) {
+        // 最初のマッチノードの全フィールド名と数値値を診断に含める
+        const sample = matched[0];
+        result._diag.matchedKeys = Object.keys(sample).slice(0, 50);
+        result._diag.matchedNums = {};
+        for (const k in sample) {
+          if (typeof sample[k] === 'number') result._diag.matchedNums[k] = sample[k];
+        }
+        // 価格候補フィールド優先順
+        const priceFields = ['sellingPrice', 'displayPrice', 'salePrice', 'price', 'amount', 'listPrice', 'unitPrice'];
+        for (const node of matched) {
+          for (const f of priceFields) {
+            if (typeof node[f] === 'number' && node[f] >= 100) {
+              result.price = node[f];
+              result._diag.steps.push(`MATCH_NODE_${f}=${node[f]}`);
+              return result;
+            }
+          }
+        }
+        result._diag.steps.push('MATCHED_NODE_HAS_NO_PRICE_FIELD');
+      } else {
+        result._diag.steps.push('NO_MATCHING_NODE');
+      }
+    } catch (e) {
+      result._diag.steps.push('NEXT_DATA_PARSE_ERROR: ' + e.message);
+    }
+  }
+
+  // ---- 方法 2: HTML 内 productId 出現箇所の周辺 ¥XXX,XXX ----
+  const escId = productId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const idRe = new RegExp(escId, 'g');
+  const pidMatches = [...html.matchAll(idRe)].slice(0, 20);
+  result._diag.pidOccurrenceCount = pidMatches.length;
+  for (const pm of pidMatches) {
+    const start = Math.max(0, pm.index - 200);
+    const end = Math.min(html.length, pm.index + 800);
+    const win = html.slice(start, end);
+    const ym = win.match(/[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/);
+    if (ym) {
+      const p = tryParseAmount(ym[1]);
+      if (p && p >= 100) {
+        result.price = p;
+        result._diag.steps.push(`NEAR_PID_TEXT=${p}`);
+        return result;
+      }
+    }
+  }
+
+  // ---- 方法 3: 最初の「送料込み/送料無料/送料の負担」直前 1000 字以内の ¥XXX,XXX ----
+  const idxSoryo = html.search(/送料(?:込み|無料|の負担)/);
+  result._diag.soryouIdx = idxSoryo;
+  if (idxSoryo > 0) {
+    const winStart = Math.max(0, idxSoryo - 1000);
+    const win = html.slice(winStart, idxSoryo);
+    const candidates = [];
+    const re1 = /[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/g;
+    for (const m of win.matchAll(re1)) candidates.push({ val: m[1], at: m.index, score: 2 });
+    const re3 = /(?:^|[^0-9.])([0-9]{1,3}(?:,[0-9]{3})+)(?=[^0-9]|$)/g;
+    for (const m of win.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
+    candidates.sort((a, b) => (b.score - a.score) || (b.at - a.at));
+    result._diag.soryouCandidates = candidates.slice(0, 5);
+    for (const c of candidates) {
+      const p = tryParseAmount(c.val);
+      if (p && p >= 100) {
+        result.price = p;
+        result._diag.steps.push(`SORYOU_NEAR=${p}`);
+        return result;
+      }
+    }
+  }
+
+  result._diag.steps.push('ALL_METHODS_FAILED');
+  return result;
+}
+
 function extractPriceFromHtml(html, url) {
   let price = null;
   let currency = 'JPY';
@@ -218,6 +331,11 @@ function extractPriceFromHtml(html, url) {
     const n = parseFloat(cleaned);
     return (isFinite(n) && n > 0) ? n : null;
   };
+
+  // === Mercari Shops は完全分離(他のフォールバック一切使わない) ===
+  if (/jp\.mercari\.com\/shops\/product/i.test(url)) {
+    return extractMercariShopsPrice(html, url, tryParseAmount);
+  }
 
   // 1. og:price:amount or product:price:amount
   m = html.match(/<meta[^>]+property=["'](?:og|product):price:amount["'][^>]+content=["']([^"']+)["']/i)
@@ -309,9 +427,8 @@ function extractPriceFromHtml(html, url) {
           if (pm2) price = tryParseAmount(pm2[1]);
         }
       }
-      // 方法3: Mercari Shops 専用
-      // 関連商品が並ぶページのため、URL の商品IDで狙い撃ち
-      if (!price && /\/shops\/product/i.test(url)) {
+      // 方法3: Mercari Shops 専用(※実際は冒頭の早期 return で処理済み)
+      if (false) {
         const pidMatch = url.match(/\/shops\/product\/([A-Za-z0-9_-]+)/);
         const productId = pidMatch ? pidMatch[1] : null;
 
@@ -756,13 +873,10 @@ export default async function handler(req, res) {
         imageCount: imageUrls.length,
         price: priceInfo.price,
         currency: priceInfo.currency,
-        _v: 'mercariShops-v6-fieldDump',  // デプロイ確認用マーカー
+        _v: 'mercariShops-v7-isolated',  // デプロイ確認用マーカー
       };
-      // Mercari Shops 診断情報を常時付与
-      if (typeof globalThis !== 'undefined' && globalThis.__mercariDiag) {
-        responseBody.mercariDiag = globalThis.__mercariDiag;
-        delete globalThis.__mercariDiag;
-      }
+      // Mercari Shops 専用関数からの診断情報
+      if (priceInfo._diag) responseBody.mercariDiag = priceInfo._diag;
       // 🆕 価格 null または 0 件抽出時は診断情報を含める
       if (priceInfo.price == null || imageUrls.length === 0) {
         // HTML 内の重要キーワード出現位置を抜粋
