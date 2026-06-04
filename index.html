@@ -1593,18 +1593,41 @@
     <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=eBay URL から 商品タイトル・カテゴリーNo.・価格 を自動入力 / 「📷 画像 DL」=<strong>eBay 含む任意のサイトの URL</strong> から画像を ZIP 一括ダウンロード</div>
   </div>
 
-  <!-- ===== 💰 ライバル価格比較カード ===== -->
+  <!-- ===== 🛒 ソーシング比較カード ===== -->
   <div class="card manual-input" style="border-left:4px solid #047857;">
-    <h2 style="color:#047857;">💰 ライバル価格比較
-      <span style="font-size:11px; color:#666; margin-left:8px; font-weight:normal;">Amazon / 楽天 / Yahoo / メルカリ / ヤフオク等から価格取得</span>
+    <h2 style="color:#047857;">🛒 ソーシング比較
+      <span style="font-size:11px; color:#666; margin-left:8px; font-weight:normal;">複数サイト比較 → 最安値を 仕入値(¥) に自動反映</span>
     </h2>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-      <input type="text" id="rivalUrl" placeholder="商品 URL を貼り付け(Amazon, 楽天, メルカリ, ヤフオク他)" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #a7d4b8; border-radius:6px; font-size:13px; background:#fff;" />
+      <input type="text" id="rivalUrl" placeholder="商品 URL を貼り付け(自動取得)" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #a7d4b8; border-radius:6px; font-size:13px; background:#fff;" />
       <button class="btn" id="rivalAddBtn" style="padding:8px 18px; font-size:13px; background:#047857; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">➕ 追加</button>
+      <button class="btn" id="rivalManualToggle" type="button" style="padding:8px 14px; font-size:13px; background:#fff; color:#047857; border:1px solid #047857; border-radius:6px; cursor:pointer; font-weight:600;">✏️ 手動入力</button>
       <span id="rivalStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
     </div>
+    <!-- 手動入力フォーム(初期非表示) -->
+    <div id="rivalManualForm" style="display:none; background:#f0fdf4; border:1px solid #86efac; padding:10px 12px; border-radius:8px; margin-bottom:10px;">
+      <div style="font-size:11px; color:#15803d; margin-bottom:6px; font-weight:600;">✏️ 手動入力(Mercari Shops / Amazon / Yodobashi など自動取得不可サイト用)</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <select id="rivalManualSite" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; min-width:140px;">
+          <option value="Amazon">Amazon</option>
+          <option value="楽天">楽天</option>
+          <option value="Yahoo!ショッピング">Yahoo!ショッピング</option>
+          <option value="メルカリ">メルカリ</option>
+          <option value="メルカリショップ">メルカリショップ</option>
+          <option value="Yahoo!フリマ">Yahoo!フリマ</option>
+          <option value="ラクマ">ラクマ</option>
+          <option value="ヤフオク">ヤフオク</option>
+          <option value="オフモール">オフモール</option>
+          <option value="Yodobashi">Yodobashi</option>
+          <option value="その他">その他</option>
+        </select>
+        <input type="number" id="rivalManualJpy" placeholder="価格 (¥)" min="1" step="1" style="width:130px; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
+        <input type="text" id="rivalManualUrl" placeholder="URL(任意)" style="flex:1; min-width:200px; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
+        <button class="btn" id="rivalManualAddBtn" type="button" style="padding:8px 18px; font-size:13px; background:#15803d; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">追加</button>
+      </div>
+    </div>
     <div style="font-size:11px; color:#888; margin-bottom:8px;">
-      対応: Amazon / 楽天 / Yahoo!ショッピング / メルカリ / メルカリショップ / Yahoo!フリマ / ラクマ / ヤフオク(即決のみ) / オフモール / Yodobashi
+      自動取得対応: 楽天 / Yahoo!ショッピング / メルカリ(/item/) / Yahoo!フリマ / ラクマ / ヤフオク(即決のみ) / オフモール ／ <span style="color:#c0504d;">手動入力: Mercari Shops / Amazon / Yodobashi(Bot検知)</span>
     </div>
     <table id="rivalTable" style="width:100%; border-collapse:collapse; font-size:12px; display:none;">
       <thead>
@@ -3594,14 +3617,58 @@ function attachEbayUrlEvents() {
   });
   if (imgBtn) imgBtn.addEventListener('click', downloadEbayImages);
 
-  // 💰 ライバル価格比較
+  // 🛒 ソーシング比較
   const rBtn = document.getElementById('rivalAddBtn');
   const rUrl = document.getElementById('rivalUrl');
   if (rBtn) rBtn.addEventListener('click', addRivalPrice);
   if (rUrl) rUrl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); addRivalPrice(); }
   });
+  // 手動入力モード切替
+  const rManToggle = document.getElementById('rivalManualToggle');
+  const rManForm = document.getElementById('rivalManualForm');
+  if (rManToggle && rManForm) {
+    rManToggle.addEventListener('click', () => {
+      const isOpen = rManForm.style.display !== 'none';
+      rManForm.style.display = isOpen ? 'none' : '';
+      rManToggle.textContent = isOpen ? '✏️ 手動入力' : '× 閉じる';
+    });
+  }
+  // 手動入力 追加ボタン
+  const rManAddBtn = document.getElementById('rivalManualAddBtn');
+  if (rManAddBtn) rManAddBtn.addEventListener('click', addRivalPriceManual);
+  // 手動入力 価格 Enter で追加
+  const rManJpy = document.getElementById('rivalManualJpy');
+  if (rManJpy) rManJpy.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addRivalPriceManual(); }
+  });
   loadRivalPrices();
+}
+
+// 🛒 ソーシング比較 — 手動入力
+function addRivalPriceManual() {
+  const siteEl = document.getElementById('rivalManualSite');
+  const jpyEl = document.getElementById('rivalManualJpy');
+  const urlEl = document.getElementById('rivalManualUrl');
+  const statusEl = document.getElementById('rivalStatus');
+  if (!siteEl || !jpyEl) return;
+  const site = siteEl.value;
+  const jpy = parseFloat(jpyEl.value);
+  const url = (urlEl?.value || '').trim();
+  if (!isFinite(jpy) || jpy <= 0) {
+    if (statusEl) { statusEl.textContent = '⚠ 価格を入力してください'; statusEl.style.color = '#c0504d'; }
+    jpyEl.focus();
+    return;
+  }
+  addRivalRowToTable({ site, jpy, url });
+  saveRivalPrices();
+  updateRivalLowest();
+  jpyEl.value = '';
+  if (urlEl) urlEl.value = '';
+  if (statusEl) {
+    statusEl.textContent = `✓ ${site}: ¥${jpy.toLocaleString()} 追加(手動)`;
+    statusEl.style.color = '#15803d';
+  }
 }
 
 // =============================================================================
@@ -3723,19 +3790,20 @@ function updateRivalLowest() {
     }
   });
 
-  // 最安値を ライバル合計価格($) に自動反映
+  // 最安値を 仕入値(¥) に自動反映
   if (lowest) {
-    const rate = getJpyUsdRate();
-    const usd = rate > 0 ? (lowest.jpy / rate) : 0;
-    const rivalEl = document.getElementById('rivalPrice');
-    if (rivalEl) {
-      rivalEl.value = usd.toFixed(2);
+    const purchaseEl = document.getElementById('purchasePrice');
+    if (purchaseEl) {
+      purchaseEl.value = lowest.jpy;
+      // 入力イベントを発火させて利益再計算を確実に走らせる
+      purchaseEl.dispatchEvent(new Event('input', { bubbles: true }));
+      purchaseEl.dispatchEvent(new Event('change', { bubbles: true }));
       if (typeof recalc === 'function') recalc();
       if (typeof saveState === 'function') saveState();
     }
     if (lowestEl) {
       lowestEl.style.display = '';
-      lowestEl.textContent = `✓ 最安 ${lowest.tr.dataset.site} ¥${lowest.jpy.toLocaleString()} ($${usd.toFixed(2)}) を「ライバル合計価格($)」に自動反映`;
+      lowestEl.textContent = `✓ 最安 ${lowest.tr.dataset.site} ¥${lowest.jpy.toLocaleString()} を「仕入値(¥)」に自動反映`;
     }
   } else if (lowestEl) {
     lowestEl.style.display = 'none';
