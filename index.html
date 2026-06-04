@@ -3772,7 +3772,19 @@ async function addRivalPrice() {
     }
 
     if (!jpy) {
-      statusEl.textContent = '⚠ 価格を取得できませんでした(サイト構造変更の可能性)';
+      // サイト別のメッセージ
+      const isMercariShops = /jp\.mercari\.com\/shops\/product/i.test(url);
+      const isAmazon = /amazon\.(co\.)?jp/i.test(url);
+      const isYodobashi = /yodobashi/i.test(url);
+      if (isMercariShops) {
+        statusEl.textContent = '⚠ メルカリShopsは自動取得不可(JS で動的読込) — 手動で入力してください';
+      } else if (isAmazon) {
+        statusEl.textContent = '⚠ Amazonは Bot 検知でブロックされます — 手動で入力してください';
+      } else if (isYodobashi) {
+        statusEl.textContent = '⚠ Yodobashi は WAF でブロックされます — 手動で入力してください';
+      } else {
+        statusEl.textContent = '⚠ 価格を取得できませんでした(サイト構造変更の可能性)';
+      }
       statusEl.style.color = '#c0504d';
       return;
     }
