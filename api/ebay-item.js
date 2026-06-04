@@ -274,6 +274,21 @@ function extractPriceFromHtml(html, url) {
       if (!m) m = html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
       if (m) price = tryParseAmount(m[1]);
     }
+    // オフモール: 税込み価格優先(税抜き表示と並ぶ場合がある)
+    else if (/netmall\.hardoff/i.test(urlHost)) {
+      // 税込: nnnn 円 / ¥nnnn 税込 / "税込価格" 直近の数字
+      let pm = html.match(/税込[\s\S]{0,200}?[¥￥]?([0-9,]+)\s*円?/);
+      if (!pm) pm = html.match(/[¥￥]([0-9,]+)\s*円?[\s\S]{0,40}?税込/);
+      if (!pm) pm = html.match(/([0-9,]+)\s*円\s*\(税込/);
+      if (pm) price = tryParseAmount(pm[1]);
+    }
+    // Yodobashi: data-priceかspecific class
+    else if (/yodobashi/i.test(urlHost)) {
+      let pm = html.match(/<span[^>]*class=["'][^"']*productPrice[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
+      if (!pm) pm = html.match(/data-price=["']([0-9]+)["']/i);
+      if (!pm) pm = html.match(/[¥￥]([0-9,]+)\s*\(税込/);
+      if (pm) price = tryParseAmount(pm[1]);
+    }
     // メルカリ / メルカリショップ: 複数の方法で価格抽出
     else if (/mercari/i.test(urlHost)) {
       // 方法1: __NEXT_DATA__ の特定パス優先(item.price / data.item.price 等)
@@ -335,6 +350,18 @@ function extractPriceFromHtml(html, url) {
         if (tw) {
           const pm = tw[1].match(/[¥￥]\s*([0-9,]+)/);
           if (pm) price = tryParseAmount(pm[1]);
+        }
+      }
+      // 方法5: HTML 内 "¥1,234" パターンを汎用検索(最頻値)
+      if (!price) {
+        const yenPattern = [...html.matchAll(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,})/g)];
+        const nums = yenPattern.map(m => parseInt(m[1].replace(/,/g, ''), 10)).filter(n => n >= 100 && n < 100000000);
+        if (nums.length > 0) {
+          // 最頻値: 同じ値が複数回出てればそれが「価格」(送料無料表示などと一緒に出やすい)
+          const freq = {};
+          nums.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
+          const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+          if (sorted.length > 0) price = parseInt(sorted[0][0], 10);
         }
       }
     }
@@ -539,14 +566,22 @@ export default async function handler(req, res) {
       if (charset === 'sjis' || charset === 'shift-jis') charset = 'shift_jis';
       if (charset === 'eucjp') charset = 'euc-jp';
 
-      const arrayBuf = await htmlRes.arrayBuffer();
-      let html;
+      let html = '';
       try {
-        const decoder = new TextDecoder(charset, { fatal: false });
-        html = decoder.decode(arrayBuf);
+        const arrayBuf = await htmlRes.arrayBuffer();
+        try {
+          const decoder = new TextDecoder(charset, { fatal: false });
+          html = decoder.decode(arrayBuf);
+        } catch (e) {
+          html = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuf);
+        }
       } catch (e) {
-        // 不明な charset → utf-8 にフォールバック
-        html = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuf);
+        res.status(500).json({ error: 'HTML decode エラー: ' + e.message, url });
+        return;
+      }
+      if (!html || html.length === 0) {
+        res.status(500).json({ error: 'HTML が空でした', url });
+        return;
       }
 
       // HTML 内の <meta charset> も確認(http header と違うことがある)
