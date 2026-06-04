@@ -292,7 +292,7 @@ function extractPriceFromHtml(html, url) {
     // メルカリ / メルカリショップ: 信頼性高い順
     else if (/mercari/i.test(urlHost)) {
       // 方法1: meta property="product:price:amount" を強制的に検索
-      // (汎用 extractor で見つかってない場合の救済)
+      // (通常メルカリ /item/m... では存在)
       let pm = html.match(/<meta[^>]+(?:property|name)=["'](?:og|product):price:amount["'][^>]+content=["']([^"']+)["']/i)
             || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og|product):price:amount["']/i);
       if (pm) {
@@ -307,8 +307,14 @@ function extractPriceFromHtml(html, url) {
           if (pm2) price = tryParseAmount(pm2[1]);
         }
       }
-      // ※ 信頼性が低いフォールバック(__NEXT_DATA__ recursive search / 任意の "price":XXX)は意図的に除外
-      //    間違った価格を返すリスクが高いため、null を返したほうが安全
+      // 方法3: Mercari Shops 専用 — body 内の最初の ¥XXX,XXX(メタタグ無いため)
+      if (!price && /\/shops\/product/i.test(url)) {
+        const headEnd = html.indexOf('</head>');
+        const searchHtml = headEnd > 0 ? html.slice(headEnd) : html;
+        // ¥X,XXX 〜 ¥XXX,XXX,XXX のカンマ区切り価格を最初に検出
+        const sm = searchHtml.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
+        if (sm) price = tryParseAmount(sm[1]);
+      }
     }
     // ヤフオク: 即決価格 のみ
     else if (/auctions\.yahoo/i.test(urlHost)) {
