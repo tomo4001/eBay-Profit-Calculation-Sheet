@@ -228,7 +228,9 @@ function extractPriceFromHtml(html, url) {
   if (m) currency = m[1].trim().toUpperCase();
 
   // 2. JSON-LD Product.offers.price
-  if (!price) {
+  // ※ Mercari Shops は関連商品が並ぶため、誤検出回避のため専用ロジックに任せる
+  const isMercariShops = /jp\.mercari\.com\/shops\/product/i.test(url);
+  if (!price && !isMercariShops) {
     const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
     let lm;
     while ((lm = ldRegex.exec(html)) !== null) {
@@ -308,31 +310,10 @@ function extractPriceFromHtml(html, url) {
         }
       }
       // 方法3: Mercari Shops 専用
+      // 関連商品が並ぶページのため、JSON-LD recursive は使わない(誤検出のため除外)。
+      // 優先順: 3a) 送料込み近接 → 3b) __NEXT_DATA__ 多重出現 → 3c) JSON-LD で og:title マッチ
       if (!price && /\/shops\/product/i.test(url)) {
-        // 3a: JSON-LD Product.offers.price(構造化データが最も信頼できる)
-        const jsonLds = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
-        for (const m of jsonLds) {
-          try {
-            const data = JSON.parse(m[1].trim());
-            const stack = [data];
-            while (stack.length && !price) {
-              const node = stack.pop();
-              if (!node || typeof node !== 'object') continue;
-              if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
-              if ((node['@type'] === 'Product' || node['@type'] === 'product') && node.offers) {
-                const offers = Array.isArray(node.offers) ? node.offers : [node.offers];
-                for (const o of offers) {
-                  const cand = o && (o.price ?? (o.priceSpecification && o.priceSpecification.price));
-                  const p = tryParseAmount(cand);
-                  if (p) { price = p; break; }
-                }
-              }
-              for (const k in node) stack.push(node[k]);
-            }
-            if (price) break;
-          } catch (e) {}
-        }
-        // 3b: 「送料込み」「送料無料」直前 の数値(HTMLタグ介在可、¥任意)
+        // 3a: 「送料込み」「送料無料」直前 の数値(HTMLタグ介在可、¥任意)
         //     (ヘッダー/フッターの広告 "¥3,000オフ" 等を弾く)
         if (!price) {
           // 「送料込み/送料無料/送料の負担」の位置を見つけ、その手前 1000 字以内で
