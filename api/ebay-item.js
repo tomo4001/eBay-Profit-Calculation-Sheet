@@ -310,62 +310,68 @@ function extractPriceFromHtml(html, url) {
         }
       }
       // 方法3: Mercari Shops 専用
-      // 関連商品が並ぶページのため、JSON-LD recursive は使わない(誤検出のため除外)。
-      // 優先順: 3a) 送料込み近接 → 3b) __NEXT_DATA__ 多重出現 → 3c) JSON-LD で og:title マッチ
+      // 関連商品が並ぶページのため、URL の商品IDで狙い撃ち
       if (!price && /\/shops\/product/i.test(url)) {
-        // 3a: 「送料込み」「送料無料」直前 の数値(HTMLタグ介在可、¥任意)
-        //     (ヘッダー/フッターの広告 "¥3,000オフ" 等を弾く)
+        const pidMatch = url.match(/\/shops\/product\/([A-Za-z0-9_-]+)/);
+        const productId = pidMatch ? pidMatch[1] : null;
+
+        // 3a: __NEXT_DATA__ の中で productId に紐づくノードの price を取得
+        if (!price && productId) {
+          const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+          if (nd) {
+            try {
+              const data = JSON.parse(nd[1]);
+              const stack = [data];
+              while (stack.length && !price) {
+                const node = stack.pop();
+                if (!node || typeof node !== 'object') continue;
+                if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
+                // この node が「商品本体」を表しているかチェック:
+                //   id / productId / shopProductId 等が URL の productId と一致するか
+                const idMatches = [node.id, node.productId, node.shopProductId, node.uuid]
+                  .some(v => v === productId);
+                if (idMatches && typeof node.price === 'number' && node.price >= 100) {
+                  price = node.price;
+                  break;
+                }
+                for (const k in node) stack.push(node[k]);
+              }
+            } catch (e) {}
+          }
+        }
+        // 3b: HTML 内で productId 周辺の ¥XXX,XXX (productId は data-* / link 等で現れる)
+        if (!price && productId) {
+          // productId の出現箇所すべてを調べ、その前後 800 字以内の最初の ¥XXX,XXX
+          const escId = productId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+          const idRe = new RegExp(escId, 'g');
+          const pidMatches = [...html.matchAll(idRe)].slice(0, 10);
+          for (const pm of pidMatches) {
+            const start = Math.max(0, pm.index - 200);
+            const end = Math.min(html.length, pm.index + 800);
+            const win = html.slice(start, end);
+            const ym = win.match(/[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/);
+            if (ym) {
+              const p = tryParseAmount(ym[1]);
+              if (p && p >= 100) { price = p; break; }
+            }
+          }
+        }
+        // 3c: 「送料込み」近接(productId が見つからない時用のフォールバック)
         if (!price) {
-          // 「送料込み/送料無料/送料の負担」の位置を見つけ、その手前 1000 字以内で
-          // 最も近い "(¥|￥)? ... 数値,数値" を採用する
           const idxSoryo = html.search(/送料(?:込み|無料|の負担)/);
           if (idxSoryo > 0) {
             const winStart = Math.max(0, idxSoryo - 1000);
-            const window = html.slice(winStart, idxSoryo);
-            // ¥XXX,XXX (HTMLタグ・スペース許容、¥任意)
-            //   優先: ¥/￥/&yen; 直近
-            //   次点: 「,」 を含む数値だけ(¥なし)
+            const win = html.slice(winStart, idxSoryo);
             const candidates = [];
             const re1 = /[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/g;
-            for (const m of window.matchAll(re1)) candidates.push({ val: m[1], at: m.index, score: 2 });
-            const re2 = /&yen;\s*([0-9]{1,3}(?:,[0-9]{3})+)/g;
-            for (const m of window.matchAll(re2)) candidates.push({ val: m[1], at: m.index, score: 2 });
+            for (const m of win.matchAll(re1)) candidates.push({ val: m[1], at: m.index, score: 2 });
             const re3 = /(?:^|[^0-9.])([0-9]{1,3}(?:,[0-9]{3})+)(?=[^0-9]|$)/g;
-            for (const m of window.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
-            // 送料に最も近い(=at が最大) かつ score 高いものを選ぶ
+            for (const m of win.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
             candidates.sort((a, b) => (b.score - a.score) || (b.at - a.at));
             for (const c of candidates) {
               const p = tryParseAmount(c.val);
               if (p && p >= 100) { price = p; break; }
             }
-          }
-        }
-        // 3c: __NEXT_DATA__ の中の "price" 数値(初期値が大きいものを優先)
-        if (!price) {
-          const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-          if (nd) {
-            try {
-              const data = JSON.parse(nd[1]);
-              const candidates = [];
-              const stack = [data];
-              while (stack.length) {
-                const node = stack.pop();
-                if (!node || typeof node !== 'object') continue;
-                if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
-                if (typeof node.price === 'number' && node.price >= 100 && node.price <= 10000000) {
-                  candidates.push(node.price);
-                }
-                for (const k in node) stack.push(node[k]);
-              }
-              // 重複する値を集計し、商品ページ全体に一意の price は採用しやすい
-              if (candidates.length) {
-                // 同じ値が複数箇所に出るものを優先(本商品の price は複数キーで参照されがち)
-                const counter = {};
-                candidates.forEach(p => counter[p] = (counter[p] || 0) + 1);
-                const sorted = Object.entries(counter).sort((a, b) => b[1] - a[1] || Number(b[0]) - Number(a[0]));
-                if (sorted[0] && sorted[0][1] >= 2) price = Number(sorted[0][0]);
-              }
-            } catch (e) {}
           }
         }
       }
@@ -728,6 +734,7 @@ export default async function handler(req, res) {
         imageCount: imageUrls.length,
         price: priceInfo.price,
         currency: priceInfo.currency,
+        _v: 'mercariShops-v5-productId',  // デプロイ確認用マーカー
       };
       // 🆕 価格 null または 0 件抽出時は診断情報を含める
       if (priceInfo.price == null || imageUrls.length === 0) {
