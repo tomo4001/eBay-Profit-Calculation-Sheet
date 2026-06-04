@@ -457,11 +457,34 @@ export default async function handler(req, res) {
         break;
       }
     }
-    if (imageUrls.length === 0) {
+    // 🆕 価格・タイトルも HTML から抽出(画像と並行)
+    let mercariPrice = null;
+    let mercariTitle = 'mercari_' + itemId;
+    try {
+      const htmlRes = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+          'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+        },
+        redirect: 'follow',
+      });
+      if (htmlRes.ok) {
+        const html = await htmlRes.text();
+        const priceInfo = extractPriceFromHtml(html, url);
+        if (priceInfo.price) mercariPrice = priceInfo.price;
+        const extractedTitle = extractTitleFromHtml(html);
+        if (extractedTitle) mercariTitle = extractedTitle;
+      }
+    } catch (e) {
+      // 価格取得失敗してもエラーにはせず、画像は返す
+    }
+
+    if (imageUrls.length === 0 && !mercariPrice) {
       // fallback: アイテムが存在しない or 別の URL パターン
       res.status(200).json({
         ok: false,
-        error: 'メルカリの画像が取得できませんでした(商品 ID パターン違いかも)',
+        error: 'メルカリの画像・価格が取得できませんでした(商品 ID パターン違いかも)',
         url, itemId,
       });
       return;
@@ -470,9 +493,11 @@ export default async function handler(req, res) {
       ok: true,
       mercari: true,
       itemId,
-      title: 'mercari_' + itemId,
+      title: mercariTitle,
       imageUrls,
       imageCount: imageUrls.length,
+      price: mercariPrice,
+      currency: 'JPY',
     });
     return;
   }
