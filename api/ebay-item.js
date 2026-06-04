@@ -211,6 +211,8 @@ function extractTitleFromHtml(html) {
 // Mercari Shops 完全分離抽出器
 //   関連商品の price で誤検出されないように、汎用パス一切使わず URL の productId
 //   をキーに __NEXT_DATA__ と HTML 周辺を精密にスキャン。
+//   Mercari Shops は SPA で価格を JS フェッチするため、信頼できる出所が無ければ
+//   null を返す(誤値は返さない)。
 // =============================================================================
 function extractMercariShopsPrice(html, url, tryParseAmount) {
   const result = { price: null, currency: 'JPY', _diag: { steps: [] } };
@@ -293,7 +295,11 @@ function extractMercariShopsPrice(html, url, tryParseAmount) {
     }
   }
 
-  // ---- 方法 3: 最初の「送料込み/送料無料/送料の負担」直前 1000 字以内の ¥XXX,XXX ----
+  // ---- 方法 3: 「送料近接」フォールバックは Mercari Shops では信頼できない ----
+  //   理由: SPA で本商品の価格は SSR HTML に含まれず、ヘッダー/フッターに別商品の
+  //         「¥XXX,XXX 送料込み」がある場合に誤検出してしまう。
+  //   → ¥133,000 取れず ¥70,000 を返した実例があったため、このパスは無効化。
+  //   送料近接を試みた結果だけ診断に残しておき、null を返す方が安全。
   const idxSoryo = html.search(/送料(?:込み|無料|の負担)/);
   result._diag.soryouIdx = idxSoryo;
   if (idxSoryo > 0) {
@@ -305,18 +311,10 @@ function extractMercariShopsPrice(html, url, tryParseAmount) {
     const re3 = /(?:^|[^0-9.])([0-9]{1,3}(?:,[0-9]{3})+)(?=[^0-9]|$)/g;
     for (const m of win.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
     candidates.sort((a, b) => (b.score - a.score) || (b.at - a.at));
-    result._diag.soryouCandidates = candidates.slice(0, 5);
-    for (const c of candidates) {
-      const p = tryParseAmount(c.val);
-      if (p && p >= 100) {
-        result.price = p;
-        result._diag.steps.push(`SORYOU_NEAR=${p}`);
-        return result;
-      }
-    }
+    result._diag.soryouCandidates_disabled = candidates.slice(0, 5);
   }
 
-  result._diag.steps.push('ALL_METHODS_FAILED');
+  result._diag.steps.push('SPA_NO_RELIABLE_PRICE_IN_SSR_HTML');
   return result;
 }
 
@@ -873,7 +871,7 @@ export default async function handler(req, res) {
         imageCount: imageUrls.length,
         price: priceInfo.price,
         currency: priceInfo.currency,
-        _v: 'mercariShops-v7-isolated',  // デプロイ確認用マーカー
+        _v: 'mercariShops-v8-noSpoof',  // デプロイ確認用マーカー
       };
       // Mercari Shops 専用関数からの診断情報
       if (priceInfo._diag) responseBody.mercariDiag = priceInfo._diag;
