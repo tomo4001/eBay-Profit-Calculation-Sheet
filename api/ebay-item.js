@@ -332,12 +332,32 @@ function extractPriceFromHtml(html, url) {
             if (price) break;
           } catch (e) {}
         }
-        // 3b: 「送料込み」「送料無料」「送料」の直前にある ¥XXX,XXX
+        // 3b: 「送料込み」「送料無料」直前 の数値(HTMLタグ介在可、¥任意)
         //     (ヘッダー/フッターの広告 "¥3,000オフ" 等を弾く)
         if (!price) {
-          // 「¥XXX,XXX ... (200字以内) ... 送料」のパターン
-          const pm3 = html.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)[\s\S]{0,200}?送料(?:込み|無料|の負担)/);
-          if (pm3) price = tryParseAmount(pm3[1]);
+          // 「送料込み/送料無料/送料の負担」の位置を見つけ、その手前 1000 字以内で
+          // 最も近い "(¥|￥)? ... 数値,数値" を採用する
+          const idxSoryo = html.search(/送料(?:込み|無料|の負担)/);
+          if (idxSoryo > 0) {
+            const winStart = Math.max(0, idxSoryo - 1000);
+            const window = html.slice(winStart, idxSoryo);
+            // ¥XXX,XXX (HTMLタグ・スペース許容、¥任意)
+            //   優先: ¥/￥/&yen; 直近
+            //   次点: 「,」 を含む数値だけ(¥なし)
+            const candidates = [];
+            const re1 = /[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/g;
+            for (const m of window.matchAll(re1)) candidates.push({ val: m[1], at: m.index, score: 2 });
+            const re2 = /&yen;\s*([0-9]{1,3}(?:,[0-9]{3})+)/g;
+            for (const m of window.matchAll(re2)) candidates.push({ val: m[1], at: m.index, score: 2 });
+            const re3 = /(?:^|[^0-9.])([0-9]{1,3}(?:,[0-9]{3})+)(?=[^0-9]|$)/g;
+            for (const m of window.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
+            // 送料に最も近い(=at が最大) かつ score 高いものを選ぶ
+            candidates.sort((a, b) => (b.score - a.score) || (b.at - a.at));
+            for (const c of candidates) {
+              const p = tryParseAmount(c.val);
+              if (p && p >= 100) { price = p; break; }
+            }
+          }
         }
         // 3c: __NEXT_DATA__ の中の "price" 数値(初期値が大きいものを優先)
         if (!price) {
@@ -728,13 +748,37 @@ export default async function handler(req, res) {
         price: priceInfo.price,
         currency: priceInfo.currency,
       };
-      // 🆕 0 件抽出時は診断情報を含める
-      if (imageUrls.length === 0) {
+      // 🆕 価格 null または 0 件抽出時は診断情報を含める
+      if (priceInfo.price == null || imageUrls.length === 0) {
+        // HTML 内の重要キーワード出現位置を抜粋
+        const findSnippet = (keyword) => {
+          const idx = html.indexOf(keyword);
+          if (idx < 0) return null;
+          return { at: idx, ctx: html.slice(Math.max(0, idx - 100), idx + 200) };
+        };
+        // ¥XXX,XXX パターンの出現箇所(先頭 5 件、HTML タグを許容)
+        const yenMatches = [...html.matchAll(/[¥￥&][^0-9]{0,30}?([0-9]{1,3}(?:,[0-9]{3})+)/g)].slice(0, 10).map(m => ({
+          full: m[0].slice(0, 80),
+          val: m[1],
+          at: m.index,
+        }));
+        // __NEXT_DATA__ サイズ
+        const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
         responseBody.diagnostics = {
           htmlSize: html.length,
           contentType,
           detectedCharset: charset,
-          sampleHtmlStart: html.slice(0, 800),
+          urlHost: (() => { try { return new URL(url).host; } catch { return null; } })(),
+          hasJsonLd: /<script[^>]*type=["']application\/ld\+json["']/i.test(html),
+          hasNextData: !!ndMatch,
+          nextDataSize: ndMatch ? ndMatch[1].length : 0,
+          has_soryoukomi: html.includes('送料込み'),
+          has_soryouMuryou: html.includes('送料無料'),
+          has_yenSymbol: /[¥￥]/.test(html),
+          has_yenEntity: /&yen;|&#x?[Aa]5;/.test(html),
+          yenMatches,
+          soryouContext: findSnippet('送料込み') || findSnippet('送料無料'),
+          sampleHtmlStart: html.slice(0, 500),
         };
       }
       res.status(200).json(responseBody);
