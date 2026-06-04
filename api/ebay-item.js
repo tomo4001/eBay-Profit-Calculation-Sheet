@@ -397,24 +397,18 @@ export default async function handler(req, res) {
         const ogMatch = html.match(/<meta[^>]+property=["']og:image[^"']*["'][^>]+content=["']([^"']+)["']/i);
         if (ogMatch) {
           const ogImg = ogMatch[1];
-          // og:image の shop パスを抽出: /{shopname}/cabinet/...
-          // 例: /kaidakubrand/cabinet/10333828/10333859/10333860/imgrc0147224969.jpg
-          //     → shop: kaidakubrand
-          const shopPathMatch = ogImg.match(/^https?:\/\/[^/]+\/([^/]+)\/cabinet\//i);
-          if (shopPathMatch) {
-            const shopName = shopPathMatch[1];
-            // /{shopname}/cabinet/ 配下の画像を全部許可(サブディレクトリ問わず)
-            // バナー・ヘッダ等のキーワードが path に含まれるものは除外
+          // og:image と同じパスのものに一旦フィルタ(バナー除外)
+          // 注意: ギャラリー画像は image.rakuten.co.jp、og:image は shop.r10s.jp の場合がある
+          //       → ドメインは無視してパス部分だけで比較する
+          const pathMatch = ogImg.match(/^https?:\/\/[^/]+(\/.+\/)[^/]+\.(jpg|jpeg|png|webp|gif|avif)/i);
+          if (pathMatch) {
+            const pathPrefix = pathMatch[1];
             imageUrls = imageUrls.filter(u => {
               // shop.r10s.jp と image.rakuten.co.jp の両方を許可
               if (!/^https?:\/\/(shop\.r10s\.jp|image\.rakuten\.co\.jp|thumbnail\.image\.rakuten\.co\.jp)\//i.test(u)) return false;
-              // 同じ shopname の cabinet/ 配下か
-              const shopMatch = u.match(/^https?:\/\/[^/]+\/([^/]+)\/cabinet\//i);
-              if (!shopMatch || shopMatch[1] !== shopName) return false;
-              // 明らかな非商品画像のパス除外
-              if (/\/(banner|headline|footer|info|policy|category|rank|navi|left-navi|mem[_-]?banner|navigation|btn|button|top[_-]?banner|side[_-]?banner|sale[_-]?banner)\//i.test(u)) return false;
-              if (/\/(banner|headline|footer|sale[_-]?banner|navi)\.(jpg|jpeg|png|webp|gif|avif)/i.test(u)) return false;
-              return true;
+              // パス部分が一致するか
+              const m = u.match(/^https?:\/\/[^/]+(\/.+\/)[^/]+\.[a-z]+/i);
+              return m && m[1] === pathPrefix;
             });
           }
 
