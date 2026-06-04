@@ -206,6 +206,141 @@ function extractTitleFromHtml(html) {
   return t.trim();
 }
 
+// 💰 汎用 + サイト別の価格抽出(JPY 想定)
+function extractPriceFromHtml(html, url) {
+  let price = null;
+  let currency = 'JPY';
+  let m;
+
+  const tryParseAmount = (raw) => {
+    if (!raw) return null;
+    const cleaned = String(raw).replace(/[¥￥,\s円]/g, '');
+    const n = parseFloat(cleaned);
+    return (isFinite(n) && n > 0) ? n : null;
+  };
+
+  // 1. og:price:amount or product:price:amount
+  m = html.match(/<meta[^>]+property=["'](?:og|product):price:amount["'][^>]+content=["']([^"']+)["']/i)
+   || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["'](?:og|product):price:amount["']/i);
+  if (m) price = tryParseAmount(m[1]);
+
+  m = html.match(/<meta[^>]+property=["'](?:og|product):price:currency["'][^>]+content=["']([^"']+)["']/i);
+  if (m) currency = m[1].trim().toUpperCase();
+
+  // 2. JSON-LD Product.offers.price
+  if (!price) {
+    const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let lm;
+    while ((lm = ldRegex.exec(html)) !== null) {
+      try {
+        const ld = JSON.parse(lm[1].trim());
+        const find = (obj) => {
+          if (obj == null || typeof obj !== 'object') return null;
+          if (Array.isArray(obj)) {
+            for (const x of obj) { const r = find(x); if (r) return r; }
+            return null;
+          }
+          if (obj.price != null) {
+            const p = tryParseAmount(obj.price);
+            if (p) return { price: p, currency: obj.priceCurrency || obj.currency || 'JPY' };
+          }
+          for (const k of Object.keys(obj)) {
+            const r = find(obj[k]);
+            if (r) return r;
+          }
+          return null;
+        };
+        const r = find(ld);
+        if (r) { price = r.price; currency = r.currency; break; }
+      } catch (e) {}
+    }
+  }
+
+  // 3. itemprop="price" content
+  if (!price) {
+    m = html.match(/itemprop=["']price["'][^>]+content=["']([^"']+)["']/i)
+     || html.match(/content=["']([^"']+)["'][^>]+itemprop=["']price["']/i);
+    if (m) price = tryParseAmount(m[1]);
+  }
+
+  // 4. サイト別 extractor
+  let urlHost = '';
+  try { urlHost = new URL(url).hostname.toLowerCase(); } catch (e) {}
+
+  if (!price) {
+    // Amazon
+    if (/amazon\./i.test(urlHost)) {
+      m = html.match(/<span[^>]*class=["'][^"']*a-offscreen[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
+      if (!m) m = html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
+      if (m) price = tryParseAmount(m[1]);
+    }
+    // メルカリ / メルカリショップ: __NEXT_DATA__ 内の "price":1234
+    else if (/mercari/i.test(urlHost)) {
+      const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+      if (ndMatch) {
+        try {
+          const nd = JSON.parse(ndMatch[1]);
+          const find = (o) => {
+            if (o == null || typeof o !== 'object') return null;
+            if (Array.isArray(o)) {
+              for (const x of o) { const r = find(x); if (r) return r; }
+              return null;
+            }
+            if (typeof o.price === 'number' && o.price > 0) return o.price;
+            for (const k of Object.keys(o)) {
+              const r = find(o[k]);
+              if (r) return r;
+            }
+            return null;
+          };
+          const p = find(nd);
+          if (p) price = p;
+        } catch (e) {}
+      }
+    }
+    // ヤフオク: 即決価格 のみ
+    else if (/auctions\.yahoo/i.test(urlHost)) {
+      m = html.match(/即決(?:価格)?[\s\S]{0,300}?[¥￥]([0-9,]+)/);
+      if (m) price = tryParseAmount(m[1]);
+    }
+    // Yahoo!フリマ: __NEXT_DATA__
+    else if (/paypayfleamarket\.yahoo/i.test(urlHost)) {
+      const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+      if (ndMatch) {
+        try {
+          const nd = JSON.parse(ndMatch[1]);
+          const find = (o) => {
+            if (o == null || typeof o !== 'object') return null;
+            if (Array.isArray(o)) {
+              for (const x of o) { const r = find(x); if (r) return r; }
+              return null;
+            }
+            if (typeof o.price === 'number' && o.price > 0) return o.price;
+            for (const k of Object.keys(o)) {
+              const r = find(o[k]);
+              if (r) return r;
+            }
+            return null;
+          };
+          const p = find(nd);
+          if (p) price = p;
+        } catch (e) {}
+      }
+    }
+    // 楽天
+    else if (/rakuten/i.test(urlHost)) {
+      m = html.match(/itemprop=["']price["'][^>]+content=["']([0-9]+)["']/i);
+      if (m) price = tryParseAmount(m[1]);
+      if (!price) {
+        m = html.match(/data-price=["']([0-9]+)["']/i);
+        if (m) price = tryParseAmount(m[1]);
+      }
+    }
+  }
+
+  return { price, currency };
+}
+
 export default async function handler(req, res) {
   // CORS(同一オリジンだが念のため)
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -389,6 +524,7 @@ export default async function handler(req, res) {
 
       let imageUrls = extractImagesFromHtml(html, url);
       const title = extractTitleFromHtml(html);
+      const priceInfo = extractPriceFromHtml(html, url);
 
       // 🆕 楽天専用処理: og:image を起点に連番推測でギャラリー画像を発見
       // 楽天はギャラリーが JS でロードされるため、初期 HTML には og:image しか無い場合が多い。
@@ -464,6 +600,8 @@ export default async function handler(req, res) {
         title,
         imageUrls,
         imageCount: imageUrls.length,
+        price: priceInfo.price,
+        currency: priceInfo.currency,
       };
       // 🆕 0 件抽出時は診断情報を含める
       if (imageUrls.length === 0) {
