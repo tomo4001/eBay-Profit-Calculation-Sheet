@@ -289,81 +289,26 @@ function extractPriceFromHtml(html, url) {
       if (!pm) pm = html.match(/[¥￥]([0-9,]+)\s*\(税込/);
       if (pm) price = tryParseAmount(pm[1]);
     }
-    // メルカリ / メルカリショップ: 複数の方法で価格抽出
+    // メルカリ / メルカリショップ: 信頼性高い順
     else if (/mercari/i.test(urlHost)) {
-      // 方法1: __NEXT_DATA__ の特定パス優先(item.price / data.item.price 等)
-      const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-      if (ndMatch) {
-        try {
-          const nd = JSON.parse(ndMatch[1]);
-          // 優先パス探索: 商品データに含まれる "item" / "product" オブジェクトの price
-          const findItemPrice = (o, depth = 0) => {
-            if (depth > 12 || o == null || typeof o !== 'object') return null;
-            if (Array.isArray(o)) {
-              for (const x of o) { const r = findItemPrice(x, depth + 1); if (r) return r; }
-              return null;
-            }
-            // 商品オブジェクトの代表的なキー名
-            if (o.item && typeof o.item === 'object' && typeof o.item.price === 'number' && o.item.price > 0) return o.item.price;
-            if (o.product && typeof o.product === 'object' && typeof o.product.price === 'number' && o.product.price > 0) return o.product.price;
-            if (o.data && typeof o.data === 'object') {
-              if (typeof o.data.price === 'number' && o.data.price > 0) return o.data.price;
-              if (o.data.item && typeof o.data.item.price === 'number' && o.data.item.price > 0) return o.data.item.price;
-            }
-            // id / status / name と一緒にある price は商品 price 確率高い
-            if (typeof o.price === 'number' && o.price > 0 && (o.id || o.name || o.status || o.title)) return o.price;
-            // 再帰
-            for (const k of Object.keys(o)) {
-              const r = findItemPrice(o[k], depth + 1);
-              if (r) return r;
-            }
-            return null;
-          };
-          const p = findItemPrice(nd);
-          if (p) price = p;
-        } catch (e) {}
+      // 方法1: meta property="product:price:amount" を強制的に検索
+      // (汎用 extractor で見つかってない場合の救済)
+      let pm = html.match(/<meta[^>]+(?:property|name)=["'](?:og|product):price:amount["'][^>]+content=["']([^"']+)["']/i)
+            || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og|product):price:amount["']/i);
+      if (pm) {
+        const p = tryParseAmount(pm[1]);
+        if (p) price = p;
       }
-      // 方法2: HTML 内で "price":数値 を直接検索(__NEXT_DATA__ JSON 解析失敗対策)
+      // 方法2: og:description / twitter:description から "¥XX,XXX" 抽出
       if (!price) {
-        const directMatches = [...html.matchAll(/"price"\s*:\s*(\d{2,})/g)];
-        if (directMatches.length > 0) {
-          // 最頻値 or 中間値を採用
-          const nums = directMatches.map(m => parseInt(m[1], 10)).filter(n => n >= 100 && n < 100000000);
-          if (nums.length > 0) {
-            // 中央値が安全
-            nums.sort((a,b) => a - b);
-            price = nums[Math.floor(nums.length / 2)];
-          }
+        const desc = html.match(/<meta[^>]+(?:property|name)=["'](?:og|twitter):description["'][^>]+content=["']([^"']+)["']/i);
+        if (desc) {
+          const pm2 = desc[1].match(/[¥￥]\s*([0-9,]+)/);
+          if (pm2) price = tryParseAmount(pm2[1]);
         }
       }
-      // 方法3: og:description から "¥1,234" を抽出
-      if (!price) {
-        const ogd = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i);
-        if (ogd) {
-          const pm = ogd[1].match(/[¥￥]\s*([0-9,]+)/);
-          if (pm) price = tryParseAmount(pm[1]);
-        }
-      }
-      // 方法4: meta name="twitter:data1" にも価格が入ることがある
-      if (!price) {
-        const tw = html.match(/<meta[^>]+name=["']twitter:data1["'][^>]+content=["']([^"']+)["']/i);
-        if (tw) {
-          const pm = tw[1].match(/[¥￥]\s*([0-9,]+)/);
-          if (pm) price = tryParseAmount(pm[1]);
-        }
-      }
-      // 方法5: HTML 内 "¥1,234" パターンを汎用検索(最頻値)
-      if (!price) {
-        const yenPattern = [...html.matchAll(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,})/g)];
-        const nums = yenPattern.map(m => parseInt(m[1].replace(/,/g, ''), 10)).filter(n => n >= 100 && n < 100000000);
-        if (nums.length > 0) {
-          // 最頻値: 同じ値が複数回出てればそれが「価格」(送料無料表示などと一緒に出やすい)
-          const freq = {};
-          nums.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
-          const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
-          if (sorted.length > 0) price = parseInt(sorted[0][0], 10);
-        }
-      }
+      // ※ 信頼性が低いフォールバック(__NEXT_DATA__ recursive search / 任意の "price":XXX)は意図的に除外
+      //    間違った価格を返すリスクが高いため、null を返したほうが安全
     }
     // ヤフオク: 即決価格 のみ
     else if (/auctions\.yahoo/i.test(urlHost)) {
@@ -487,12 +432,22 @@ export default async function handler(req, res) {
     // 🆕 価格・タイトルも HTML から抽出(画像と並行)
     let mercariPrice = null;
     let mercariTitle = 'mercari_' + itemId;
+    let mercariDiag = null;
     try {
       const htmlRes = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
           'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
         },
         redirect: 'follow',
       });
@@ -502,9 +457,19 @@ export default async function handler(req, res) {
         if (priceInfo.price) mercariPrice = priceInfo.price;
         const extractedTitle = extractTitleFromHtml(html);
         if (extractedTitle) mercariTitle = extractedTitle;
+        // 診断情報(取れなかった時の手がかり)
+        if (!mercariPrice) {
+          mercariDiag = {
+            htmlSize: html.length,
+            hasProductPriceMeta: /<meta[^>]+(?:property|name)=["'](?:og|product):price:amount["']/i.test(html),
+            sampleMetaTags: (html.match(/<meta[^>]+(?:property|name)=["'][^"']+["'][^>]*>/gi) || []).slice(0, 10).join('\n'),
+          };
+        }
+      } else {
+        mercariDiag = { fetchStatus: htmlRes.status };
       }
     } catch (e) {
-      // 価格取得失敗してもエラーにはせず、画像は返す
+      mercariDiag = { fetchError: e.message };
     }
 
     if (imageUrls.length === 0 && !mercariPrice) {
@@ -525,6 +490,7 @@ export default async function handler(req, res) {
       imageCount: imageUrls.length,
       price: mercariPrice,
       currency: 'JPY',
+      diagnostics: mercariDiag,
     });
     return;
   }
