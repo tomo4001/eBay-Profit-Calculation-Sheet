@@ -307,13 +307,66 @@ function extractPriceFromHtml(html, url) {
           if (pm2) price = tryParseAmount(pm2[1]);
         }
       }
-      // 方法3: Mercari Shops 専用 — body 内の最初の ¥XXX,XXX(メタタグ無いため)
+      // 方法3: Mercari Shops 専用
       if (!price && /\/shops\/product/i.test(url)) {
-        const headEnd = html.indexOf('</head>');
-        const searchHtml = headEnd > 0 ? html.slice(headEnd) : html;
-        // ¥X,XXX 〜 ¥XXX,XXX,XXX のカンマ区切り価格を最初に検出
-        const sm = searchHtml.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
-        if (sm) price = tryParseAmount(sm[1]);
+        // 3a: JSON-LD Product.offers.price(構造化データが最も信頼できる)
+        const jsonLds = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+        for (const m of jsonLds) {
+          try {
+            const data = JSON.parse(m[1].trim());
+            const stack = [data];
+            while (stack.length && !price) {
+              const node = stack.pop();
+              if (!node || typeof node !== 'object') continue;
+              if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
+              if ((node['@type'] === 'Product' || node['@type'] === 'product') && node.offers) {
+                const offers = Array.isArray(node.offers) ? node.offers : [node.offers];
+                for (const o of offers) {
+                  const cand = o && (o.price ?? (o.priceSpecification && o.priceSpecification.price));
+                  const p = tryParseAmount(cand);
+                  if (p) { price = p; break; }
+                }
+              }
+              for (const k in node) stack.push(node[k]);
+            }
+            if (price) break;
+          } catch (e) {}
+        }
+        // 3b: 「送料込み」「送料無料」「送料」の直前にある ¥XXX,XXX
+        //     (ヘッダー/フッターの広告 "¥3,000オフ" 等を弾く)
+        if (!price) {
+          // 「¥XXX,XXX ... (200字以内) ... 送料」のパターン
+          const pm3 = html.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)[\s\S]{0,200}?送料(?:込み|無料|の負担)/);
+          if (pm3) price = tryParseAmount(pm3[1]);
+        }
+        // 3c: __NEXT_DATA__ の中の "price" 数値(初期値が大きいものを優先)
+        if (!price) {
+          const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+          if (nd) {
+            try {
+              const data = JSON.parse(nd[1]);
+              const candidates = [];
+              const stack = [data];
+              while (stack.length) {
+                const node = stack.pop();
+                if (!node || typeof node !== 'object') continue;
+                if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
+                if (typeof node.price === 'number' && node.price >= 100 && node.price <= 10000000) {
+                  candidates.push(node.price);
+                }
+                for (const k in node) stack.push(node[k]);
+              }
+              // 重複する値を集計し、商品ページ全体に一意の price は採用しやすい
+              if (candidates.length) {
+                // 同じ値が複数箇所に出るものを優先(本商品の price は複数キーで参照されがち)
+                const counter = {};
+                candidates.forEach(p => counter[p] = (counter[p] || 0) + 1);
+                const sorted = Object.entries(counter).sort((a, b) => b[1] - a[1] || Number(b[0]) - Number(a[0]));
+                if (sorted[0] && sorted[0][1] >= 2) price = Number(sorted[0][0]);
+              }
+            } catch (e) {}
+          }
+        }
       }
     }
     // ヤフオク: 即決価格 のみ
