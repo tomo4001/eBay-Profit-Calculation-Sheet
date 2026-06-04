@@ -316,6 +316,8 @@ function extractPriceFromHtml(html, url) {
         const productId = pidMatch ? pidMatch[1] : null;
 
         // 3a: __NEXT_DATA__ の中で productId に紐づくノードの price を取得
+        // ★ 診断のため、マッチしたノードの全フィールドを記録
+        var __mercariMatchedNode = null;
         if (!price && productId) {
           const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
           if (nd) {
@@ -326,19 +328,39 @@ function extractPriceFromHtml(html, url) {
                 const node = stack.pop();
                 if (!node || typeof node !== 'object') continue;
                 if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
-                // この node が「商品本体」を表しているかチェック:
-                //   id / productId / shopProductId 等が URL の productId と一致するか
                 const idMatches = [node.id, node.productId, node.shopProductId, node.uuid]
                   .some(v => v === productId);
-                if (idMatches && typeof node.price === 'number' && node.price >= 100) {
-                  price = node.price;
-                  break;
+                if (idMatches) {
+                  // マッチした商品ノード — 全フィールドを診断用に保存(数値系のみ抽出)
+                  if (!__mercariMatchedNode) {
+                    __mercariMatchedNode = {};
+                    for (const k in node) {
+                      const v = node[k];
+                      if (typeof v === 'number' || typeof v === 'string') {
+                        __mercariMatchedNode[k] = v;
+                      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+                        const subKeys = Object.keys(v).slice(0, 5);
+                        __mercariMatchedNode[k] = `{${subKeys.join(',')}}`;
+                      }
+                    }
+                  }
+                  // 価格候補: price, sellingPrice, displayPrice, salePrice, listPrice 順
+                  const priceFields = ['sellingPrice', 'displayPrice', 'salePrice', 'price', 'amount', 'listPrice'];
+                  for (const f of priceFields) {
+                    if (typeof node[f] === 'number' && node[f] >= 100) {
+                      price = node[f];
+                      break;
+                    }
+                  }
+                  if (price) break;
                 }
                 for (const k in node) stack.push(node[k]);
               }
             } catch (e) {}
           }
         }
+        // 診断情報をグローバルに格納(後で responseBody に含める)
+        if (typeof globalThis !== 'undefined') globalThis.__mercariDiag = { productId, matchedNode: __mercariMatchedNode };
         // 3b: HTML 内で productId 周辺の ¥XXX,XXX (productId は data-* / link 等で現れる)
         if (!price && productId) {
           // productId の出現箇所すべてを調べ、その前後 800 字以内の最初の ¥XXX,XXX
@@ -734,8 +756,13 @@ export default async function handler(req, res) {
         imageCount: imageUrls.length,
         price: priceInfo.price,
         currency: priceInfo.currency,
-        _v: 'mercariShops-v5-productId',  // デプロイ確認用マーカー
+        _v: 'mercariShops-v6-fieldDump',  // デプロイ確認用マーカー
       };
+      // Mercari Shops 診断情報を常時付与
+      if (typeof globalThis !== 'undefined' && globalThis.__mercariDiag) {
+        responseBody.mercariDiag = globalThis.__mercariDiag;
+        delete globalThis.__mercariDiag;
+      }
       // 🆕 価格 null または 0 件抽出時は診断情報を含める
       if (priceInfo.price == null || imageUrls.length === 0) {
         // HTML 内の重要キーワード出現位置を抜粋
