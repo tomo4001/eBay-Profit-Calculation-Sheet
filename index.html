@@ -3816,7 +3816,20 @@ async function fetchSearchFirst(siteId, kw) {
   try {
     const url = '/api/ebay-item?searchFirst=1&site=' + encodeURIComponent(siteId) + '&keyword=' + encodeURIComponent(kw);
     const res = await fetch(url);
-    const data = await res.json();
+    // JSON parse 失敗を検出して具体的なエラーに(Vercel タイムアウト/404 で HTML が返る場合)
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      const isVercelTimeout = /timed out|timeout|FUNCTION_INVOCATION_TIMEOUT/i.test(text);
+      const isVercel404 = /could not be found|NOT_FOUND/i.test(text);
+      return {
+        price: null,
+        error: isVercelTimeout ? 'VERCEL_TIMEOUT_10S' : (isVercel404 ? 'VERCEL_404_NEW_CODE_NOT_DEPLOYED' : `NON_JSON_RESPONSE (HTTP ${res.status})`),
+        _raw: text.slice(0, 200),
+      };
+    }
     if (data.price && typeof data.price === 'number') {
       return { price: data.price, productUrl: data.productUrl, searchUrl: data.searchUrl };
     }
