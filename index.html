@@ -8145,23 +8145,30 @@ Object.assign(Shipping, {
       const toRemoveByPolicy = targetPolicies.map(p => {
         const cur = new Set(p.excluded || []);
         const candidates = ruleCountries.filter(c => cur.has(c));
-        // 他の active ルールが同じサービスでその国を含んでいれば削除しない
+        // 削除しない条件:
+        //   1) 他の active ルールが同じサービスでその国を含んでいる
+        //   2) ★ デフォルト除外(baseExcluded)にもその国が含まれている(デフォルトで除外維持)
+        const def = this.defaults[p.service];
+        const baseExcludedSet = new Set((def && def.baseExcluded) || []);
         const filtered = candidates.filter(c => {
+          // 1) 他のルールで守られている
           for (const other of this.specialRules) {
             if (other.id === r.id) continue;
             if (!other.active) continue;
             if ((other.targetServices || []).includes(p.service) && (other.countries || []).includes(c)) {
-              return false; // 他で守られている → 削除しない
+              return false;
             }
           }
+          // 2) デフォルト除外に含まれている → 削除しない(デフォルトとの整合性を維持)
+          if (baseExcludedSet.has(c)) return false;
           return true;
         });
         return { p, toRemove: filtered };
       }).filter(x => x.toRemove.length > 0);
 
       const summary = toRemoveByPolicy.length === 0
-        ? '\n\n📌 該当ポリシーには既に該当国が含まれていません(ローカル変更なし、設定だけ OFF にします)'
-        : `\n\n📌 ${toRemoveByPolicy.length}件のポリシーから対象国を削除します(他の active ルールで守られている国は残します)`;
+        ? '\n\n📌 該当ポリシーには既に該当国が含まれていません、または全国がデフォルト除外に含まれているため削除不要です(ローカル変更なし、設定だけ OFF にします)'
+        : `\n\n📌 ${toRemoveByPolicy.length}件のポリシーから対象国を削除します(他のルールで守られている国・デフォルト除外にある国は残します)`;
       if (!confirm(`ルール "${r.name}" を無効にしますか?${summary}\n\n※ ローカルのみ反映(eBay には push が必要)`)) return;
 
       let updated = 0;
