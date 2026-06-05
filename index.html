@@ -10082,19 +10082,19 @@ Object.assign(Shipping, {
     const costStr = isNaN(cost) ? '?' : (cost % 1 === 0 ? String(cost) : cost.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
     return `${service} ${days} Days ${pmin}~${pmax}$${veroTag} (${costStr}$)`;
   },
-  // ポリシー名が自動生成パターンに「従っているか」を判定
-  // 従っている = 名前を再生成しても良い(バルク時に安全に書き換え可能)
+  // ポリシー名が自動生成パターンに「従っているか」を厳密判定
+  // 完全一致のみ書き換え対象 — ユーザー独自フォーマット
+  // (例: "Expedited 10 days 160-180$(27$)" 小文字/ハイフン/スペース無し)を
+  // 誤って書き換えて eBay 側で Listing Protection (Copy作成) が発動するのを防ぐ
+  //
+  // 厳密フォーマット: "(Expedited|Economy|Standard) NN Days MIN~MAX$( VeRO)? (COST$)"
+  //   - "Days" 大文字
+  //   - "~" チルダ(ハイフン不可)
+  //   - "$ (" 半角スペース必須
+  //   - " VeRO" は任意
   policyFollowsAutoTitlePattern(p) {
     if (!p || !p.name) return false;
-    // パターン: "Service N Days min~max$ [VeRO ] (cost$)"
-    // ゆるめに判定: Service名 + "Days" を含み、$表記がある
-    const lower = p.name.toLowerCase();
-    const hasService = ['expedited','economy','standard'].some(s => lower.startsWith(s));
-    const hasDaysWord = /\d+\s*days/i.test(p.name);
-    const hasPriceRange = /\d+(?:\.\d+)?[~\-]\d+(?:\.\d+)?\$/.test(p.name);
-    const hasCost = /\(\d+(?:\.\d+)?\$\)/.test(p.name);
-    // この4要素を満たせば自動生成パターンに従っているとみなす
-    return hasService && hasDaysWord && hasPriceRange && hasCost;
+    return /^(Expedited|Economy|Standard) \d+ Days \d+(?:\.\d+)?~\d+(?:\.\d+)?\$( VeRO)? \(\d+(?:\.\d+)?\$\)$/.test(p.name);
   },
 
   toggleEditPolicyExcluded(code, checked) {
@@ -11028,16 +11028,60 @@ Object.assign(Shipping, {
     this.savePoliciesCache();
     this.renderList();
 
-    let msg = `✓ ${idsToDelete.size} 件のポリシーを削除しました\n`;
+    // 🔍 Console に必ず詳細ログを出す(コピー可能 + 後から確認可能)
     if (deleteFromEbay) {
-      msg += `\neBay 削除: 成功 ${ebaySuccess} / 失敗 ${ebayFailed.length}`;
+      console.group('🗑️ eBay 一括削除 結果');
+      console.log(`成功: ${ebaySuccess} 件 / 失敗: ${ebayFailed.length} 件`);
       if (ebayFailed.length > 0) {
-        msg += '\n\n失敗詳細:\n' + ebayFailed.slice(0, 5).map(f => `・${f.name}: ${f.error}`).join('\n');
-        if (ebayFailed.length > 5) msg += `\n…他 ${ebayFailed.length - 5}件`;
-        msg += '\n\n※ eBay 削除に失敗したポリシーはローカルにも残してます。';
+        console.table(ebayFailed.map(f => ({
+          ポリシー名: f.name,
+          ID: f.id,
+          エラー: typeof f.error === 'string' ? f.error : JSON.stringify(f.error),
+        })));
+        console.log('=== 失敗詳細 全件(コピー用) ===');
+        console.log(JSON.stringify(ebayFailed, null, 2));
+        // グローバル変数に保存(コンソールから window._lastBulkDeleteFailures で参照可能)
+        window._lastBulkDeleteFailures = ebayFailed;
       }
+      console.groupEnd();
     }
-    alert(msg);
+
+    // 結果モーダル(コピー可能な textarea で表示)
+    if (deleteFromEbay && ebayFailed.length > 0) {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:99999; display:flex; align-items:center; justify-content:center;';
+      const modal = document.createElement('div');
+      modal.style.cssText = 'background:#fff; border-radius:8px; padding:20px; max-width:800px; max-height:80vh; width:90%; overflow:auto; display:flex; flex-direction:column; gap:10px;';
+      const detailsText = ebayFailed.map(f => {
+        let errStr;
+        try { errStr = typeof f.error === 'string' ? f.error : JSON.stringify(f.error, null, 2); }
+        catch (e) { errStr = String(f.error); }
+        return `・${f.name}\n  ID: ${f.id}\n  エラー: ${errStr}`;
+      }).join('\n\n');
+      modal.innerHTML = `
+        <h3 style="margin:0; color:#991b1b;">⚠️ eBay 削除 失敗詳細 (${ebayFailed.length}件)</h3>
+        <div style="font-size:12px; color:#666;">成功 ${ebaySuccess} 件 / 失敗 ${ebayFailed.length} 件<br>F12 Console にも詳細ログ出力済(コピー用 JSON)</div>
+        <textarea readonly style="flex:1; min-height:300px; padding:10px; font-family:monospace; font-size:12px; border:1px solid #ddd; border-radius:4px;">${detailsText.replace(/</g, '&lt;')}</textarea>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button id="copyBulkDelErr" style="padding:8px 16px; background:#1565c0; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">📋 全文コピー</button>
+          <button id="closeBulkDelErr" style="padding:8px 16px; background:#666; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">閉じる</button>
+        </div>
+      `;
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      modal.querySelector('#copyBulkDelErr').addEventListener('click', () => {
+        const ta = modal.querySelector('textarea');
+        ta.select();
+        try { document.execCommand('copy'); modal.querySelector('#copyBulkDelErr').textContent = '✓ コピー済'; }
+        catch (e) { navigator.clipboard.writeText(ta.value); modal.querySelector('#copyBulkDelErr').textContent = '✓ コピー済'; }
+        setTimeout(() => { const b = modal.querySelector('#copyBulkDelErr'); if (b) b.textContent = '📋 全文コピー'; }, 1500);
+      });
+      modal.querySelector('#closeBulkDelErr').addEventListener('click', () => overlay.remove());
+    } else {
+      let msg = `✓ ${idsToDelete.size} 件のポリシーを削除しました`;
+      if (deleteFromEbay) msg += `\n\neBay 削除: 成功 ${ebaySuccess} 件`;
+      alert(msg);
+    }
   },
 
   // 編集モーダルを閉じる時、新規作成中ならポリシー配列から除去(キャンセル扱い)
