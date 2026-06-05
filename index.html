@@ -11000,10 +11000,11 @@ Object.assign(Shipping, {
       // eBay 削除を順次実行
       for (const p of ebayPolicies) {
         try {
-          const res = await fetch('/api/ebay-policy-delete', {
+          // Task #132 で DELETE は /api/ebay-policy-update に action='delete' で統合済
+          const res = await fetch('/api/ebay-policy-update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ policyId: p.id }),
+            body: JSON.stringify({ policyId: p.id, action: 'delete' }),
           });
           const data = await res.json();
           if (res.ok && data.ok) {
