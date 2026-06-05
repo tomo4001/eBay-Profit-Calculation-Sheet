@@ -3614,8 +3614,8 @@ const SOURCING_SITES = [
   { id: 'rakuten',    name: '楽天',            searchUrl: 'https://search.rakuten.co.jp/search/mall/%s/?s=2',                                  autoFetch: true  },
   // Yahoo!ショッピング: sort=%2Bprice で安い順
   { id: 'yshop',      name: 'Yahoo!ショピング', searchUrl: 'https://shopping.yahoo.co.jp/search?p=%s&first=1&sort=%2Bprice',                    autoFetch: true  },
-  // メルカリ: order=asc&sort=price で安い順
-  { id: 'mercari',    name: 'メルカリ',        searchUrl: 'https://jp.mercari.com/search?keyword=%s&order=asc&sort=price',                     autoFetch: true  },
+  // メルカリ: 検索結果が SPA なので自動取得不可(URL 一覧のみ提供)
+  { id: 'mercari',    name: 'メルカリ',        searchUrl: 'https://jp.mercari.com/search?keyword=%s&order=asc&sort=price',                     autoFetch: false },
   // メルカリShops: 同じ + shop_type=shop
   { id: 'mshops',     name: 'メルカリShops',   searchUrl: 'https://jp.mercari.com/search?keyword=%s&order=asc&sort=price&shop_type=shop',      autoFetch: false },
   // Yahoo!フリマ: sort=ccon(価格安い順) order=asc
@@ -3675,7 +3675,9 @@ function initSourcingTable() {
     openBtn?.addEventListener('click', () => {
       const kw = (document.getElementById('sourcingKeyword')?.value || '').trim();
       if (!kw) { flashSourcingStatus('⚠ 先にキーワードを入力してください', '#c0504d'); return; }
-      const url = site.searchUrl.replace('%s', encodeURIComponent(kw));
+      // 自動取得で見つけた最安商品URL を優先(あればそこへ直接ジャンプ)
+      const productUrl = tr.dataset.productUrl;
+      const url = productUrl || site.searchUrl.replace('%s', encodeURIComponent(kw));
       window.open(url, '_blank', 'noopener');
     });
 
@@ -3728,27 +3730,59 @@ async function fetchAllSourcingPrices() {
   if (btn) { btn.disabled = true; btn.textContent = '取得中…'; }
   flashSourcingStatus('取得中… サイトごとに時間がかかります(最大 30 秒)', '#666');
 
+  // 全行の productUrl と状態をリセット(新しいキーワードで検索するため)
+  document.querySelectorAll('#sourcingTableBody tr').forEach(tr => {
+    delete tr.dataset.productUrl;
+  });
   const autoSites = SOURCING_SITES.filter(s => s.autoFetch);
-  // 並列だが、6 サイトのみなので安全
+  console.log('🚀 ソーシング自動取得:', autoSites.map(s => s.name).join(' / '));
+  // 並列で取得
   const results = await Promise.allSettled(autoSites.map(async (site) => {
     const tr = document.querySelector(`#sourcingTableBody tr[data-site-id="${site.id}"]`);
     const priceInput = tr?.querySelector('.sourcing-price');
     const statusCell = tr?.querySelector('.sourcing-status');
-    if (statusCell) statusCell.innerHTML = '<span style="font-size:11px; color:#666;">取得中…</span>';
+    if (statusCell) statusCell.innerHTML = '<span style="font-size:11px; color:#666;">…</span>';
     const r = await fetchSearchFirst(site.id, kw);
+    console.log(`  [${site.name}]`, r.price ? `✓ ¥${r.price.toLocaleString()}` : `✗ ${r.error}`, r);
+    // 商品URL を保存(あれば「🔗 開く」がそこへ直接ジャンプ)
+    if (r.productUrl && tr) tr.dataset.productUrl = r.productUrl;
     if (r.price && priceInput) {
       priceInput.value = r.price;
-      return { siteId: site.id, price: r.price, ok: true };
+      if (statusCell) {
+        const link = r.productUrl
+          ? `<a href="${r.productUrl}" target="_blank" rel="noopener" title="最安商品ページへ" style="font-size:11px; color:#15803d; text-decoration:none;">🎯</a>`
+          : '<span style="font-size:11px; color:#15803d;">✓</span>';
+        statusCell.innerHTML = link;
+      }
+      return { siteId: site.id, siteName: site.name, price: r.price, ok: true };
     } else {
-      if (statusCell) statusCell.innerHTML = `<span style="font-size:11px; color:#c0504d;" title="${r.error || ''}">⚠</span>`;
-      return { siteId: site.id, price: null, ok: false, error: r.error };
+      if (statusCell) {
+        const reason = r.error || 'unknown';
+        // NO_RESULTS と それ以外(バグ/ブロック)で見た目を分ける
+        if (reason === 'NO_RESULTS') {
+          statusCell.innerHTML = `<span style="font-size:11px; color:#666; cursor:help;" title="このサイトには該当する商品がありませんでした">∅ 該当無し</span>`;
+        } else {
+          statusCell.innerHTML = `<span style="font-size:11px; color:#c0504d; cursor:help;" title="${reason}\n\n手動入力してください">⚠ ${reason.slice(0, 16)}</span>`;
+        }
+      }
+      return { siteId: site.id, siteName: site.name, price: null, ok: false, error: r.error };
     }
   }));
 
-  // サマリ
-  const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
-  const failed = results.filter(r => r.status === 'fulfilled' && !r.value.ok).length;
-  flashSourcingStatus(`✓ ${ok}/${autoSites.length} サイトから取得 (失敗 ${failed} は手動入力)`, ok > 0 ? '#15803d' : '#c0504d');
+  // サマリ + 詳細
+  const okList = results.filter(r => r.status === 'fulfilled' && r.value.ok).map(r => r.value);
+  const failList = results.filter(r => r.status === 'fulfilled' && !r.value.ok).map(r => r.value);
+  const noResultsList = failList.filter(f => f.error === 'NO_RESULTS');
+  const bugList = failList.filter(f => f.error !== 'NO_RESULTS');
+  console.log(`📊 結果: ${okList.length} 成功 / ${noResultsList.length} 該当なし / ${bugList.length} 取得エラー`);
+  if (failList.length) {
+    console.table(failList.map(f => ({ サイト: f.siteName, 理由: f.error })));
+  }
+  const msgParts = [];
+  if (okList.length > 0) msgParts.push(`✓ ${okList.length} 取得(${okList.map(o => o.siteName).join(', ')})`);
+  if (noResultsList.length > 0) msgParts.push(`∅ ${noResultsList.length} 該当なし(${noResultsList.map(o => o.siteName).join(', ')})`);
+  if (bugList.length > 0) msgParts.push(`⚠ ${bugList.length} エラー(${bugList.map(o => o.siteName).join(', ')})`);
+  flashSourcingStatus(msgParts.join(' / ') || '結果なし', okList.length > 0 ? '#15803d' : (bugList.length > 0 ? '#c0504d' : '#666'));
   updateSourcingTotals();
   saveSourcingState();
   if (btn) { btn.disabled = false; btn.textContent = '🚀 全サイトから価格自動取得'; }
@@ -3777,16 +3811,22 @@ async function fetchOneSitePrice(siteId, kw, btn, priceInput) {
   }
 }
 
-// サーバ側「検索結果ページ → 最初の商品の価格」を呼ぶ
+// サーバ側「検索結果ページ → 最初の商品の {price, productUrl}」を呼ぶ
 async function fetchSearchFirst(siteId, kw) {
   try {
     const url = '/api/ebay-item?searchFirst=1&site=' + encodeURIComponent(siteId) + '&keyword=' + encodeURIComponent(kw);
     const res = await fetch(url);
     const data = await res.json();
     if (data.price && typeof data.price === 'number') {
-      return { price: data.price, productUrl: data.productUrl };
+      return { price: data.price, productUrl: data.productUrl, searchUrl: data.searchUrl };
     }
-    return { price: null, error: data.error || data.diag?.step || 'no_price' };
+    return {
+      price: null,
+      productUrl: data.productUrl || null,
+      searchUrl: data.searchUrl || null,
+      error: data.error || 'no_price',
+      _raw: data,
+    };
   } catch (e) {
     return { price: null, error: e.message };
   }
