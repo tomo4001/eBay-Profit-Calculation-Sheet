@@ -11010,7 +11010,16 @@ Object.assign(Shipping, {
           if (res.ok && data.ok) {
             ebaySuccess++;
           } else {
-            ebayFailed.push({ name: p.name, id: p.id, error: data.error || JSON.stringify(data.detail || {}).slice(0, 200) });
+            // eBay の detail (errors[] / errorId / message / parameters 等)を全部保持
+            ebayFailed.push({
+              name: p.name,
+              id: p.id,
+              error: data.error || ('HTTP ' + res.status),
+              httpStatus: data.status || res.status,
+              detail: data.detail || null,
+              // eBay 標準エラー形式 {errors:[{errorId, message, parameters: [...]}]} を抽出
+              ebayErrors: (data.detail && Array.isArray(data.detail.errors)) ? data.detail.errors : null,
+            });
           }
           // レート制限対策の delay
           await new Promise(r => setTimeout(r, 200));
@@ -11054,10 +11063,29 @@ Object.assign(Shipping, {
       const modal = document.createElement('div');
       modal.style.cssText = 'background:#fff; border-radius:8px; padding:20px; max-width:800px; max-height:80vh; width:90%; overflow:auto; display:flex; flex-direction:column; gap:10px;';
       const detailsText = ebayFailed.map(f => {
-        let errStr;
-        try { errStr = typeof f.error === 'string' ? f.error : JSON.stringify(f.error, null, 2); }
-        catch (e) { errStr = String(f.error); }
-        return `・${f.name}\n  ID: ${f.id}\n  エラー: ${errStr}`;
+        const lines = [`・${f.name}`, `  ID: ${f.id}`, `  HTTP: ${f.httpStatus || '?'}`, `  エラー: ${f.error}`];
+        // eBay 標準エラー形式があれば見やすく整形
+        if (f.ebayErrors && f.ebayErrors.length) {
+          f.ebayErrors.forEach((e, i) => {
+            lines.push(`  eBay error #${i+1}:`);
+            if (e.errorId != null) lines.push(`    errorId: ${e.errorId}`);
+            if (e.domain) lines.push(`    domain: ${e.domain}`);
+            if (e.category) lines.push(`    category: ${e.category}`);
+            if (e.message) lines.push(`    message: ${e.message}`);
+            if (e.longMessage && e.longMessage !== e.message) lines.push(`    longMessage: ${e.longMessage}`);
+            if (Array.isArray(e.parameters) && e.parameters.length) {
+              lines.push(`    parameters:`);
+              e.parameters.forEach(p => {
+                lines.push(`      - ${p.name || '?'}: ${p.value || '?'}`);
+              });
+            }
+          });
+        } else if (f.detail) {
+          // 標準形式でない場合は detail を JSON ダンプ
+          try { lines.push(`  detail: ${JSON.stringify(f.detail, null, 2).replace(/\n/g, '\n  ')}`); }
+          catch (e) { lines.push(`  detail: ${String(f.detail).slice(0, 500)}`); }
+        }
+        return lines.join('\n');
       }).join('\n\n');
       modal.innerHTML = `
         <h3 style="margin:0; color:#991b1b;">⚠️ eBay 削除 失敗詳細 (${ebayFailed.length}件)</h3>
