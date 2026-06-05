@@ -589,12 +589,24 @@ async function fetchSearchFirstPrice(siteId, keyword) {
   if (!cfg) return { error: 'UNSUPPORTED_SITE', siteId };
   const searchUrl = cfg.url.replace('%s', encodeURIComponent(keyword));
   let html, httpStatus;
+  // 8 秒 AbortController タイムアウト(Vercel の 10 秒制限内に収める)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
   try {
-    const r = await fetch(searchUrl, { headers: BROWSER_HEADERS, redirect: 'follow' });
+    const r = await fetch(searchUrl, {
+      headers: BROWSER_HEADERS,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
     httpStatus = r.status;
     if (!r.ok) return { error: `HTTP_${r.status}`, searchUrl, httpStatus };
     html = await r.text();
   } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      return { error: 'TIMEOUT_8S', searchUrl, note: 'サイトの応答が 8 秒以内に返らず中断' };
+    }
     return { error: 'FETCH_ERR:' + e.message.slice(0, 50), searchUrl };
   }
 
@@ -761,16 +773,26 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   // 🆕 ソーシング検索モード: ?searchFirst=1&site=ID&keyword=KW
-  if (req.query.searchFirst === '1') {
-    const siteId = req.query.site;
-    const keyword = req.query.keyword;
-    if (!siteId || !keyword) {
-      res.status(400).json({ error: 'site と keyword が必要' });
+  if (req.query.searchFirst === '1' || req.query.searchFirst === 1) {
+    try {
+      const siteId = req.query.site;
+      const keyword = req.query.keyword;
+      if (!siteId || !keyword) {
+        res.status(200).json({ ok: false, error: 'MISSING_PARAMS', siteId, keyword });
+        return;
+      }
+      const result = await fetchSearchFirstPrice(siteId, keyword);
+      res.status(200).json({ ok: !!result.price, ...result, _v: 'searchFirst-v2' });
+      return;
+    } catch (e) {
+      // 何があってもJSONで返す(HTML 500 ページにしない)
+      res.status(200).json({
+        ok: false,
+        error: 'HANDLER_CRASH:' + (e.message || String(e)).slice(0, 100),
+        _v: 'searchFirst-v2',
+      });
       return;
     }
-    const result = await fetchSearchFirstPrice(siteId, keyword);
-    res.status(200).json({ ok: !!result.price, ...result, _v: 'searchFirst-v1' });
-    return;
   }
 
   // 🆕 画像プロキシモード: ?proxy=<imageUrl> で画像バイナリを CORS 付きで返す
