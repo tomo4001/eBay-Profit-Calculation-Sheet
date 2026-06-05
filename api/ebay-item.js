@@ -588,32 +588,72 @@ async function fetchSearchFirstPrice(siteId, keyword) {
   const cfg = SOURCING_SEARCH_CONFIG[siteId];
   if (!cfg) return { error: 'UNSUPPORTED_SITE', siteId };
   const searchUrl = cfg.url.replace('%s', encodeURIComponent(keyword));
-  let html;
+  let html, httpStatus;
   try {
     const r = await fetch(searchUrl, { headers: BROWSER_HEADERS, redirect: 'follow' });
-    if (!r.ok) return { error: `SEARCH_HTTP_${r.status}`, searchUrl };
+    httpStatus = r.status;
+    if (!r.ok) return { error: `HTTP_${r.status}`, searchUrl, httpStatus };
     html = await r.text();
   } catch (e) {
-    return { error: 'FETCH_ERROR: ' + e.message, searchUrl };
+    return { error: 'FETCH_ERR:' + e.message.slice(0, 50), searchUrl };
   }
+
+  const htmlSize = html.length;
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const pageTitle = titleMatch ? titleMatch[1].trim().slice(0, 80) : '';
 
   // WAF / Bot ブロック検知
-  if (/<title>[^<]*(error|blocked|captcha|forbidden|reference\s*#)/i.test(html) || html.length < 1500) {
-    return { error: 'WAF_BLOCKED', searchUrl, htmlSize: html.length };
+  if (/<title>[^<]*(error|blocked|captcha|forbidden|reference\s*#)/i.test(html)) {
+    return { error: 'WAF_BLOCKED', searchUrl, httpStatus, htmlSize, pageTitle };
+  }
+  if (htmlSize < 1500) {
+    return { error: 'HTML_TOO_SMALL', searchUrl, httpStatus, htmlSize, pageTitle };
   }
 
-  const price = extractFirstSearchPrice(cfg.method, html);
-  if (!price) {
-    return { error: 'NO_PRICE_FOUND_IN_SEARCH', searchUrl, htmlSize: html.length };
+  // 「該当商品なし」(NO_RESULTS) を検出 — バグと区別するため
+  const NO_RESULTS_PATTERNS = [
+    /該当する商品(?:はありません|がありません|が見つかりませんでした|はみつかりません)/,
+    /該当する(?:結果|データ|アイテム)(?:はありません|がありません)/,
+    /商品が見つかりませんでした/,
+    /見つかりませんでした/,
+    /ご指定の条件にマッチする商品はありません/,
+    /「[^」]+」に一致する(?:商品|結果)はありません/,
+    /<[^>]+>0\s*件(?:中|の検索結果)?/,  // "0件中" "0件の検索結果"
+    /検索結果\s*:?\s*0/,
+    /no\s+(items?|results?|products?)\s+found/i,
+  ];
+  for (const p of NO_RESULTS_PATTERNS) {
+    if (p.test(html)) {
+      return { error: 'NO_RESULTS', searchUrl, httpStatus, htmlSize, pageTitle, matchedPattern: String(p).slice(0, 60) };
+    }
   }
-  return { price, searchUrl, currency: 'JPY' };
+
+  const extracted = extractFirstSearchPriceAndUrl(cfg.method, html);
+  if (!extracted.price) {
+    // 簡易: 最初の ¥XXX,XXX を fallback として取得
+    const headEnd = html.indexOf('</head>');
+    const body = headEnd > 0 ? html.slice(headEnd) : html;
+    const fallback = body.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
+    return {
+      error: 'PARSE_BUG_NO_PRICE',
+      searchUrl, httpStatus, htmlSize, pageTitle,
+      fallbackYenSeen: fallback ? fallback[1] : null,
+      productUrl: extracted.productUrl,
+    };
+  }
+  return {
+    price: extracted.price,
+    productUrl: extracted.productUrl,
+    searchUrl,
+    currency: 'JPY',
+    httpStatus,
+    htmlSize,
+  };
 }
 
-// サイト別: 検索結果ページ HTML から最初の商品の価格を抽出
-//   全サイト「安い順」でソートされているので、最初の ¥XXX,XXX が最安商品の価格
-//   ただし広告/バナーが先に出るサイトもあるので、商品コンテナの位置を意識する
-function extractFirstSearchPrice(method, html) {
-  // body 部分のみ走査
+// サイト別: 検索結果ページ HTML から最初の商品の {price, productUrl} を抽出
+//   全サイト「安い順」でソートされているので、最初の商品が最安
+function extractFirstSearchPriceAndUrl(method, html) {
   const headEnd = html.indexOf('</head>');
   const body = headEnd > 0 ? html.slice(headEnd) : html;
   const tryAmount = (s) => {
@@ -621,84 +661,96 @@ function extractFirstSearchPrice(method, html) {
     const n = parseFloat(cleaned);
     return (isFinite(n) && n > 0) ? n : null;
   };
+  // 各サイトの "first product URL" パターン
+  const productUrlPatterns = {
+    yauc:    /https:\/\/page\.auctions\.yahoo\.co\.jp\/jp\/auction\/[a-z0-9]+/i,
+    rakuma:  /https:\/\/(?:item\.)?fril\.jp\/[a-zA-Z0-9]+/i,
+    offmall: /https:\/\/netmall\.hardoff\.co\.jp\/product\/\d+\/?\d*\//i,
+    yshop:   /https:\/\/store\.shopping\.yahoo\.co\.jp\/[^/"' ]+\/[a-zA-Z0-9_-]+\.html/i,
+    rakuten: /https:\/\/item\.rakuten\.co\.jp\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+\/?/i,
+    yfurima: /https:\/\/paypayfleamarket\.yahoo\.co\.jp\/item\/[a-zA-Z0-9]+/i,
+  };
+  const productUrlPattern = productUrlPatterns[method];
+  const extractProductUrl = (slice) => {
+    if (!productUrlPattern) return null;
+    const m = slice.match(productUrlPattern);
+    return m ? m[0] : null;
+  };
 
   switch (method) {
     case 'yauc': {
-      // ヤフオク: 商品リスト先頭の即決価格(¥XXX,XXX)
-      // 商品コンテナの開始マーカー: data-component="...Product..." or class="Product"
       let idx = body.search(/class=["'][^"']*Product__title/);
       if (idx < 0) idx = body.search(/class=["'][^"']*Product/i);
       if (idx < 0) idx = 0;
       const slice = body.slice(idx, idx + 8000);
       const m = slice.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
-      return m ? tryAmount(m[1]) : null;
+      return { price: m ? tryAmount(m[1]) : null, productUrl: extractProductUrl(slice) };
     }
     case 'rakuma': {
-      // ラクマ: 商品アイテム内の価格
       let idx = body.search(/class=["'][^"']*item-box/);
       if (idx < 0) idx = body.search(/data-item-id/);
       if (idx < 0) idx = 0;
       const slice = body.slice(idx, idx + 8000);
       const m = slice.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
-      return m ? tryAmount(m[1]) : null;
+      return { price: m ? tryAmount(m[1]) : null, productUrl: extractProductUrl(slice) };
     }
     case 'offmall': {
-      // オフモール: 商品リスト + 税込価格優先
       let idx = body.search(/class=["'][^"']*ProductList/i);
       if (idx < 0) idx = body.search(/class=["'][^"']*productCard/i);
       if (idx < 0) idx = 0;
       const slice = body.slice(idx, idx + 8000);
-      // 税込価格 を優先
       let m = slice.match(/税込[\s\S]{0,80}?([0-9]{1,3}(?:,[0-9]{3})+)/);
       if (!m) m = slice.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
       if (!m) m = slice.match(/([0-9]{1,3}(?:,[0-9]{3})+)\s*円/);
-      return m ? tryAmount(m[1]) : null;
+      return { price: m ? tryAmount(m[1]) : null, productUrl: extractProductUrl(slice) };
     }
     case 'yshop': {
-      // Yahoo!ショッピング: 商品リスト
       let idx = body.search(/class=["'][^"']*Product[^"']*Card/i);
       if (idx < 0) idx = body.search(/data-testid=["']Product/i);
       if (idx < 0) idx = 0;
       const slice = body.slice(idx, idx + 10000);
       const m = slice.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
-      return m ? tryAmount(m[1]) : null;
+      return { price: m ? tryAmount(m[1]) : null, productUrl: extractProductUrl(slice) };
     }
     case 'rakuten': {
-      // 楽天: 商品リスト
       let idx = body.search(/class=["'][^"']*searchresultitem/i);
       if (idx < 0) idx = body.search(/class=["'][^"']*\bprice\b/i);
       if (idx < 0) idx = 0;
       const slice = body.slice(idx, idx + 10000);
       const m = slice.match(/[¥￥]?\s*([0-9]{1,3}(?:,[0-9]{3})+)\s*円/) || slice.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
-      return m ? tryAmount(m[1]) : null;
+      return { price: m ? tryAmount(m[1]) : null, productUrl: extractProductUrl(slice) };
     }
     case 'yfurima': {
-      // Yahoo!フリマ: __NEXT_DATA__ を試み、なければ body 最初の ¥
       const nd = body.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
       if (nd) {
         try {
           const data = JSON.parse(nd[1]);
-          // 最初のアイテム price を再帰探索(sort=ccon 昇順なので最初が最安)
           const stack = [data];
-          let found = null;
-          while (stack.length && !found) {
+          let foundPrice = null, foundId = null;
+          while (stack.length && !foundPrice) {
             const node = stack.pop();
             if (!node || typeof node !== 'object') continue;
             if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
             if (typeof node.price === 'number' && node.price >= 100 && node.price <= 10000000) {
-              found = node.price;
+              foundPrice = node.price;
+              foundId = node.id || node.itemId || null;
               break;
             }
             for (const k in node) stack.push(node[k]);
           }
-          if (found) return found;
+          if (foundPrice) {
+            return {
+              price: foundPrice,
+              productUrl: foundId ? `https://paypayfleamarket.yahoo.co.jp/item/${foundId}` : extractProductUrl(body),
+            };
+          }
         } catch (e) {}
       }
       const m = body.match(/[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)/);
-      return m ? tryAmount(m[1]) : null;
+      return { price: m ? tryAmount(m[1]) : null, productUrl: extractProductUrl(body) };
     }
     default:
-      return null;
+      return { price: null, productUrl: null };
   }
 }
 
