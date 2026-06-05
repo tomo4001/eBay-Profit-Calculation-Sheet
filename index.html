@@ -3606,17 +3606,28 @@ function attachEbayUrlEvents() {
 // =============================================================================
 const SOURCING_STORAGE_KEY = 'profitCalcV1_sourcingV2';
 
+// 各サイトの検索URLは「安い順ソート」付き — 開いた直後に最安商品が一番上に出る
 const SOURCING_SITES = [
-  { id: 'amazon',     name: 'Amazon',          searchUrl: 'https://www.amazon.co.jp/s?k=%s',                              autoFetch: false },
-  { id: 'rakuten',    name: '楽天',            searchUrl: 'https://search.rakuten.co.jp/search/mall/%s/',                  autoFetch: true  },
-  { id: 'yshop',      name: 'Yahoo!ショピング', searchUrl: 'https://shopping.yahoo.co.jp/search?p=%s',                      autoFetch: true  },
-  { id: 'mercari',    name: 'メルカリ',        searchUrl: 'https://jp.mercari.com/search?keyword=%s',                      autoFetch: true  },
-  { id: 'mshops',     name: 'メルカリShops',   searchUrl: 'https://jp.mercari.com/search?keyword=%s&shop_type=shop',       autoFetch: false },
-  { id: 'yfurima',    name: 'Yahoo!フリマ',    searchUrl: 'https://paypayfleamarket.yahoo.co.jp/search/%s',                autoFetch: true  },
-  { id: 'rakuma',     name: 'ラクマ',          searchUrl: 'https://fril.jp/s?query=%s',                                    autoFetch: true  },
-  { id: 'yauc',       name: 'ヤフオク(即決)',  searchUrl: 'https://auctions.yahoo.co.jp/search/search?p=%s&fixed=1',       autoFetch: true  },
-  { id: 'offmall',    name: 'オフモール',      searchUrl: 'https://netmall.hardoff.co.jp/search/?keyword=%s',              autoFetch: true  },
-  { id: 'yodobashi',  name: 'Yodobashi',      searchUrl: 'https://www.yodobashi.com/?word=%s',                            autoFetch: false },
+  // Amazon: s=price-asc-rank で安い順
+  { id: 'amazon',     name: 'Amazon',          searchUrl: 'https://www.amazon.co.jp/s?k=%s&s=price-asc-rank',                                  autoFetch: false },
+  // 楽天: s=2 で安い順(送料込みでないので注意)
+  { id: 'rakuten',    name: '楽天',            searchUrl: 'https://search.rakuten.co.jp/search/mall/%s/?s=2',                                  autoFetch: true  },
+  // Yahoo!ショッピング: sort=%2Bprice で安い順
+  { id: 'yshop',      name: 'Yahoo!ショピング', searchUrl: 'https://shopping.yahoo.co.jp/search?p=%s&first=1&sort=%2Bprice',                    autoFetch: true  },
+  // メルカリ: order=asc&sort=price で安い順
+  { id: 'mercari',    name: 'メルカリ',        searchUrl: 'https://jp.mercari.com/search?keyword=%s&order=asc&sort=price',                     autoFetch: true  },
+  // メルカリShops: 同じ + shop_type=shop
+  { id: 'mshops',     name: 'メルカリShops',   searchUrl: 'https://jp.mercari.com/search?keyword=%s&order=asc&sort=price&shop_type=shop',      autoFetch: false },
+  // Yahoo!フリマ: sort=ccon(価格安い順) order=asc
+  { id: 'yfurima',    name: 'Yahoo!フリマ',    searchUrl: 'https://paypayfleamarket.yahoo.co.jp/search/%s?sort=ccon&order=asc',                autoFetch: true  },
+  // ラクマ: order=asc&transaction=selling
+  { id: 'rakuma',     name: 'ラクマ',          searchUrl: 'https://fril.jp/s?query=%s&order=asc&sort=sell_price&transaction=selling',          autoFetch: true  },
+  // ヤフオク(即決): fixed=1 即決のみ, s1=cbids(現在価格), o1=a(昇順)
+  { id: 'yauc',       name: 'ヤフオク(即決)',  searchUrl: 'https://auctions.yahoo.co.jp/search/search?p=%s&fixed=1&s1=cbids&o1=a',             autoFetch: true  },
+  // オフモール: order=price_asc
+  { id: 'offmall',    name: 'オフモール',      searchUrl: 'https://netmall.hardoff.co.jp/search/?keyword=%s&order=price_asc',                  autoFetch: true  },
+  // Yodobashi: sort=02_01 (価格安い順)
+  { id: 'yodobashi',  name: 'Yodobashi',      searchUrl: 'https://www.yodobashi.com/?word=%s&sort=02_01',                                     autoFetch: false },
 ];
 
 function getJpyUsdRate() {
@@ -3676,10 +3687,10 @@ function initSourcingTable() {
     fetchBtn?.addEventListener('click', async () => {
       const url = (urlInput.value || '').trim();
       if (!url) { flashSourcingStatus('⚠ URL を入力してください', '#c0504d'); return; }
-      // 検索結果URLでは商品ページを取得できないので警告
-      const isSearchUrl = /[?&](k|p|query|keyword|word)=/.test(url) || /\/search/.test(url);
-      if (isSearchUrl && !/\/(item|product|g|dp)\//.test(url)) {
-        if (!confirm('これは検索結果ページの URL のようです。商品ページの URL に置き換えてから取得してください。\n\n強制的に試しますか?')) return;
+      // 検索結果URL判定
+      if (isSearchResultsUrl(url)) {
+        flashSourcingStatus('⚠ これは検索結果ページの URL です。「🔗 開く」で開いて、最安商品をクリックして商品ページの URL をこの欄に貼り直してください', '#c0504d');
+        return;
       }
       fetchBtn.disabled = true;
       const origText = fetchBtn.textContent;
@@ -3693,6 +3704,7 @@ function initSourcingTable() {
           flashSourcingStatus(`✓ ${SOURCING_SITES.find(s => s.id === tr.dataset.siteId)?.name}: ¥${price.toLocaleString()} 取得`, '#15803d');
           updateSourcingTotals();
           saveSourcingState();
+          updateUrlKindBadge(urlInput);
         } else {
           flashSourcingStatus('⚠ 自動取得失敗 — 価格欄に手動で入力してください', '#c0504d');
           priceInput.focus();
@@ -3706,7 +3718,9 @@ function initSourcingTable() {
     });
 
     priceInput.addEventListener('input', () => { updateSourcingTotals(); saveSourcingState(); });
-    urlInput.addEventListener('input', () => { saveSourcingState(); });
+    urlInput.addEventListener('input', () => { saveSourcingState(); updateUrlKindBadge(urlInput); });
+    // 初期表示
+    updateUrlKindBadge(urlInput);
   });
 
   // キーワード入力 & ボタン
@@ -3817,6 +3831,53 @@ function updateSourcingTotals() {
     }
   } else if (lowestEl) {
     lowestEl.style.display = 'none';
+  }
+}
+
+// URL が「検索結果ページ」か「個別商品ページ」かを判定
+function isSearchResultsUrl(url) {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  // 商品ページの典型パターンに該当すれば検索URLではない
+  const productPatterns = [
+    /\/itm\/\d+/,                              // eBay
+    /\/dp\/[a-z0-9]+/,                          // Amazon
+    /\/gp\/product\/[a-z0-9]+/,                 // Amazon
+    /item\.rakuten\.co\.jp\/[^/]+\/[^/?]+/,      // 楽天 item
+    /store\.shopping\.yahoo\.co\.jp\/[^/]+\/[^/?]+/, // Yahoo!ショッピング
+    /shopping\.yahoo\.co\.jp\/products\//,       // Yahoo!ショッピング product
+    /jp\.mercari\.com\/item\/m\d+/,              // メルカリ /item/m...
+    /jp\.mercari\.com\/shops\/product\//,        // メルカリShops 商品
+    /paypayfleamarket\.yahoo\.co\.jp\/item\//,   // Yahoo!フリマ
+    /fril\.jp\/[a-z0-9]+\/?$/,                  // ラクマ商品(/QQQ末尾、検索/カテゴリ除く)
+    /page\.auctions\.yahoo\.co\.jp\/jp\/auction\//, // ヤフオク
+    /netmall\.hardoff\.co\.jp\/product\//,       // オフモール商品
+    /yodobashi\.com\/product\//,                // Yodobashi 商品
+  ];
+  if (productPatterns.some(p => p.test(u))) return false;
+  // 検索系パターン
+  const searchPatterns = [
+    /\/search/,
+    /[?&](k|p|q|query|keyword|word)=/,
+  ];
+  return searchPatterns.some(p => p.test(u));
+}
+
+// URL 入力欄に「検索URL」or「商品URL」のミニバッジを表示
+function updateUrlKindBadge(urlInput) {
+  if (!urlInput) return;
+  const url = (urlInput.value || '').trim();
+  if (!url) {
+    urlInput.style.background = '';
+    urlInput.title = '';
+    return;
+  }
+  if (isSearchResultsUrl(url)) {
+    urlInput.style.background = '#fef3c7';  // 黄: 検索結果URL
+    urlInput.title = '検索結果URL — 「🔗 開く」で開いてから商品URLに置き換えてください';
+  } else {
+    urlInput.style.background = '#dcfce7';  // 緑: 商品URL(取得可能)
+    urlInput.title = '商品URL — 「📥 取得」で価格を自動取得できます';
   }
 }
 
