@@ -1585,7 +1585,10 @@
   <div class="card manual-input" style="border-left:4px solid #1565c0;">
     <h2 style="color:#1565c0;">🔗 ライバル商品URLから自動取得</h2>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... または他サイトの URL を貼り付け" style="flex:1; min-width:240px; padding:8px 12px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff;" />
+      <div style="position:relative; flex:1; min-width:240px;">
+        <input type="text" id="ebayUrl" placeholder="https://www.ebay.com/itm/... または他サイトの URL を貼り付け" style="width:100%; padding:8px 36px 8px 12px; border:1px solid #c5d8e8; border-radius:6px; font-size:13px; background:#fff; box-sizing:border-box;" />
+        <button type="button" id="ebayUrlClearBtn" title="URL をクリア" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); width:24px; height:24px; padding:0; background:#e5e7eb; color:#666; border:none; border-radius:50%; cursor:pointer; font-size:14px; line-height:1; display:none; align-items:center; justify-content:center;">×</button>
+      </div>
       <button class="btn" id="ebayFetchBtn" style="padding:8px 18px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="eBay URL のみ対応">取得</button>
       <button class="btn" id="ebayImageDlBtn" style="padding:8px 18px; font-size:13px; background:#7c2d12; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="URL のページから画像を ZIP でダウンロード(eBay は API 経由、他サイトは HTML 解析)">📷 画像 DL</button>
       <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
@@ -3560,12 +3563,27 @@ function attachEbayUrlEvents() {
   const btn = document.getElementById('ebayFetchBtn');
   const urlEl = document.getElementById('ebayUrl');
   const imgBtn = document.getElementById('ebayImageDlBtn');
+  const clearBtn = document.getElementById('ebayUrlClearBtn');
   if (btn) btn.addEventListener('click', fetchEbayItem);
   if (urlEl) urlEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); fetchEbayItem(); }
   });
   if (imgBtn) imgBtn.addEventListener('click', downloadEbayImages);
 
+  // × ボタン: クリア + ボタン自体は値が空の時は非表示
+  const updateClearBtn = () => {
+    if (!clearBtn || !urlEl) return;
+    clearBtn.style.display = urlEl.value ? 'flex' : 'none';
+  };
+  if (clearBtn && urlEl) {
+    clearBtn.addEventListener('click', () => {
+      urlEl.value = '';
+      urlEl.focus();
+      updateClearBtn();
+    });
+    urlEl.addEventListener('input', updateClearBtn);
+    updateClearBtn();
+  }
 }
 
 
