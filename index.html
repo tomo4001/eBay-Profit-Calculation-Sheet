@@ -10915,13 +10915,66 @@ Object.assign(Shipping, {
     alert(`${prefix}\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
   },
 
+  // 🚀 Phase 2-G.3: 新規ポリシーを eBay POST(local_new_* を eBay 正規 ID に置換)
+  async pushNewPolicyToEbay(p) {
+    if (!p || !p._raw) { alert('内部エラー: _raw データがありません'); return; }
+    if (!confirm(`新規ポリシー "${p.name}" を eBay に作成しますか?\n\n名前: ${p.name}\nサービス: ${p.service}\n除外国: ${p.excluded.length}項目\n\n※ 名前が eBay の既存ポリシーと重複していると 20400 エラーで失敗します。`)) return;
+
+    const btn = document.getElementById('shipSinglePushBtn');
+    const origText = btn ? btn.textContent : '🚀 eBay に反映';
+    if (btn) { btn.disabled = true; btn.textContent = '送信中…'; }
+
+    try {
+      // Dry-run 検証
+      const dryRes = await fetch('/api/ebay-policy-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policyId: 'NEW', policy: p._raw, action: 'create', dryRun: true }),
+      });
+      const dry = await dryRes.json();
+      if (!dryRes.ok || dry.validationFailed) {
+        alert(`❌ 事前検証エラー\n\n${(dry.errors || []).map(e => '・' + e).join('\n')}\n\n修正してから再試行してください。`);
+        return;
+      }
+      // 本番 POST
+      const res = await fetch('/api/ebay-policy-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policyId: 'NEW', policy: p._raw, action: 'create', dryRun: false }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(`❌ eBay POST 失敗\n\nHTTP: ${data.status || res.status}\nエラー: ${data.error || '(不明)'}\n詳細: ${JSON.stringify(data.detail || {}).slice(0, 500)}`);
+        return;
+      }
+      const newId = data.newPolicyId;
+      if (!newId) { alert('⚠️ eBay は成功と返したが新 policyId が見つかりません: ' + JSON.stringify(data).slice(0, 300)); return; }
+      // ローカルの local_new_* を eBay 正規 ID に置換
+      const oldId = p.id;
+      p.id = newId;
+      if (p._raw) p._raw.fulfillmentPolicyId = newId;
+      p._isNew = false;
+      this.isCreatingNew = false;
+      // editingPolicyId も更新
+      if (this.editingPolicyId === oldId) this.editingPolicyId = newId;
+      this.savePoliciesCache();
+      this.renderList();
+      alert(`✓ eBay 上に新規ポリシーを作成しました\n\n名前: ${p.name}\n新 PolicyID: ${newId}\n\nローカル ID (${oldId}) を eBay 正規 ID に置換しました。`);
+    } catch (e) {
+      alert('❌ 通信エラー: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+    }
+  },
+
   // 🚀 Phase 2-G.2.a: 選択ポリシーを一括 eBay PUT
   _bulkPushAbort: false,
   openBulkPushModal() {
     if (this.selected.size === 0) { alert('ポリシーを選択してください'); return; }
     const selected = this.getSelectedPolicies();
     // 新規(local_new_*)は今フェーズでは対象外
-    const eligible = selected.filter(p => !p.id.startsWith('local_new_'));
+    // 新規(local_new_*)は action='create' で POST、既存は action='update' で PUT
+    const eligible = selected;  // すべて対象に
     const newOnes = selected.filter(p => p.id.startsWith('local_new_'));
 
     const content = document.getElementById('shipBulkPushContent');
@@ -10996,7 +11049,8 @@ Object.assign(Shipping, {
 
   async confirmBulkPush() {
     const selected = this.getSelectedPolicies();
-    const eligible = selected.filter(p => !p.id.startsWith('local_new_'));
+    // 新規(local_new_*)は action='create' で POST、既存は action='update' で PUT
+    const eligible = selected;  // すべて対象に
     if (eligible.length === 0) { alert('対象ポリシーがありません'); return; }
 
     const confirmText = `${eligible.length}件のポリシーを eBay に PUT 送信します。\n\n` +
@@ -11028,16 +11082,27 @@ Object.assign(Shipping, {
       }
 
       const p = eligible[i];
+      const isNew = p.id && p.id.startsWith('local_new_');
 
       try {
+        const reqBody = isNew
+          ? { policyId: 'NEW', policy: p._raw, action: 'create', dryRun: false }
+          : { policyId: p.id, policy: p._raw, dryRun: false };
         const res = await fetch('/api/ebay-policy-update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ policyId: p.id, policy: p._raw, dryRun: false }),
+          body: JSON.stringify(reqBody),
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          if (data.noChange) {
+          if (isNew && data.newPolicyId) {
+            // local_new_* → eBay 正規 ID に置換
+            const oldId = p.id;
+            p.id = data.newPolicyId;
+            if (p._raw) p._raw.fulfillmentPolicyId = data.newPolicyId;
+            p._isNew = false;
+            results.success.push({ id: data.newPolicyId, name: p.name, created: true, oldId });
+          } else if (data.noChange) {
             results.noChange.push({ id: p.id, name: p.name });
           } else {
             results.success.push({ id: p.id, name: p.name });
@@ -11048,6 +11113,7 @@ Object.assign(Shipping, {
             name: p.name,
             error: data.error || ('HTTP ' + res.status),
             detail: data.detail,
+            isNew,
           });
         }
       } catch (e) {
@@ -11061,6 +11127,12 @@ Object.assign(Shipping, {
 
       // 次のリクエストまで 300ms 待機(レート制限回避)
       if (i < total - 1) await new Promise(r => setTimeout(r, 300));
+    }
+
+    // 新規作成された場合は ID 置換をキャッシュに保存 + リスト再描画
+    if (results.success.some(s => s.created)) {
+      this.savePoliciesCache();
+      this.renderList();
     }
 
     // 完了後はボタンを「閉じる」に変更して二重実行を防ぐ
@@ -11117,9 +11189,10 @@ Object.assign(Shipping, {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
     if (!p._raw) { alert('内部エラー: _raw データがありません'); return; }
-    if (p.id.startsWith('local_new_')) {
-      alert('⚠️ 新規作成ポリシーは Phase 2-G.3(POST 実装)で対応予定です。\n既存ポリシーの更新のみ Phase 2-G.1 で対応中。');
-      return;
+    // local_new_* → 新規作成 POST 経路へ
+    const isNewPolicy = p.id.startsWith('local_new_');
+    if (isNewPolicy) {
+      return this.pushNewPolicyToEbay(p);
     }
 
     // 念のためまずフォーム値を _raw に反映(保存と同じロジック)
