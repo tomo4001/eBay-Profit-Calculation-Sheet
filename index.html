@@ -7474,7 +7474,10 @@ const Shipping = {
         if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
         (rule.countries || []).forEach(c => specialAdds.push(c));
       });
-      const expected = Array.from(new Set([...(def.baseExcluded||[]), ...veroAdds, ...specialAdds])).sort();
+      // 🔧 VeRO の場合、baseExcluded から Europe 地域でカバーされる個別ヨーロッパ国を除外
+      //    (Europe 地域単位で一括除外しているため、個別指定は不要)
+      const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
+      const expected = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds])).sort();
       const cur = (p.excluded || []).slice().sort();
       if (cur.join('|') !== expected.join('|')) {
         const onlyInCur = cur.filter(c => !expected.includes(c));
@@ -7828,6 +7831,20 @@ const SHIP_VERO_EXCLUDED_DESTINATIONS = ['Europe', 'GB', 'DE', 'FR'];
 function shipFilterDestinationsForVero(destinations, isVero) {
   if (!isVero || !Array.isArray(destinations)) return destinations;
   return destinations.filter(d => !SHIP_VERO_EXCLUDED_DESTINATIONS.includes(d));
+}
+
+// VeRO ポリシーが「Europe」地域単位で一括除外する場合、baseExcluded から取り除くべき
+// ヨーロッパ個別国コード(eBay の Europe 地域に含まれており、個別指定すると重複する国)。
+// ユーザーの eBay 実データから確認した正確なリスト(TR/GB/DE/FR 等は別扱いなので含めない)。
+const SHIP_VERO_EUROPE_COVERED_COUNTRIES = new Set([
+  'AD','AL','BA','BG','BY','CY','EE','GG','GI','HR','IS','JE','LT','LV','MD',
+  'ME','MK','MT','RO','RS','RU','SI','SJ','UA','VA'
+]);
+
+// VeRO ポリシー の場合、baseExcluded から「Europe 地域でカバーされる個別国」を除外
+function shipFilterBaseExcludedForVero(baseExcluded, isVero) {
+  if (!isVero || !Array.isArray(baseExcluded)) return baseExcluded;
+  return baseExcluded.filter(c => !SHIP_VERO_EUROPE_COVERED_COUNTRIES.has(c));
 }
 
 // Domestic 用シッピングサービスコード(eBay UI で選択可能なサービス、Hartuoさんが実際に使うもの)
@@ -10281,7 +10298,9 @@ Object.assign(Shipping, {
       // Excluded countries (デフォルトに上書き、VeRO ならヨーロッパ追加)
       if (s.excluded.enabled && def) {
         const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
-        const expected = Array.from(new Set([...(def.baseExcluded || []), ...veroAdds]));
+        // VeRO の場合、baseExcluded から Europe 地域でカバーされる個別国を除外
+        const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
+        const expected = Array.from(new Set([...filteredBase, ...veroAdds]));
         p.excluded = expected;
         if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
         p._raw.shipToLocations.regionExcluded = expected.map(c => ({ regionName: c }));
@@ -10469,8 +10488,9 @@ Object.assign(Shipping, {
       destinations: destForThisPolicy,
     }];
 
-    // 除外国を defaults で上書き
-    this.editingPolicyExcluded = Array.from(new Set([...(freshDef.baseExcluded || []), ...veroAdds]));
+    // 除外国を defaults で上書き(VeRO の場合は Europe 地域でカバーされる国を除外)
+    const filteredBase = shipFilterBaseExcludedForVero(freshDef.baseExcluded || [], p.vero);
+    this.editingPolicyExcluded = Array.from(new Set([...filteredBase, ...veroAdds]));
 
     // HT を defaults でセット(saveSnapshot 経由で復元)
     if (!this._editFormSnapshot) this._editFormSnapshot = {};
@@ -10526,7 +10546,8 @@ Object.assign(Shipping, {
     }
     else if (field === 'excluded') {
       const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
-      this.editingPolicyExcluded = Array.from(new Set([...(def.baseExcluded||[]), ...veroAdds]));
+      const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
+      this.editingPolicyExcluded = Array.from(new Set([...filteredBase, ...veroAdds]));
     }
     else {
       console.warn('[resetFieldToDefault] unknown field:', field);
