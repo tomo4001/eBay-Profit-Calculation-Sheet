@@ -7330,7 +7330,7 @@ const Shipping = {
     w.document.close();
   },
 
-  // 🔍 バッジクリック時に差分の詳細を alert で表示
+  // 🔍 バッジクリック時に差分の詳細をコピー可能モーダルで表示
   showDiffDetail(policyId) {
     const p = this.policies.find(x => x.id === policyId);
     if (!p) return;
@@ -7339,8 +7339,55 @@ const Shipping = {
       alert(`✓ "${p.name}"\n\nデフォルト通りです(差分なし)。`);
       return;
     }
-    const lines = ev.diffs.map((d, i) => `${i+1}. ${d.label}\n   現在: ${d.cur}\n   期待(default): ${d.def}`).join('\n\n');
-    alert(`✏️ "${p.name}" の個別設定箇所(${ev.diffCount}項目):\n\n${lines}\n\n対象サービス: ${p.service}${p.vero?' (VeRO)':''}`);
+    // 各 diff を文字列化(除外国は extra.onlyInDef / onlyInCur も展開)
+    const lines = ev.diffs.map((d, i) => {
+      const base = `${i+1}. ${d.label}\n   現在: ${d.cur}\n   期待(default): ${d.def}`;
+      if (d.extra) {
+        const extras = [];
+        if (Array.isArray(d.extra.onlyInDef) && d.extra.onlyInDef.length) {
+          extras.push(`   不足(期待にあるが現在に無い): ${d.extra.onlyInDef.join(', ')}`);
+        }
+        if (Array.isArray(d.extra.onlyInCur) && d.extra.onlyInCur.length) {
+          extras.push(`   追加(期待に無いが現在にある): ${d.extra.onlyInCur.join(', ')}`);
+        }
+        if (extras.length) return base + '\n' + extras.join('\n');
+      }
+      return base;
+    }).join('\n\n');
+    const fullText = `✏️ "${p.name}" の個別設定箇所(${ev.diffCount}項目)\n対象サービス: ${p.service}${p.vero?' (VeRO)':''}\n\n${lines}`;
+    // 全文を Console にも出力 + window._lastDiffDetail に保存
+    console.log('📋 個別設定 詳細(コピー用):');
+    console.log(fullText);
+    if (typeof window !== 'undefined') window._lastDiffDetail = { policyId, name: p.name, ev, fullText };
+    // モーダル
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:99999; display:flex; align-items:center; justify-content:center;';
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:#fff; border-radius:8px; padding:20px; max-width:900px; max-height:80vh; width:90%; overflow:auto; display:flex; flex-direction:column; gap:10px;';
+    modal.innerHTML = `
+      <h3 style="margin:0; color:#92400e;">✏️ 個別設定 詳細 (${ev.diffCount}項目)</h3>
+      <div style="font-size:12px; color:#555;">${p.name}<br>対象: ${p.service}${p.vero?' (VeRO)':''}</div>
+      <textarea readonly style="flex:1; min-height:380px; padding:10px; font-family:monospace; font-size:12px; border:1px solid #ddd; border-radius:4px; line-height:1.5;">${fullText.replace(/</g, '&lt;')}</textarea>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="copyDiffBtn" style="padding:8px 16px; background:#1565c0; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">📋 全文コピー</button>
+        <button id="closeDiffBtn" style="padding:8px 16px; background:#666; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">閉じる</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    modal.querySelector('#copyDiffBtn').addEventListener('click', () => {
+      const ta = modal.querySelector('textarea');
+      ta.select();
+      try {
+        document.execCommand('copy');
+      } catch (e) {
+        try { navigator.clipboard.writeText(ta.value); } catch (e2) {}
+      }
+      const btn = modal.querySelector('#copyDiffBtn');
+      btn.textContent = '✓ コピー済';
+      setTimeout(() => { if (btn) btn.textContent = '📋 全文コピー'; }, 1500);
+    });
+    modal.querySelector('#closeDiffBtn').addEventListener('click', () => overlay.remove());
   },
 
   evaluatePolicyDefaults(p) {
