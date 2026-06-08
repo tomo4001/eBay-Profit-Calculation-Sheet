@@ -7840,8 +7840,8 @@ function shipFilterDestinationsForVero(destinations, isVero) {
 // ヨーロッパ個別国コード(eBay の Europe 地域に含まれており、個別指定すると重複する国)。
 // ユーザーの eBay 実データから確認した正確なリスト(TR/GB/DE/FR 等は別扱いなので含めない)。
 const SHIP_VERO_EUROPE_COVERED_COUNTRIES = new Set([
-  'AD','AL','BA','BG','BY','CY','EE','GG','GI','HR','IS','JE','LT','LV','MD',
-  'ME','MK','MT','RO','RS','RU','SI','SJ','UA','VA'
+  'AD','AL','BA','BG','BY','CY','EE','GG','GI','HR','IE','IS','JE','LI','LT','LV','MC','MD',
+  'ME','MK','MT','RO','RS','RU','SI','SJ','SM','UA','VA'
 ]);
 
 // VeRO ポリシー の場合、baseExcluded から「Europe 地域でカバーされる個別国」を除外
@@ -7854,8 +7854,8 @@ function shipFilterBaseExcludedForVero(baseExcluded, isVero) {
 // (ポリシーが地域単位で除外している場合、個別国は重複なので期待値から除外)
 const SHIP_REGION_COUNTRY_MAP = {
   'Europe': [
-    'AD','AL','BA','BG','BY','CY','EE','GG','GI','HR','IS','JE','LT','LV','MD',
-    'ME','MK','MT','RO','RS','RU','SI','SJ','UA','VA'
+    'AD','AL','BA','BG','BY','CY','EE','GG','GI','HR','IE','IS','JE','LI','LT','LV','MC','MD',
+    'ME','MK','MT','RO','RS','RU','SI','SJ','SM','UA','VA'
   ],
   'Middle East': [
     'AE','BH','EG','IL','IQ','JO','KW','LB','OM','QA','SA','TR','YE'
