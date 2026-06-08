@@ -7862,7 +7862,9 @@ const SHIP_REGION_COUNTRY_MAP = {
   ],
   // 必要に応じて他の地域(Africa, South America, Asia 等)も追加可
 };
-// 「ポリシーの除外リスト(cur)に地域名がある場合」、期待値から該当する個別国を除外する
+// 「ポリシーの除外リスト(cur)に地域名がある場合」、期待値を以下のように正規化:
+//   1) 該当地域に含まれる個別国を除外
+//   2) 地域名自体を期待値に追加(cur 側に地域名があるので、期待値にも含めるべき)
 function shipNormalizeExpectedForRegions(expectedArr, curArr) {
   if (!Array.isArray(expectedArr) || !Array.isArray(curArr)) return expectedArr;
   const curSet = new Set(curArr);
@@ -7870,7 +7872,10 @@ function shipNormalizeExpectedForRegions(expectedArr, curArr) {
   for (const region in SHIP_REGION_COUNTRY_MAP) {
     if (curSet.has(region)) {
       const covered = new Set(SHIP_REGION_COUNTRY_MAP[region]);
-      result = result.filter(c => !covered.has(c) || c === region);
+      // 個別国を除外
+      result = result.filter(c => !covered.has(c));
+      // 地域名を追加
+      if (!result.includes(region)) result.push(region);
     }
   }
   return result;
