@@ -7477,8 +7477,11 @@ const Shipping = {
       // 🔧 VeRO の場合、baseExcluded から Europe 地域でカバーされる個別ヨーロッパ国を除外
       //    (Europe 地域単位で一括除外しているため、個別指定は不要)
       const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
-      const expected = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds])).sort();
+      let expected = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds])).sort();
       const cur = (p.excluded || []).slice().sort();
+      // 🔧 ポリシーが地域単位(Middle East / Europe 等)で除外していれば、
+      //    期待値から該当する個別国を除外する(地域カバーで重複指定不要)
+      expected = shipNormalizeExpectedForRegions(expected, cur).sort();
       if (cur.join('|') !== expected.join('|')) {
         const onlyInCur = cur.filter(c => !expected.includes(c));
         const onlyInDef = expected.filter(c => !cur.includes(c));
@@ -7845,6 +7848,32 @@ const SHIP_VERO_EUROPE_COVERED_COUNTRIES = new Set([
 function shipFilterBaseExcludedForVero(baseExcluded, isVero) {
   if (!isVero || !Array.isArray(baseExcluded)) return baseExcluded;
   return baseExcluded.filter(c => !SHIP_VERO_EUROPE_COVERED_COUNTRIES.has(c));
+}
+
+// 地域→その地域に含まれる個別国コードのマップ
+// (ポリシーが地域単位で除外している場合、個別国は重複なので期待値から除外)
+const SHIP_REGION_COUNTRY_MAP = {
+  'Europe': [
+    'AD','AL','BA','BG','BY','CY','EE','GG','GI','HR','IS','JE','LT','LV','MD',
+    'ME','MK','MT','RO','RS','RU','SI','SJ','UA','VA'
+  ],
+  'Middle East': [
+    'AE','BH','EG','IL','IQ','JO','KW','LB','OM','QA','SA','TR','YE'
+  ],
+  // 必要に応じて他の地域(Africa, South America, Asia 等)も追加可
+};
+// 「ポリシーの除外リスト(cur)に地域名がある場合」、期待値から該当する個別国を除外する
+function shipNormalizeExpectedForRegions(expectedArr, curArr) {
+  if (!Array.isArray(expectedArr) || !Array.isArray(curArr)) return expectedArr;
+  const curSet = new Set(curArr);
+  let result = expectedArr.slice();
+  for (const region in SHIP_REGION_COUNTRY_MAP) {
+    if (curSet.has(region)) {
+      const covered = new Set(SHIP_REGION_COUNTRY_MAP[region]);
+      result = result.filter(c => !covered.has(c) || c === region);
+    }
+  }
+  return result;
 }
 
 // Domestic 用シッピングサービスコード(eBay UI で選択可能なサービス、Hartuoさんが実際に使うもの)
