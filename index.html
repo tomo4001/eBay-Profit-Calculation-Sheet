@@ -5115,15 +5115,22 @@ function attachReverseCalcEvents() {
       return;
     }
     lastResult = res;
+    const total = res.salePriceUsd + res.shipQuotedUsd;
     resultBox.style.display = '';
     resultBox.innerHTML = `
-      <div style="font-size:12px; color:#15803d; font-weight:600;">💡 推奨販売価格</div>
-      <div class="reverse-result-main">$${res.salePriceUsd.toFixed(2)} <span style="font-size:14px; color:#666; font-weight:600;">(送料 $${res.shipQuotedUsd.toFixed(2)})</span></div>
+      <div style="font-size:12px; color:#15803d; font-weight:600; margin-bottom:6px;">💡 推奨価格(分離)</div>
+      <div style="display:grid; grid-template-columns:auto auto; gap:2px 16px; font-family:monospace; font-size:15px; margin-bottom:10px;">
+        <div style="color:#15803d;">商品価格 X:</div><div style="text-align:right; color:#14532d; font-weight:700;">$${res.salePriceUsd.toFixed(2)}</div>
+        <div style="color:#15803d;">送料 X:</div><div style="text-align:right; color:#14532d; font-weight:700;">$${res.shipQuotedUsd.toFixed(2)}</div>
+      </div>
+      <div style="border-top:2px solid #86efac; padding-top:8px; margin-bottom:10px;">
+        <div style="font-size:12px; color:#15803d; font-weight:600;">📌 合計(買い手請求額)</div>
+        <div class="reverse-result-main" style="margin-top:2px;">$${total.toFixed(2)}</div>
+      </div>
       <div class="reverse-result-row"><span>発送方法</span><strong>${res.carrier} / ${res.method}</strong></div>
       <div class="reverse-result-row"><span>送料原価</span><strong>¥${res.shipCostYen.toLocaleString()}</strong></div>
       <div class="reverse-result-row"><span>還付抜き利益</span><strong>¥${res.profitNoRefund.toLocaleString()} (利益率 ${(res.rateNoRefund*100).toFixed(2)}%)</strong></div>
       <div class="reverse-result-row"><span>還付込み利益</span><strong>¥${res.profitWithRefund.toLocaleString()} (利益率 ${(res.rateWithRefund*100).toFixed(2)}%)</strong></div>
-      <div class="reverse-result-row"><span>合計売上</span><strong>$${(res.salePriceUsd + res.shipQuotedUsd).toFixed(2)}</strong></div>
     `;
     if (applyBtn) applyBtn.style.display = '';
   };
