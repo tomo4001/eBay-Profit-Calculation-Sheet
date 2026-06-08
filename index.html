@@ -10915,6 +10915,70 @@ Object.assign(Shipping, {
     alert(`${prefix}\n${summaryLines}\n\n※ eBay 上のポリシーは変更されていません(eBay書込は Phase 2-G)`);
   },
 
+  // 🚀 POST 失敗時の詳細をコピー可能モーダルで表示
+  _showPostErrorModal(p, data, httpStatus) {
+    const eb = (data && data.detail && Array.isArray(data.detail.errors)) ? data.detail.errors : [];
+    const lines = [];
+    lines.push(`❌ eBay POST 失敗`);
+    lines.push(`ポリシー名: ${p.name}`);
+    lines.push(`サービス: ${p.service}${p.vero ? ' (VeRO)' : ''}`);
+    lines.push(`HTTP: ${data.status || httpStatus}`);
+    lines.push(`エラー: ${data.error || '(不明)'}`);
+    if (eb.length) {
+      lines.push('');
+      eb.forEach((e, i) => {
+        lines.push(`eBay error #${i+1}:`);
+        if (e.errorId != null) lines.push(`  errorId: ${e.errorId}`);
+        if (e.domain) lines.push(`  domain: ${e.domain}`);
+        if (e.category) lines.push(`  category: ${e.category}`);
+        if (e.message) lines.push(`  message: ${e.message}`);
+        if (e.longMessage && e.longMessage !== e.message) lines.push(`  longMessage: ${e.longMessage}`);
+        if (Array.isArray(e.parameters) && e.parameters.length) {
+          lines.push(`  parameters:`);
+          e.parameters.forEach(prm => lines.push(`    - ${prm.name || '?'}: ${prm.value || '?'}`));
+        }
+      });
+    } else if (data.detail) {
+      lines.push('');
+      lines.push('detail (raw):');
+      try { lines.push(JSON.stringify(data.detail, null, 2)); }
+      catch (e) { lines.push(String(data.detail).slice(0, 1000)); }
+    }
+    // 送信した body もデバッグ用に表示
+    if (data.sentBody) {
+      lines.push('');
+      lines.push('--- 送信した body (debug) ---');
+      try { lines.push(JSON.stringify(data.sentBody, null, 2).slice(0, 3000)); }
+      catch (e) {}
+    }
+    const fullText = lines.join('\n');
+    console.error('eBay POST 失敗 詳細:', data);
+    if (typeof window !== 'undefined') window._lastPostError = { policy: p, data, httpStatus, fullText };
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:99999; display:flex; align-items:center; justify-content:center;';
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:#fff; border-radius:8px; padding:20px; max-width:900px; max-height:80vh; width:90%; overflow:auto; display:flex; flex-direction:column; gap:10px;';
+    modal.innerHTML = `
+      <h3 style="margin:0; color:#991b1b;">❌ 新規ポリシー作成 失敗</h3>
+      <textarea readonly style="flex:1; min-height:380px; padding:10px; font-family:monospace; font-size:12px; border:1px solid #ddd; border-radius:4px; line-height:1.5;">${fullText.replace(/</g, '&lt;')}</textarea>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="copyPostErrBtn" style="padding:8px 16px; background:#1565c0; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">📋 全文コピー</button>
+        <button id="closePostErrBtn" style="padding:8px 16px; background:#666; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">閉じる</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    modal.querySelector('#copyPostErrBtn').addEventListener('click', () => {
+      const ta = modal.querySelector('textarea');
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { try { navigator.clipboard.writeText(ta.value); } catch (e2) {} }
+      modal.querySelector('#copyPostErrBtn').textContent = '✓ コピー済';
+      setTimeout(() => { const b = modal.querySelector('#copyPostErrBtn'); if (b) b.textContent = '📋 全文コピー'; }, 1500);
+    });
+    modal.querySelector('#closePostErrBtn').addEventListener('click', () => overlay.remove());
+  },
+
   // 🚀 Phase 2-G.3: 新規ポリシーを eBay POST(local_new_* を eBay 正規 ID に置換)
   async pushNewPolicyToEbay(p) {
     if (!p || !p._raw) { alert('内部エラー: _raw データがありません'); return; }
@@ -10944,7 +11008,7 @@ Object.assign(Shipping, {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        alert(`❌ eBay POST 失敗\n\nHTTP: ${data.status || res.status}\nエラー: ${data.error || '(不明)'}\n詳細: ${JSON.stringify(data.detail || {}).slice(0, 500)}`);
+        this._showPostErrorModal(p, data, res.status);
         return;
       }
       const newId = data.newPolicyId;
