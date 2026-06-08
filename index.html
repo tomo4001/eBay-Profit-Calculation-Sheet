@@ -79,6 +79,51 @@
     gap: 16px;
     margin-top: 16px;
   }
+  /* 🔄 順算/逆算 モードタブ */
+  .calc-mode-tabs {
+    display: flex;
+    gap: 0;
+    margin: 12px 0 16px;
+    border-bottom: 2px solid #e5e7eb;
+  }
+  .calc-mode-tab {
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+    color: #888;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .calc-mode-tab:hover { background: #f3f4f6; color: #555; }
+  .calc-mode-tab.active {
+    color: #1565c0;
+    border-bottom-color: #1565c0;
+  }
+  .reverse-result-box {
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 2px solid #86efac;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-top: 16px;
+  }
+  .reverse-result-main {
+    font-size: 22px;
+    font-weight: 800;
+    color: #15803d;
+    margin: 4px 0 8px;
+  }
+  .reverse-result-row {
+    display: flex; justify-content: space-between;
+    font-size: 13px; color: #166534;
+    padding: 4px 0;
+    border-top: 1px dashed #86efac;
+  }
+  .reverse-result-row:first-child { border-top: none; }
+  .reverse-result-row strong { color: #14532d; }
   .result {
     background: #eef5fb;
     border-radius: 10px;
@@ -1635,6 +1680,26 @@
   <!-- ===== Calculation Card ===== -->
   <div class="card manual-input">
     <h2>🧮 計算</h2>
+
+    <!-- 🔄 モードタブ -->
+    <div class="calc-mode-tabs">
+      <button type="button" class="calc-mode-tab active" data-calc-mode="forward">⚡ 順算 <span style="font-weight:normal; font-size:11px; opacity:0.7;">(売値→利益)</span></button>
+      <button type="button" class="calc-mode-tab" data-calc-mode="reverse">🔄 逆算 <span style="font-weight:normal; font-size:11px; opacity:0.7;">(利益率→売値)</span></button>
+    </div>
+
+    <!-- 🔄 逆算モード入力 (デフォルト非表示) -->
+    <div id="reverseInputPanel" style="display:none; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:14px 18px; margin-bottom:16px;">
+      <div style="font-size:12px; color:#166534; margin-bottom:10px;">
+        ⓘ 仕入値・発送国・重量・寸法を入力(順算と共通) → 目標利益率を指定 → 「🔄 逆算する」 ボタンで <strong>推奨販売価格 X</strong> が算出されます。
+      </div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+        <label style="font-weight:600; color:#15803d; font-size:14px;">目標利益率(還付抜き):</label>
+        <input type="number" id="reverseTargetRate" step="0.1" min="-50" max="90" placeholder="例: 25" style="width:100px; padding:6px 10px; border:1px solid #86efac; border-radius:6px; font-size:14px; font-family:monospace;" /> <span style="font-size:14px; color:#15803d;">%</span>
+        <button type="button" id="reverseCalcBtn" style="padding:8px 20px; font-size:14px; background:#15803d; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:700;">🔄 逆算する</button>
+        <button type="button" id="reverseApplyBtn" style="padding:8px 16px; font-size:13px; background:#fff; color:#15803d; border:1px solid #15803d; border-radius:6px; cursor:pointer; font-weight:600; display:none;">✓ 順算側に反映</button>
+      </div>
+      <div id="reverseResultBox" style="display:none;" class="reverse-result-box"></div>
+    </div>
 
     <div class="calc-row">
       <label for="setCategoryNo">カテゴリーNo.</label>
@@ -4915,6 +4980,180 @@ function pickBestMethod() {
   return filtered[0];
 }
 
+// =============================================================================
+// 🔄 逆算: 仕入値 + 目標利益率(還付抜き) → 推奨販売価格 X / 送料
+// Phase 1: 既存の "最高利益発送方法" を使用し、その送料原価を固定して
+//          販売価格 X を二分探索で求める。送料(buyer 課金分)は salePriceUsd ×
+//          (現行 ship/X 比率) で再計算する。
+// =============================================================================
+function reverseCalcPrice(targetRatePercent) {
+  // 入力値取得(順算と同じソースを利用)
+  const country = document.getElementById('setShippingCountry').value;
+  const purchaseYen = parseFloat(document.getElementById('purchasePrice').value) || 0;
+  if (!country) return { error: '発送国を選択してください' };
+  if (purchaseYen <= 0) return { error: '仕入値(¥)を入力してください' };
+
+  // 現状の最高利益発送方法を取得(その送料原価を固定して逆算)
+  const winner = pickBestMethod();
+  if (!winner) return { error: '発送方法を判定できません(寸法・重量も入力してください)' };
+
+  const shipCostYen = winner.shipCost;
+  const carrier = winner.carrier;
+  const method = winner.method;
+
+  // 現行の P と 送料 X の比率を測る(buyer 課金送料の連動率)
+  // 現行 X が無い場合は master ship rate を使う
+  const curX = parseFloat(document.getElementById('resultXValue').value) || 0;
+  const curShipText = (document.getElementById('resultShipValue').textContent || '').replace(/[^0-9.]/g, '');
+  const curShip = parseFloat(curShipText) || 0;
+  const priceMode = (document.querySelector('input[name="priceMode"]:checked') || {}).value || 'split';
+  // 比率 r: shipQuotedUsd = P × r
+  // 一括モードなら 0、それ以外で 現行があるならその比率、無ければ master 率
+  let shipRatio;
+  if (priceMode === 'single') {
+    shipRatio = 0;
+  } else if (curX > 0 && curShip > 0) {
+    shipRatio = curShip / curX;
+  } else {
+    const mr = (typeof getMasterShipRate === 'function') ? getMasterShipRate() : 25;
+    shipRatio = (mr || 25) / 100;
+  }
+
+  const settings = getCurrentSettings();
+  const ctxBase = {
+    country,
+    purchaseYen,
+    shipCostYen,
+    exchangeRate: settings.exchangeRate || 156.57,
+    ebayFeePercent: settings.ebayFee || 0,
+    tariffPercent: settings.tariff || 0,
+    refundTaxPercent: settings.taxRate || 0,
+    feeTaxPercent: settings.feeTaxRate || 0,
+    payoneerPercent: settings.payoneerFee || 0,
+    overseasPercent: settings.overseasFee || 0,
+    plAdPercent: settings.plAdFee || 0,
+    exchangeFeePercent: settings.exchangeFee || 0,
+    pointGivenPercent: settings.pointGiven || 0,
+    discountYen: settings.discount || 0,
+    otherFeeYen: 0,
+  };
+
+  const M = targetRatePercent / 100;
+  // 利益率は salesYen ベース(profit / salesYen) で計算されているため、
+  // 二分探索の対象を salePriceUsd P とし、各 P について
+  //   shipQuotedUsd = P × shipRatio
+  //   ctx = {...ctxBase, salePriceUsd:P, shipQuotedUsd}
+  //   r = calcProfit(ctx).rateNoRefund
+  // が M に最も近くなる P を求める。
+  const tryRate = (P) => {
+    const ship = P * shipRatio;
+    const r = calcProfit({ ...ctxBase, salePriceUsd: P, shipQuotedUsd: ship });
+    return { P, ship, r };
+  };
+  // 二分探索 (P は単調増加で rateNoRefund も単調)
+  let lo = 0.01, hi = 100000;
+  let last = null;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const t = tryRate(mid);
+    last = t;
+    if (t.r.rateNoRefund < M) lo = mid; else hi = mid;
+    if (hi - lo < 0.005) break;
+  }
+  if (!last) return { error: '計算失敗' };
+  const finalP = Math.round(last.P * 100) / 100;
+  const finalShip = Math.round(last.ship * 100) / 100;
+  // 最終結果を実 calcProfit で算出
+  const finalRes = calcProfit({ ...ctxBase, salePriceUsd: finalP, shipQuotedUsd: finalShip });
+  return {
+    salePriceUsd: finalP,
+    shipQuotedUsd: finalShip,
+    shipCostYen,
+    carrier, method,
+    profitNoRefund: finalRes.profitNoRefund,
+    rateNoRefund: finalRes.rateNoRefund,
+    profitWithRefund: finalRes.profitWithRefund,
+    rateWithRefund: finalRes.rateWithRefund,
+    targetRate: targetRatePercent,
+  };
+}
+
+// 🔄 タブ・ボタンのハンドラー
+function attachReverseCalcEvents() {
+  const tabs = document.querySelectorAll('.calc-mode-tab');
+  const reversePanel = document.getElementById('reverseInputPanel');
+  const targetEl = document.getElementById('reverseTargetRate');
+  const calcBtn = document.getElementById('reverseCalcBtn');
+  const applyBtn = document.getElementById('reverseApplyBtn');
+  const resultBox = document.getElementById('reverseResultBox');
+
+  // タブ切替
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const mode = t.dataset.calcMode;
+      if (reversePanel) reversePanel.style.display = (mode === 'reverse') ? '' : 'none';
+    });
+  });
+
+  if (!calcBtn) return;
+  let lastResult = null;
+
+  const doReverseCalc = () => {
+    const target = parseFloat(targetEl.value);
+    if (isNaN(target)) {
+      alert('目標利益率を入力してください');
+      targetEl.focus();
+      return;
+    }
+    const res = reverseCalcPrice(target);
+    if (res.error) {
+      resultBox.style.display = '';
+      resultBox.innerHTML = `<div style="color:#991b1b; font-weight:600;">⚠ ${res.error}</div>`;
+      if (applyBtn) applyBtn.style.display = 'none';
+      return;
+    }
+    lastResult = res;
+    resultBox.style.display = '';
+    resultBox.innerHTML = `
+      <div style="font-size:12px; color:#15803d; font-weight:600;">💡 推奨販売価格</div>
+      <div class="reverse-result-main">$${res.salePriceUsd.toFixed(2)} <span style="font-size:14px; color:#666; font-weight:600;">(送料 $${res.shipQuotedUsd.toFixed(2)})</span></div>
+      <div class="reverse-result-row"><span>発送方法</span><strong>${res.carrier} / ${res.method}</strong></div>
+      <div class="reverse-result-row"><span>送料原価</span><strong>¥${res.shipCostYen.toLocaleString()}</strong></div>
+      <div class="reverse-result-row"><span>還付抜き利益</span><strong>¥${res.profitNoRefund.toLocaleString()} (利益率 ${(res.rateNoRefund*100).toFixed(2)}%)</strong></div>
+      <div class="reverse-result-row"><span>還付込み利益</span><strong>¥${res.profitWithRefund.toLocaleString()} (利益率 ${(res.rateWithRefund*100).toFixed(2)}%)</strong></div>
+      <div class="reverse-result-row"><span>合計売上</span><strong>$${(res.salePriceUsd + res.shipQuotedUsd).toFixed(2)}</strong></div>
+    `;
+    if (applyBtn) applyBtn.style.display = '';
+  };
+
+  calcBtn.addEventListener('click', doReverseCalc);
+  targetEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doReverseCalc(); }
+  });
+
+  if (applyBtn) applyBtn.addEventListener('click', () => {
+    if (!lastResult) return;
+    // 順算側の「販売価格 X」に書き戻す + 既存の再計算をキック
+    const xInput = document.getElementById('resultXValue');
+    if (!xInput) return;
+    xInput.value = lastResult.salePriceUsd.toFixed(2);
+    // 手動編集マーカーをONにして自動上書きを防ぐ + 再計算
+    if (typeof window !== 'undefined') window.xIsManual = true;
+    xInput.dispatchEvent(new Event('input', { bubbles: true }));
+    xInput.dispatchEvent(new Event('change', { bubbles: true }));
+    if (typeof recalc === 'function') recalc();
+    // 順算タブへ自動切替
+    const fwdTab = document.querySelector('.calc-mode-tab[data-calc-mode="forward"]');
+    if (fwdTab) fwdTab.click();
+    // 通知
+    if (resultBox) {
+      resultBox.innerHTML += `<div style="margin-top:8px; padding:6px 10px; background:#dcfce7; border-radius:4px; font-size:12px; color:#14532d;">✓ 順算側「販売価格 X」に $${lastResult.salePriceUsd.toFixed(2)} を反映しました</div>`;
+    }
+  });
+}
+
 function updateWinnerDisplay() {
   const winner = pickBestMethod();
   const card = document.getElementById('winnerCard');
@@ -6348,6 +6587,7 @@ function init() {
   attachEbayUrlEvents();
   attachAiDimEvents();
   attachAuthEvents();
+  attachReverseCalcEvents();
   // 7項目コピーボタン
   const wcBtn = document.getElementById('winnerCopyBtn');
   if (wcBtn) wcBtn.addEventListener('click', copyWinnerSeven);
