@@ -9861,11 +9861,13 @@ Object.assign(Shipping, {
 
     this.closeModal('shipCloneSourcePickerModal');
 
-    // ディープコピー + 新規ID + 名前にコピー印
+    // ディープコピー + 新規ID(名前は source と同じ — 編集モーダルで必ず変更してもらう)
+    // ※ 旧仕様で「(コピー)」を自動付与していたが、eBay POST 時に名前衝突や醜い名前の原因
+    //    になるため廃止。代わりにモーダルタイトルで「コピー元: X」と分かるようにしている。
     const newId = 'local_new_' + Date.now();
     const cloned = JSON.parse(JSON.stringify(source));
     cloned.id = newId;
-    cloned.name = source.name + ' (コピー)';
+    cloned.name = source.name;  // source 名そのまま(ユーザーが編集モーダルで変更前提)
     cloned._isNew = true;
     cloned._clonedFromId = sourceId;
     cloned._clonedFromName = source.name;
@@ -10982,6 +10984,18 @@ Object.assign(Shipping, {
   // 🚀 Phase 2-G.3: 新規ポリシーを eBay POST(local_new_* を eBay 正規 ID に置換)
   async pushNewPolicyToEbay(p) {
     if (!p || !p._raw) { alert('内部エラー: _raw データがありません'); return; }
+    // 名前衝突警告:
+    //   1) ローカル他ポリシー(eBay 正規 ID 持ち)と同名 → 確実に 20400 になる
+    //   2) source 名と同じ(クローン直後で未リネーム) → 高確率で 20400
+    //   3) 「(コピー)」を含む → 過去の自動付与の名残、再 push 衝突しがち
+    const conflict = (this.policies || []).find(x => x !== p && x.name === p.name && !x.id.startsWith('local_new_'));
+    if (conflict) {
+      alert(`⚠️ 名前衝突\n\n"${p.name}" は既に eBay 上に存在します(ID: ${conflict.id})。\n編集モーダルで名前をユニークなものに変更してください。`);
+      return;
+    }
+    if (p._clonedFromName && p.name === p._clonedFromName) {
+      if (!confirm(`⚠️ ポリシー名がコピー元と同じです:\n"${p.name}"\n\n名前を変えずに push すると 20400 Duplicate エラーになる可能性が高いです。\n編集モーダルで名前変更を推奨。\n\nそれでも続行しますか?`)) return;
+    }
     if (!confirm(`新規ポリシー "${p.name}" を eBay に作成しますか?\n\n名前: ${p.name}\nサービス: ${p.service}\n除外国: ${p.excluded.length}項目\n\n※ 名前が eBay の既存ポリシーと重複していると 20400 エラーで失敗します。`)) return;
 
     const btn = document.getElementById('shipSinglePushBtn');
@@ -11253,10 +11267,13 @@ Object.assign(Shipping, {
     const p = this.policies.find(x => x.id === this.editingPolicyId);
     if (!p) return;
     if (!p._raw) { alert('内部エラー: _raw データがありません'); return; }
+    // 📌 フォーム値を _raw に反映(編集モーダル中の最新値を必ず使う)
+    this.saveEditedPolicyToLocalOnly();
+    const pFresh = this.policies.find(x => x.id === this.editingPolicyId) || p;
     // local_new_* → 新規作成 POST 経路へ
-    const isNewPolicy = p.id.startsWith('local_new_');
+    const isNewPolicy = pFresh.id.startsWith('local_new_');
     if (isNewPolicy) {
-      return this.pushNewPolicyToEbay(p);
+      return this.pushNewPolicyToEbay(pFresh);
     }
 
     // 念のためまずフォーム値を _raw に反映(保存と同じロジック)
