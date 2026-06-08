@@ -107,7 +107,66 @@ export default async function handler(req, res) {
   const policyId = body.policyId;
   const policy = body.policy;
   const dryRun = body.dryRun === true;
-  const action = body.action || 'update';  // 'update' | 'delete'
+  const action = body.action || 'update';  // 'update' | 'delete' | 'create'
+
+  // === ➕ CREATE 処理(新規ポリシー作成 / Phase 2-G.3) ===
+  if (action === 'create') {
+    if (!policy || typeof policy !== 'object') { res.status(400).json({ error: 'policy オブジェクトが必要' }); return; }
+    const validationErrors = validatePolicy(policy);
+    if (validationErrors.length > 0) {
+      res.status(400).json({
+        ok: false, action: 'create', dryRun, validationFailed: true,
+        errors: validationErrors, message: '事前検証エラー: 必須項目が不足しています',
+      });
+      return;
+    }
+    const cleaned = cleanPolicy(policy);
+    if (dryRun) {
+      res.status(200).json({
+        ok: true, action: 'create', dryRun: true,
+        message: '✓ 検証 OK(dry-run: eBay にはまだ送信していません)',
+        cleanedPolicy: cleaned,
+      });
+      return;
+    }
+    try {
+      const accessToken = await getAccessToken(appId, certId, refreshToken);
+      const apiUrl = 'https://api.ebay.com/sell/account/v1/fulfillment_policy';
+      const apiRes = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Content-Language': 'en-US',
+        },
+        body: JSON.stringify(cleaned),
+      });
+      const text = await apiRes.text();
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch (e) {}
+      if (!apiRes.ok) {
+        res.status(apiRes.status).json({
+          ok: false, action: 'create', status: apiRes.status,
+          error: `eBay POST 失敗 (HTTP ${apiRes.status})`,
+          detail: json || text.slice(0, 1500),
+          sentBody: cleaned,
+        });
+        return;
+      }
+      const newPolicyId = (json && json.fulfillmentPolicyId) || null;
+      res.status(200).json({
+        ok: true, action: 'create', status: apiRes.status,
+        newPolicyId,
+        message: '✓ eBay POST 成功(新規作成)',
+        created: json,
+      });
+      return;
+    } catch (e) {
+      res.status(500).json({ ok: false, action: 'create', error: e.message || String(e) });
+      return;
+    }
+  }
 
   if (!policyId) { res.status(400).json({ error: 'policyId が必要' }); return; }
 
