@@ -3653,6 +3653,61 @@ function attachEbayUrlEvents() {
 
 
 // =============================================================================
+// 📷 2ndstreet (セカンドストリート) 専用 画像ヘルパー
+// 2ndstreet は Vercel サーバー IP を 403 でブロックし、画像 CDN も CORS 非対応のため、
+// サーバー経由(/api/ebay-item)も クライアント直 fetch もバイト取得が不可。
+// → 画像 URL は goodsId から導出、存在確認は <img>(住宅IP・CORS不要)、
+//    バイト取得は CORS 対応の外部画像プロキシ(images.weserv.nl・別IP)経由で行う。
+// 画像URL規則: goodsId=2334484490803 → /img/pc/goods/233448/44/90803/N.jpg
+//   (右詰め分割: 末尾5桁 / その前2桁 / 残り)
+// =============================================================================
+function build2ndStreetImageBase(goodsId) {
+  const id = String(goodsId).replace(/\D/g, '');
+  if (id.length < 7) return null;
+  const a = id.slice(0, -7);
+  const b = id.slice(-7, -5);
+  const c = id.slice(-5);
+  return `https://cdn2.2ndstreet.jp/img/pc/goods/${a}/${b}/${c}`;
+}
+
+// <img> で存在確認(住宅IP・CORS不要)。1.jpg から連番、2連続失敗で打ち切り。
+function probe2ndStreetImages(base, maxImages = 30) {
+  return new Promise((resolve) => {
+    const found = [];
+    let i = 1;
+    let consecutiveFail = 0;
+    const next = () => {
+      if (i > maxImages || consecutiveFail >= 2) { resolve(found); return; }
+      const u = `${base}/${i}.jpg`;
+      const im = new Image();
+      let settled = false;
+      const done = (ok) => {
+        if (settled) return;
+        settled = true;
+        if (ok) { found.push(u); consecutiveFail = 0; }
+        else { consecutiveFail++; }
+        i++;
+        next();
+      };
+      im.onload = () => done(im.naturalWidth > 1);
+      im.onerror = () => done(false);
+      setTimeout(() => done(false), 6000);
+      im.src = u;
+    };
+    next();
+  });
+}
+
+// CORS 対応の外部画像プロキシ経由で画像バイトを取得(2ndstreet の IP ブロック回避)
+async function fetchImageViaWeserv(imgUrl) {
+  const src = imgUrl.replace(/^https?:\/\//i, '');
+  const proxied = 'https://images.weserv.nl/?url=' + encodeURIComponent(src);
+  const r = await fetch(proxied, { mode: 'cors' });
+  if (!r.ok) throw new Error('weserv HTTP ' + r.status);
+  return await r.blob();
+}
+
+// =============================================================================
 // 📷 eBay URL から画像を一括ダウンロード(ZIP形式)
 // =============================================================================
 async function downloadEbayImages() {
@@ -3680,6 +3735,53 @@ async function downloadEbayImages() {
   status.textContent = '';
 
   try {
+    // 🆕 2ndstreet 専用処理(サーバー403 + CDN CORS非対応のため外部プロキシ経由)
+    if (/(^|\.)2ndstreet\.jp/i.test(url)) {
+      const gm = url.match(/goodsId\/(\d+)/i);
+      const goodsId = gm ? gm[1] : null;
+      const base = goodsId ? build2ndStreetImageBase(goodsId) : null;
+      if (!base) {
+        status.textContent = '⚠ goodsId をURLから取得できません';
+        status.style.color = '#c0504d';
+        return;
+      }
+      btn.textContent = '📡 画像を確認中…';
+      const imgs = await probe2ndStreetImages(base);
+      if (imgs.length === 0) {
+        status.textContent = '⚠ 画像が見つかりません(URL規則が変わった可能性)';
+        status.style.color = '#c0504d';
+        return;
+      }
+      const zip2 = new JSZip();
+      let ok2 = 0, ng2 = 0;
+      for (let i = 0; i < imgs.length; i++) {
+        btn.textContent = `📡 画像 ${i + 1}/${imgs.length}…`;
+        try {
+          const blob = await fetchImageViaWeserv(imgs[i]);
+          zip2.file(String(i + 1).padStart(2, '0') + '.jpg', blob);
+          ok2++;
+        } catch (e) { ng2++; }
+      }
+      if (ok2 === 0) {
+        status.textContent = '⚠ 画像のダウンロードに全て失敗しました';
+        status.style.color = '#c0504d';
+        return;
+      }
+      btn.textContent = '📦 ZIP 作成中…';
+      const zipBlob2 = await zip2.generateAsync({ type: 'blob' });
+      const zurl = URL.createObjectURL(zipBlob2);
+      const a2 = document.createElement('a');
+      a2.href = zurl;
+      a2.download = '2ndstreet_' + goodsId + '.zip';
+      document.body.appendChild(a2);
+      a2.click();
+      document.body.removeChild(a2);
+      URL.revokeObjectURL(zurl);
+      status.textContent = `✓ ${ok2} 枚 ダウンロード${ng2 > 0 ? ` (失敗 ${ng2} 枚)` : ''}`;
+      status.style.color = '#2e7d32';
+      return;
+    }
+
     // 1) ebay-item API から画像 URL を取得
     const res = await fetch('/api/ebay-item?url=' + encodeURIComponent(url));
     const data = await res.json();
