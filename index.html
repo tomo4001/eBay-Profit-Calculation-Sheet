@@ -1543,6 +1543,59 @@
   @media (max-width: 700px) {
     .ship-dest-grid { grid-template-columns: repeat(2, 1fr) !important; }
   }
+  /* 🆕 ヘルプ用 ? バッジ + ホバーで出る説明ツールチップ */
+  .help-badge {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: #1565c0;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+    vertical-align: middle;
+  }
+  .help-badge .help-tip {
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    background: #2c3e50;
+    color: #fff;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.6;
+    padding: 8px 10px;
+    border-radius: 6px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s;
+    z-index: 1000;
+    white-space: normal;
+  }
+  .help-badge .help-tip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #2c3e50;
+  }
+  .help-badge:hover .help-tip {
+    opacity: 1;
+    visibility: visible;
+  }
+  .help-badge .help-tip b { color: #ffd966; }
 </style>
 </head>
 <body>
@@ -1797,7 +1850,7 @@
 
       <!-- 🆕 実重量の lb/oz 換算(読み取り専用) -->
       <div id="weightLbOzRow" style="margin:2px 0 6px; font-size:12px; color:#1565c0; font-weight:600;">
-        ⚖ 実重量(lb/oz): <span id="weightLbOzValue">—</span>
+        ⚖ 実重量(lb/oz): <span id="weightLbOzValue">—</span><span class="help-badge">?<span class="help-tip"><b>ポンド(lb)とオンス(oz)</b><br>1ポンド = 16オンス。<br>大きい単位がポンド、小さい単位がオンスです(1フィート=12インチと同じ関係)。<br><br>例:250g = <b>0 lb 8.8 oz</b>(0ポンド8.8オンス)。<br>カッコ内の<b>(0.55 lb)</b>は同じ重さをポンドだけの小数で表したもの。<br>※「8.8」はオンスの数字で、0.88ポンドではありません(8.8÷16=0.55ポンド)。<br><br>eBayの入力欄に合わせて両方を表示しています。</span></span>
       </div>
 
       <div class="dimension-row">
