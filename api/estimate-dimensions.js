@@ -12,6 +12,57 @@
 //   GEMINI_API_KEY = Google AI Studio の API キー
 // =============================================================================
 
+// Vercel 関数のタイムアウト上限(秒)。Gemini+Google検索グラウンディングは
+// 最悪 90秒超かかるため明示する。Hobby プランは最大60秒なので注意(その場合は
+// レイテンシ削減=モデル試行数を減らす等が必要)。Pro 以上なら最大300まで可。
+export const config = { maxDuration: 180 };
+
+// AI 応答テキストから JSON オブジェクトを堅牢に抽出する。
+//   1) ```json ... ``` のコードフェンスを除去
+//   2) 最初の { から、文字列・エスケープを考慮した括弧バランスで対応する } までを抽出
+//   3) 失敗時は旧来の greedy regex でフォールバック
+// AI が説明文や Markdown フェンスを付けて返すケース(JSON解析失敗の主因)に対応。
+function extractJsonFromAiText(text) {
+  if (!text || typeof text !== 'string') return null;
+  // 1) コードフェンス除去
+  let cleaned = text
+    .replace(/^[\s\S]*?```(?:json)?\s*/i, '')  // 先頭の ```json までを除去
+    .replace(/```[\s\S]*$/, '')                // 末尾の ``` 以降を除去
+    .trim();
+  if (!cleaned) cleaned = text.trim();
+  // 2) 括弧バランスで最初の完全な {...} を抽出
+  const start = cleaned.indexOf('{');
+  if (start >= 0) {
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          const slice = cleaned.slice(start, i + 1);
+          try { return JSON.parse(slice); } catch (e) { /* 次のフォールバックへ */ }
+          break;
+        }
+      }
+    }
+  }
+  // 3) フォールバック: 旧 greedy regex(末尾カンマ補正も試す)
+  const m = cleaned.match(/\{[\s\S]*\}/);
+  if (m) {
+    try { return JSON.parse(m[0]); } catch (e) {}
+    try { return JSON.parse(m[0].replace(/,(\s*[}\]])/g, '$1')); } catch (e) {}
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -144,18 +195,14 @@ export default async function handler(req, res) {
       });
     }
 
-    // JSON 抽出(マークダウンコードブロックが付く場合に対応)
-    let parsed = null;
-    const jsonMatch = textOut.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try { parsed = JSON.parse(jsonMatch[0]); } catch (e) { parsed = null; }
-    }
+    // JSON 抽出(コードフェンス除去 + 括弧バランス検出。詳細は extractJsonFromAiText)
+    let parsed = extractJsonFromAiText(textOut);
 
     if (!parsed) {
       res.status(200).json({
         ok: false,
         error: 'AIの返答をJSONとして解析できませんでした。',
-        rawText: textOut.slice(0, 500),
+        rawText: textOut.slice(0, 1500),  // デバッグ用に長めに返す
         groundingUrls,
       });
       return;
