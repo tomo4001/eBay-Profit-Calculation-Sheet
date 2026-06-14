@@ -1689,6 +1689,7 @@
       </div>
       <button class="btn" id="ebayFetchBtn" style="padding:8px 18px; font-size:13px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="eBay URL のみ対応">取得</button>
       <button class="btn" id="ebayImageDlBtn" style="padding:8px 18px; font-size:13px; background:#7c2d12; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="URL のページから画像を ZIP でダウンロード(eBay は API 経由、他サイトは HTML 解析)">📷 画像 DL</button>
+      <button class="btn" id="viewSoldHistoryBtn" style="padding:8px 18px; font-size:13px; background:#c97a00; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;" title="ライバルの eBay 商品の SOLD 履歴を確認">📊 SOLD履歴</button>
       <span id="ebayFetchStatus" style="font-size:12px; color:#2e7d32; font-weight:600;"></span>
     </div>
     <div style="font-size:11px; color:#888; margin-top:6px;">「取得」=eBay URL から 商品タイトル・カテゴリーNo.・価格 を自動入力 / 「📷 画像 DL」=<strong>eBay 含む任意のサイトの URL</strong> から画像を ZIP 一括ダウンロード</div>
@@ -3701,6 +3702,8 @@ function attachEbayUrlEvents() {
     if (e.key === 'Enter') { e.preventDefault(); fetchEbayItem(); }
   });
   if (imgBtn) imgBtn.addEventListener('click', downloadEbayImages);
+  const soldHistoryBtn = document.getElementById('viewSoldHistoryBtn');
+  if (soldHistoryBtn) soldHistoryBtn.addEventListener('click', viewSoldHistory);
 
   // × ボタン: クリア + ボタン自体は値が空の時は非表示
   const updateClearBtn = () => {
@@ -3772,6 +3775,29 @@ async function fetchImageViaWeserv(imgUrl) {
   const r = await fetch(proxied, { mode: 'cors' });
   if (!r.ok) throw new Error('weserv HTTP ' + r.status);
   return await r.blob();
+}
+
+// =============================================================================
+// 📊 eBay 商品の SOLD 履歴ページを開く
+// =============================================================================
+function viewSoldHistory() {
+  const urlEl = document.getElementById('ebayUrl');
+  if (!urlEl || !urlEl.value.trim()) {
+    alert('ライバルの eBay URL を入力してください');
+    return;
+  }
+
+  const url = urlEl.value.trim();
+  // eBay item ID を抽出: /itm/327019527800 形式
+  const match = url.match(/\/itm\/(\d+)/);
+  if (!match) {
+    alert('有効な eBay URL ではありません。\n例: https://www.ebay.com/itm/327019527800');
+    return;
+  }
+
+  const itemId = match[1];
+  const historyUrl = `https://www.ebay.com/bin/purchaseHistory?item=${itemId}`;
+  window.open(historyUrl, '_blank', 'noopener,noreferrer');
 }
 
 // =============================================================================
