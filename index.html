@@ -10248,6 +10248,15 @@ Object.assign(Shipping, {
       { value: 'none', label: 'None' }
     ];
 
+    // ローカルで作成した Domestic Rate Table を追加
+    if (p.domesticRateTable && p.domesticRateTable.name) {
+      options.push({
+        value: `local_${p.id}`,
+        label: `${p.domesticRateTable.name} (ローカル)`,
+        source: 'local'
+      });
+    }
+
     // eBay から取得した Domestic Rate Table を追加
     if (this.ebayRateTables && this.ebayRateTables.length > 0) {
       this.ebayRateTables
@@ -10267,7 +10276,7 @@ Object.assign(Shipping, {
     ).join('');
 
     // 現在の値を復元
-    const hasDomRateTable = p.domRateTable && Object.keys(p.domRateTable || {}).length > 0;
+    const hasDomRateTable = p.domesticRateTable && Object.keys(p.domesticRateTable || {}).length > 0;
     if (hasDomRateTable) {
       select.value = `local_${p.id}`;
     } else {
@@ -10558,15 +10567,33 @@ Object.assign(Shipping, {
     const policy = this.policies.find(x => x.id === this.editingPolicyId);
     if (!policy) return;
 
-    // 既存の Rate Table を確認（編集 or 新規作成）
-    const isEditing = policy.rateTable && policy.rateTable.rows && policy.rateTable.rows.length > 0;
+    if (this.isDomesticRateTable) {
+      // ===== Domestic Rate Table =====
+      const type = (document.getElementById('shipRateTableDomType')?.value || 'small');
 
-    // Policy に Rate table データを保存
-    policy.rateTable = {
-      name: name,
-      rows: this.rateTableRows
-    };
-    console.log('[Rate table]', isEditing ? '更新' : '作成', '完了:', policy.rateTable);
+      // 既存の Domestic Rate Table を確認
+      const isEditing = policy.domesticRateTable && policy.domesticRateTable.rows && policy.domesticRateTable.rows.length > 0;
+
+      // Policy に Domestic Rate table データを保存
+      policy.domesticRateTable = {
+        name: name,
+        type: type,  // 'small' or 'freight'
+        rows: this.rateTableRows
+      };
+      console.log('[Domestic Rate table]', isEditing ? '更新' : '作成', '完了:', policy.domesticRateTable);
+
+    } else {
+      // ===== International Rate Table =====
+      // 既存の Rate Table を確認（編集 or 新規作成）
+      const isEditing = policy.rateTable && policy.rateTable.rows && policy.rateTable.rows.length > 0;
+
+      // Policy に Rate table データを保存
+      policy.rateTable = {
+        name: name,
+        rows: this.rateTableRows
+      };
+      console.log('[International Rate table]', isEditing ? '更新' : '作成', '完了:', policy.rateTable);
+    }
 
     const rowCount = this.rateTableRows.length;
 
@@ -10577,9 +10604,11 @@ Object.assign(Shipping, {
     this.rateTableRows = [];
     this.selectedRateTableRegions.clear();
     document.getElementById('shipRateTableName').value = '';
+    document.getElementById('shipRateTableDomType').value = 'small';
     document.getElementById('shipRateTableService').value = '';
     document.getElementById('shipRateTableCost').value = '';
     this.renderRateTableRows();
+    this.renderEditDomRateTable(policy);  // Domestic Rate Table ドロップダウンを更新
     this.updateSelectedRateTableRegionsDisplay();
 
     // Rate table セクションを再描画
