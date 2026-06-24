@@ -10680,8 +10680,8 @@ Object.assign(Shipping, {
   // ボタン表示を切り替え（新規追加モード / 編集モード）
   updateRateTableModalButtons() {
     const addBtn = document.getElementById('shipRateTableAddBtn');
-    const editBtn = document.getElementById('shipRateTableEditBtn');
-    const cancelBtn = document.getElementById('shipRateTableCancelBtn');
+    const editBtn = document.getElementById('shipRateTableModalEditBtn');
+    const cancelBtn = document.getElementById('shipRateTableModalCancelBtn');
 
     if (this.editingRowIndex !== null) {
       // 編集モード
@@ -13412,8 +13412,8 @@ Object.assign(Shipping, {
     <!-- ボタングループ -->
     <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-bottom:16px;">
       <button id="shipRateTableAddBtn" onclick="Shipping.addRateTableRow()" style="padding:10px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">+ 追加</button>
-      <button id="shipRateTableEditBtn" onclick="Shipping.updateRateTableRow()" style="display:none; padding:10px 12px; background:#ffa500; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">修正</button>
-      <button id="shipRateTableCancelBtn" onclick="Shipping.cancelRateTableEdit()" style="display:none; padding:10px 12px; background:#999; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">キャンセル</button>
+      <button id="shipRateTableModalEditBtn" onclick="Shipping.updateRateTableRow()" style="display:none; padding:10px 12px; background:#ffa500; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">修正</button>
+      <button id="shipRateTableModalCancelBtn" onclick="Shipping.cancelRateTableEdit()" style="display:none; padding:10px 12px; background:#999; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">キャンセル</button>
     </div>
 
     <!-- 現在の設定 （International のみ） -->
