@@ -10260,6 +10260,10 @@ Object.assign(Shipping, {
       // 全体配列内のインデックスを計算
       const globalIdx = this.rateTableRows.indexOf(row);
 
+      // 編集中の行かどうかを判定
+      const isEditing = this.editingRowIndex === globalIdx;
+      const bgColor = isEditing ? '#fff3cd' : 'white';
+
       // 複数地域をグループ表示
       const regions = row.regions || [row.region];  // 互換性のため両方対応
       const regionsDisplay = regions.map(code => {
@@ -10269,7 +10273,7 @@ Object.assign(Shipping, {
 
       // テーブルの行全体をクリック可能にする
       html += `
-        <div style="display:flex; gap:8px; align-items:center; padding:6px; background:white; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:4px; font-size:12px; cursor:pointer;" onclick='Shipping.selectRateTableRowForEdit(${globalIdx})' >
+        <div style="display:flex; gap:8px; align-items:center; padding:6px; background:${bgColor}; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:4px; font-size:12px; cursor:pointer;" onclick='Shipping.selectRateTableRowForEdit(${globalIdx})' >
           <span style="flex:1;">${regionsDisplay}</span>
           <span style="font-weight:600;">$${row.cost.toFixed(2)}</span>
           <button onclick="event.stopPropagation(); Shipping.removeDomServiceRow('${serviceId}', ${filterIdx})" style="padding:2px 6px; background:#ff6b6b; color:white; border:none; border-radius:3px; cursor:pointer; font-size:11px;">削除</button>
