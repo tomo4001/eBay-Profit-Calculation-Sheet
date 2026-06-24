@@ -9986,11 +9986,13 @@ Object.assign(Shipping, {
         // モーダルを開く（初期化）
         this.rateTableRows = [];
         this.selectedRateTableRegions.clear();
+        this.isDomesticRateTable = false;  // International フラグ
         document.getElementById('shipRateTableName').value = '';
         document.getElementById('shipRateTableService').value = '';
         document.getElementById('shipRateTableCost').value = '';
 
-        // UI を生成
+        // UI を更新
+        this.updateRateTableModalUI();
         this.renderRateTableRegionGroups();
         this.renderShippingServices();
         this.renderRateTableRows();
@@ -10046,6 +10048,38 @@ Object.assign(Shipping, {
   },
 
   // Domestic Rate Table を描画（International と同じ構造）
+  // Rate Table モーダルの UI を更新（Domestic/International 切り替え）
+  updateRateTableModalUI() {
+    const titleEl = document.getElementById('shipRateTableModalTitle');
+    const regionLabelEl = document.getElementById('shipRateTableRegionLabel');
+    const domTypeSection = document.getElementById('shipRateTableDomTypeSection');
+    const regionSelectSection = document.getElementById('shipRateTableRegionSelectSection');
+    const serviceSection = document.getElementById('shipRateTableServiceSection');
+
+    if (this.isDomesticRateTable) {
+      // Domestic Rate Table
+      titleEl.textContent = '📦 Domestic Rate table を作成';
+      if (regionLabelEl) regionLabelEl.textContent = '米国の地域を選択';
+      if (domTypeSection) domTypeSection.style.display = 'block';  // Rate Table type を表示
+      if (regionSelectSection) regionSelectSection.style.display = 'block';
+      if (serviceSection) serviceSection.style.display = 'none';  // Shipping Service セクションは隠す
+    } else {
+      // International Rate Table
+      titleEl.textContent = '📊 International Rate table を作成';
+      if (regionLabelEl) regionLabelEl.textContent = '地域・国を選択';
+      if (domTypeSection) domTypeSection.style.display = 'none';  // Rate Table type を隠す
+      if (regionSelectSection) regionSelectSection.style.display = 'block';
+      if (serviceSection) serviceSection.style.display = 'grid';  // Shipping Service セクションを表示
+    }
+  },
+
+  // Domestic Rate Table: Rate Table type 変更時にサービスセクションを更新
+  updateDomesticServiceSections() {
+    const type = document.getElementById('shipRateTableDomType')?.value || 'small';
+    // Stage 2 で実装予定
+    console.log('[Domestic Rate Table] Type changed to:', type);
+  },
+
   renderEditDomRateTable(p) {
     const select = document.getElementById('shipEditDomRateTable');
     const infoDiv = document.getElementById('shipEditDomRateTableInfo');
@@ -10125,10 +10159,12 @@ Object.assign(Shipping, {
         this.selectedRateTableRegions.clear();
         this.isDomesticRateTable = true;  // Domestic フラグ
         document.getElementById('shipRateTableName').value = '';
+        document.getElementById('shipRateTableDomType').value = 'small';  // Domestic: Small package item
         document.getElementById('shipRateTableService').value = '';
         document.getElementById('shipRateTableCost').value = '';
 
-        // UI を生成
+        // UI を更新
+        this.updateRateTableModalUI();
         this.renderRateTableRegionGroups();
         this.renderShippingServices();
         this.renderRateTableRows();
@@ -12747,7 +12783,7 @@ Object.assign(Shipping, {
 <!-- Rate table 作成モーダル -->
 <div id="shipRateTableCreateModal" class="ship-modal-overlay">
   <div class="ship-modal" style="max-width:750px;">
-    <h2>📊 Rate table を作成</h2>
+    <h2 id="shipRateTableModalTitle">📊 Rate table を作成</h2>
 
     <!-- Rate table 名 -->
     <div style="margin-bottom:16px;">
@@ -12755,9 +12791,18 @@ Object.assign(Shipping, {
       <input type="text" id="shipRateTableName" placeholder="例: EU27 Shipping, Asia Economy" style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" />
     </div>
 
+    <!-- Domestic 用: Rate Table type -->
+    <div id="shipRateTableDomTypeSection" style="margin-bottom:16px; display:none;">
+      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Rate Table type</label>
+      <select id="shipRateTableDomType" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" onchange="Shipping.updateDomesticServiceSections()">
+        <option value="small">Small package item</option>
+        <option value="freight">Freight shipping item</option>
+      </select>
+    </div>
+
     <!-- 地域選択（グループ展開） -->
-    <div style="margin-bottom:16px;">
-      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">地域・国を選択</label>
+    <div id="shipRateTableRegionSelectSection" style="margin-bottom:16px;">
+      <label id="shipRateTableRegionLabel" style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">地域・国を選択</label>
       <div id="shipRateTableRegionGroups" style="max-height:250px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:8px;">
         <!-- JavaScript で生成 -->
       </div>
@@ -12769,8 +12814,8 @@ Object.assign(Shipping, {
       <div id="shipRateTableSelectedRegions" style="font-size:14px; font-weight:600; color:#2e75b6; min-height:20px;">（なし）</div>
     </div>
 
-    <!-- Shipping Service と Cost -->
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
+    <!-- Shipping Service と Cost （International のみ） -->
+    <div id="shipRateTableServiceSection" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
       <div>
         <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Shipping Service（optional）</label>
         <select id="shipRateTableService" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
