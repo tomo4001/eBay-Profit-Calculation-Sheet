@@ -9935,7 +9935,11 @@ Object.assign(Shipping, {
         alert(`✅ Rate table "${name}" を作成しました！\nID: ${data.rateTableId}`);
         nameInput.value = '';
       } else {
-        alert('エラー: ' + (data.error || '不明なエラー'));
+        // 詳細なエラー情報を表示
+        const detail = data.detail ? JSON.stringify(data.detail, null, 2) : '';
+        const errorMsg = `エラー: ${data.error || '不明なエラー'}\n\nHTTP ${data.status || '?'}\n\n詳細:\n${detail}`;
+        alert(errorMsg);
+        console.error('[Rate table 作成失敗]', data);
       }
     } catch (e) {
       alert('通信エラー: ' + (e.message || e));
