@@ -11161,6 +11161,19 @@ Object.assign(Shipping, {
     // (b) policy-level: regionExcluded のみを保持、regionIncluded は削除
     delete p._raw.shipToLocations.regionIncluded;
 
+    // (c) DOMESTIC service-level の regionIncluded も削除（regionExcluded と競合するため）
+    if (Array.isArray(p._raw.shippingOptions)) {
+      p._raw.shippingOptions.forEach(o => {
+        if (Array.isArray(o.shippingServices)) {
+          o.shippingServices.forEach(s => {
+            if (s.shipToLocations) {
+              delete s.shipToLocations.regionIncluded;
+            }
+          });
+        }
+      });
+    }
+
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
     if (wasCreating) {
