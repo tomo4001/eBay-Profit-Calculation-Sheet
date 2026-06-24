@@ -9952,7 +9952,27 @@ Object.assign(Shipping, {
       editBtn.style.display = rateTableMode === 'other' ? 'block' : 'none';
       if (!editBtn.hasAttribute('data-listener-attached')) {
         editBtn.addEventListener('click', () => {
-          alert('🚧 Rate table 編集機能（未実装）\n\nEdit rate table をクリックして、\n既存の Rate table を編集します。');
+          // 既存の Rate Table を編集モーダルに読み込む
+          const policy = this.policies.find(x => x.id === this.editingPolicyId);
+          if (!policy || !policy.rateTable) {
+            alert('⚠️ Rate table がありません');
+            return;
+          }
+
+          // Rate Table データを編集用に読み込む
+          this.rateTableRows = (policy.rateTable.rows || []).map(r => ({ ...r }));
+          document.getElementById('shipRateTableName').value = policy.rateTable.name || '';
+          document.getElementById('shipRateTableService').value = '';
+          document.getElementById('shipRateTableCost').value = '';
+
+          // UI を生成
+          this.renderRateTableRegionGroups();
+          this.renderShippingServices();
+          this.renderRateTableRows();
+          this.updateSelectedRateTableRegionsDisplay();
+
+          // 編集モーダルを開く
+          this.openModal('shipRateTableCreateModal');
           popup.style.display = 'none';
         });
         editBtn.setAttribute('data-listener-attached', 'true');
@@ -10134,14 +10154,18 @@ Object.assign(Shipping, {
       return;
     }
 
-    // editingPolicy に Rate table データを保存
-    if (this.editingPolicy) {
-      this.editingPolicy.rateTable = {
-        name: name,
-        rows: this.rateTableRows
-      };
-      console.log('[Rate table] Policy に保存されました:', this.editingPolicy.rateTable);
-    }
+    const policy = this.policies.find(x => x.id === this.editingPolicyId);
+    if (!policy) return;
+
+    // 既存の Rate Table を確認（編集 or 新規作成）
+    const isEditing = policy.rateTable && policy.rateTable.rows && policy.rateTable.rows.length > 0;
+
+    // Policy に Rate table データを保存
+    policy.rateTable = {
+      name: name,
+      rows: this.rateTableRows
+    };
+    console.log('[Rate table]', isEditing ? '更新' : '作成', '完了:', policy.rateTable);
 
     const rowCount = this.rateTableRows.length;
 
@@ -10157,7 +10181,10 @@ Object.assign(Shipping, {
     this.renderRateTableRows();
     this.updateSelectedRateTableRegionsDisplay();
 
-    alert(`✅ Rate table "${name}" を作成しました（${rowCount} 行）`);
+    // Rate table セクションを再描画
+    this.renderEditRateTable(policy);
+
+    alert(`✅ Rate table "${name}" を${isEditing ? '更新' : '作成'}しました（${rowCount} 行）`);
   },
 
   // =====================================================================
