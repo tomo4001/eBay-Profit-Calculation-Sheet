@@ -1,3 +1,4 @@
+// =============================================================================
 // Vercel Serverless Function: eBay Fulfillment Policy 更新
 //
 // POST /api/ebay-policy-update
@@ -5,11 +6,15 @@
 //     action: 'update'|'create'|'delete',
 //     policyId: "xxx",           // 既存ポリシーの fulfillmentPolicyId
 //     policy: { ... },           // 更新後の policy オブジェクト(eBay構造)
+//                                // ※ Policy 内に rateTable を含めることで Rate table も一緒に設定
 //     dryRun: true|false         // true なら検証のみ、PUT しない
 //   }
 //
+// 注意: Rate table は Policy の内部設定項目であり、Policy を更新する際に一緒に送信される
+//
 // 必要な環境変数:
 //   EBAY_APP_ID, EBAY_CERT_ID, EBAY_REFRESH_TOKEN
+// =============================================================================
 
 async function getAccessToken(appId, certId, refreshToken) {
   const credentials = Buffer.from(`${appId}:${certId}`).toString('base64');
@@ -33,7 +38,6 @@ async function getAccessToken(appId, certId, refreshToken) {
   const data = await res.json();
   return data.access_token;
 }
-
 
 // クライアントサイド検証(必須項目チェック)
 function validatePolicy(policy) {
@@ -62,7 +66,7 @@ function validatePolicy(policy) {
   return errors;
 }
 
-// 不要フィールドの除去
+// 不要フィールドの除去(eBay PUT API でエラーになる項目)
 function cleanPolicy(policy) {
   const cleaned = JSON.parse(JSON.stringify(policy));
   delete cleaned.fulfillmentPolicyId;  // URL に含めるので body には不要
@@ -120,17 +124,17 @@ export default async function handler(req, res) {
       });
       return;
     }
+    const cleaned = cleanPolicy(policy);
+    if (dryRun) {
+      res.status(200).json({
+        ok: true, action: 'create', dryRun: true,
+        message: '✓ 検証 OK(dry-run: eBay にはまだ送信していません)',
+        cleanedPolicy: cleaned,
+      });
+      return;
+    }
     try {
       const accessToken = await getAccessToken(appId, certId, refreshToken);
-      const cleaned = cleanPolicy(policy);
-      if (dryRun) {
-        res.status(200).json({
-          ok: true, action: 'create', dryRun: true,
-          message: '✓ 検証 OK(dry-run: eBay にはまだ送信していません)',
-          cleanedPolicy: cleaned,
-        });
-        return;
-      }
       const apiUrl = 'https://api.ebay.com/sell/account/v1/fulfillment_policy';
       const apiRes = await fetch(apiUrl, {
         method: 'POST',
@@ -230,7 +234,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // === 🔄 UPDATE 処理 ===
+  // === 🔄 UPDATE 処理(以下、従来通り) ===
   if (!policy || typeof policy !== 'object') { res.status(400).json({ error: 'policy オブジェクトが必要' }); return; }
 
   // 検証
@@ -247,21 +251,23 @@ export default async function handler(req, res) {
     return;
   }
 
+  // dryRun の場合はここで終了
+  if (dryRun) {
+    res.status(200).json({
+      ok: true,
+      dryRun: true,
+      policyId,
+      message: '✓ 検証 OK(dry-run: eBay にはまだ送信していません)',
+      cleanedPolicy: cleanPolicy(policy),  // 実際に送信される内容
+    });
+    return;
+  }
+
+  const cleaned = cleanPolicy(policy);
+
   try {
     const accessToken = await getAccessToken(appId, certId, refreshToken);
-    const cleaned = cleanPolicy(policy);
 
-    if (dryRun) {
-      res.status(200).json({
-        ok: true, dryRun: true,
-        message: '✓ 検証 OK(dry-run: eBay にはまだ送信していません)',
-        policyId,
-        cleanedPolicy: cleaned,
-      });
-      return;
-    }
-
-    // PUT リクエスト
     const apiUrl = `https://api.ebay.com/sell/account/v1/fulfillment_policy/${encodeURIComponent(policyId)}`;
     const apiRes = await fetch(apiUrl, {
       method: 'PUT',
@@ -279,10 +285,27 @@ export default async function handler(req, res) {
     try { json = text ? JSON.parse(text) : null; } catch (e) {}
 
     if (!apiRes.ok) {
+      // 🔍 eBay 特殊エラー: 20403 "Business Profile information is the same"
+      // → これは「データ同一なので変更不要」を意味する。失敗ではなく noChange として扱う。
+      const errors = (json && Array.isArray(json.errors)) ? json.errors : [];
+      const noChangeError = errors.find(e => e && e.errorId === 20403);
+      if (noChangeError) {
+        res.status(200).json({
+          ok: true,
+          dryRun: false,
+          policyId,
+          status: apiRes.status,
+          noChange: true,
+          message: '⚪ eBay 上のデータが同一(変更不要)',
+        });
+        return;
+      }
+
       res.status(apiRes.status).json({
         ok: false,
-        status: apiRes.status,
+        dryRun: false,
         policyId,
+        status: apiRes.status,
         error: `eBay PUT 失敗 (HTTP ${apiRes.status})`,
         detail: json || text.slice(0, 1500),
         sentBody: cleaned,
@@ -290,17 +313,16 @@ export default async function handler(req, res) {
       return;
     }
 
-    // eBay は PUT で body を返さないことが多いので、noChange を判定
-    const noChange = apiRes.status === 200 && !json;
     res.status(200).json({
       ok: true,
-      status: apiRes.status,
+      dryRun: false,
       policyId,
-      noChange,
-      message: noChange ? '⚪ eBay 上のデータは既に同一(変更不要)' : '✓ eBay PUT 成功',
+      status: apiRes.status,
+      message: '✓ eBay PUT 成功',
       updated: json,
     });
+
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message || String(e), policyId });
+    res.status(500).json({ ok: false, dryRun, error: e.message || String(e), policyId });
   }
 }
