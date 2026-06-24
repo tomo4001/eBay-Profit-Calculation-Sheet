@@ -9620,7 +9620,8 @@ Object.assign(Shipping, {
             <!-- Rate table メニューポップアップ -->
             <div id="shipEditDomRateTablePopup" style="position:absolute; top:100%; right:0; background:white; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:1000; min-width:180px; display:none; margin-top:4px; flex-direction:column;">
               <button type="button" id="shipDomRateTableCreateBtn" style="display:block; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; border-bottom:1px solid #e5e7eb; font-weight:500;">✨ Create new</button>
-              <button type="button" id="shipDomRateTableEditBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; font-weight:500;">✏️ Edit rate table</button>
+              <button type="button" id="shipDomRateTableEditBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; border-bottom:1px solid #e5e7eb; font-weight:500;">✏️ Edit rate table</button>
+              <button type="button" id="shipDomRateTableDeleteBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#d32f2f; font-weight:500;">🗑 Delete</button>
             </div>
           </div>
           <div id="shipEditDomRateTableInfo" style="font-size:11px; color:#6b7280; margin-top:8px; padding:6px 10px; background:#f9fafb; border-radius:4px;">
@@ -10343,10 +10344,45 @@ Object.assign(Shipping, {
       editBtn.style.display = hasDomRateTable ? 'block' : 'none';
       if (!editBtn.hasAttribute('data-listener-attached')) {
         editBtn.addEventListener('click', () => {
-          alert('🚧 Domestic Rate table 編集機能（未実装）');
+          // Domestic Rate Table を編集モードで開く
+          if (!p.domesticRateTable) return;
+
+          this.rateTableRows = JSON.parse(JSON.stringify(p.domesticRateTable.rows || []));
+          this.selectedRateTableRegions.clear();
+          this.isDomesticRateTable = true;
+          document.getElementById('shipRateTableName').value = p.domesticRateTable.name || '';
+          document.getElementById('shipRateTableDomType').value = p.domesticRateTable.type || 'small';
+          document.getElementById('shipRateTableService').value = '';
+          document.getElementById('shipRateTableCost').value = '';
+
+          // UI を更新
+          this.updateRateTableModalUI();
+          this.renderRateTableRegionGroups();
+          this.renderShippingServices();
+          this.renderRateTableRows();
+          this.updateSelectedRateTableRegionsDisplay();
+
+          this.openModal('shipRateTableCreateModal');
           popup.style.display = 'none';
         });
         editBtn.setAttribute('data-listener-attached', 'true');
+      }
+    }
+
+    // Delete ボタン
+    const deleteBtn = document.getElementById('shipDomRateTableDeleteBtn');
+    if (deleteBtn) {
+      deleteBtn.style.display = hasDomRateTable ? 'block' : 'none';
+      if (!deleteBtn.hasAttribute('data-listener-attached')) {
+        deleteBtn.addEventListener('click', () => {
+          if (confirm('❓ このDomestic Rate tableを削除しますか？')) {
+            p.domesticRateTable = null;
+            this.renderEditDomRateTable(p);
+            console.log('[Domestic Rate table] 削除完了');
+          }
+          popup.style.display = 'none';
+        });
+        deleteBtn.setAttribute('data-listener-attached', 'true');
       }
     }
 
