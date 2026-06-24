@@ -10218,9 +10218,16 @@ Object.assign(Shipping, {
 
     let html = '';
     rows.forEach((row, idx) => {
+      // 複数地域をグループ表示
+      const regions = row.regions || [row.region];  // 互換性のため両方対応
+      const regionsDisplay = regions.map(code => {
+        const name = stateNames[code] || code;
+        return `${code}（${name}）`;
+      }).join(', ');
+
       html += `
         <div style="display:flex; gap:8px; align-items:center; padding:6px; background:white; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:4px; font-size:12px;">
-          <span style="flex:1;">${row.region}（${stateNames[row.region]}）</span>
+          <span style="flex:1;">${regionsDisplay}</span>
           <span style="font-weight:600;">$${row.cost.toFixed(2)}</span>
           <button onclick="Shipping.removeDomServiceRow('${serviceId}', ${idx})" style="padding:2px 6px; background:#ff6b6b; color:white; border:none; border-radius:3px; cursor:pointer; font-size:11px;">削除</button>
         </div>
@@ -10239,7 +10246,18 @@ Object.assign(Shipping, {
     const serviceRows = this.rateTableRows.filter(r => r.service === serviceId);
     if (idx < serviceRows.length) {
       const rowToRemove = serviceRows[idx];
-      this.rateTableRows = this.rateTableRows.filter(r => !(r.service === serviceId && r.region === rowToRemove.region && r.cost === rowToRemove.cost));
+      // 行インデックスで削除
+      let count = 0;
+      this.rateTableRows = this.rateTableRows.filter(r => {
+        if (r.service === serviceId) {
+          if (count === idx) {
+            count++;
+            return false;  // この行は削除
+          }
+          count++;
+        }
+        return true;  // この行は保持
+      });
       this.renderDomServiceRows(serviceId);
     }
   },
@@ -10370,7 +10388,18 @@ Object.assign(Shipping, {
           this.updateRateTableModalUI();
           this.renderRateTableRegionGroups();
           this.renderShippingServices();
-          this.renderRateTableRows();
+
+          // Domestic の場合は Service type ごとにレンダリング
+          if (this.isDomesticRateTable) {
+            const type = p.domesticRateTable.type || 'small';
+            const services = type === 'small'
+              ? ['overnight', 'expedited', 'standard', 'economy']
+              : ['freight'];
+            services.forEach(svc => this.renderDomServiceRows(svc));
+          } else {
+            this.renderRateTableRows();
+          }
+
           this.updateSelectedRateTableRegionsDisplay();
 
           this.openModal('shipRateTableCreateModal');
