@@ -1,4 +1,3 @@
-=============================================================================
 // Vercel Serverless Function: eBay Fulfillment Policy 更新
 //
 // POST /api/ebay-policy-update
@@ -11,7 +10,6 @@
 //
 // 必要な環境変数:
 //   EBAY_APP_ID, EBAY_CERT_ID, EBAY_REFRESH_TOKEN
-// =============================================================================
 
 async function getAccessToken(appId, certId, refreshToken) {
   const credentials = Buffer.from(`${appId}:${certId}`).toString('base64');
