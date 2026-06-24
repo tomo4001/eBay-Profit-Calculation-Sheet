@@ -9930,11 +9930,13 @@ Object.assign(Shipping, {
     for (const [groupName, groupData] of Object.entries(SHIP_COUNTRY_GROUPS)) {
       const items = groupData.items || [];
       const itemsHtml = items.map(code => {
-        const countryName = COUNTRY_CODE_NAMES[code] || '不明';
+        // マッピングがある場合は「DE（ドイツ）」、ない場合は「AL」だけ表示
+        const countryName = COUNTRY_CODE_NAMES[code];
+        const label = countryName ? `${code}（${countryName}）` : code;
         return `
           <label style="display:block; padding:6px 10px; cursor:pointer; font-size:13px;">
             <input type="checkbox" value="${code}" onchange="Shipping.toggleRateTableRegion('${code}')" />
-            ${code}（${countryName}）
+            ${label}
           </label>
         `;
       }).join('');
