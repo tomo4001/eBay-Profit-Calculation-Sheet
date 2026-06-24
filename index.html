@@ -9828,6 +9828,10 @@ Object.assign(Shipping, {
         infoDiv.textContent = val === 'none'
           ? `❌ Rate table は None です（未使用）`
           : `Rate table を設定: Other International`;
+        // Edit ボタンの表示制御
+        if (editBtn) {
+          editBtn.style.display = val === 'other' ? 'block' : 'none';
+        }
         popup.style.display = 'none';
       });
       select.setAttribute('data-listener-attached', 'true');
