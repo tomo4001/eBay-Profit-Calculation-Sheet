@@ -10643,12 +10643,30 @@ Object.assign(Shipping, {
       this.renderRateTableRegionGroups();  // チェックボックスを同期
     } else {
       console.warn('*** Domestic mode');
-      // Domestic
-      this.selectedRateTableRegions.clear();
-      const regions = row.regions || [row.region];  // 互換性のため両方対応
-      regions.forEach(r => this.selectedRateTableRegions.add(r));
-      document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
-      this.renderRateTableRegionGroups();  // チェックボックスを同期
+      // Domestic: Service type セクション内のフィールドを更新
+      const serviceId = row.service;
+      console.warn('*** serviceId:', serviceId);
+      const costInput = document.querySelector(`.domServiceCostInput[data-service="${serviceId}"]`);
+      console.warn('*** costInput found:', !!costInput, costInput);
+      const regionCheckboxes = document.querySelectorAll(`.domServiceRegionCheckbox[data-service="${serviceId}"]`);
+      console.warn('*** regionCheckboxes count:', regionCheckboxes.length);
+
+      if (costInput) {
+        costInput.value = row.cost.toFixed(2);
+        console.warn('*** Updated Domestic cost input to:', row.cost.toFixed(2));
+      } else {
+        console.warn('*** ERROR: costInput not found! Selector was:', `.domServiceCostInput[data-service="${serviceId}"]`);
+      }
+
+      // 地域チェックボックスをチェック
+      const regions = row.regions || [row.region];
+      console.warn('*** Regions to check:', regions);
+      regionCheckboxes.forEach(checkbox => {
+        const shouldCheck = regions.includes(checkbox.value);
+        checkbox.checked = shouldCheck;
+        console.warn('*** Checkbox', checkbox.value, 'checked:', shouldCheck);
+      });
+      console.warn('*** Updated Domestic region checkboxes');
     }
 
     console.warn('*** Updating buttons and rerendering');
