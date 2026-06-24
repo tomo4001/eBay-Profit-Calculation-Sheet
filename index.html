@@ -11597,6 +11597,12 @@ Object.assign(Shipping, {
       `本当に実行しますか?`;
     if (!confirm(confirmText)) return;
 
+    // 🔍 デバッグ: 実際に送信されるデータを確認
+    console.log('=== eBay 送信前のデータ ===');
+    console.log('pUpdated.excluded:', pUpdated.excluded);
+    console.log('pUpdated._raw.shipToLocations:', pUpdated._raw.shipToLocations);
+    console.log('pUpdated._raw (全体):', JSON.stringify(pUpdated._raw, null, 2));
+
     // 4) 実 PUT 送信
     // event.target ではなく id で固定取得(success 後の onclick 書き換えに耐える)
     const btn = document.getElementById('shipSinglePushBtn');
