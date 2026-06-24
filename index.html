@@ -12088,9 +12088,9 @@ Object.assign(Shipping, {
 
   toggleEditPolicyExcluded(code, checked) {
     if (checked) {
-      this.editingPolicyExcluded = this.editingPolicyExcluded.filter(c => c !== code);
-    } else {
       if (!this.editingPolicyExcluded.includes(code)) this.editingPolicyExcluded.push(code);
+    } else {
+      this.editingPolicyExcluded = this.editingPolicyExcluded.filter(c => c !== code);
     }
     this.renderEditPolicyForm();
   },
