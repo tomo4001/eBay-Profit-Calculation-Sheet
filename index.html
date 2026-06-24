@@ -12525,6 +12525,36 @@ Object.assign(Shipping, {
     // (b) policy-level にも書き込み(top-level)
     p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
 
+    // ----- Rate Table 設定（International と Domestic） -----
+    // International Rate Table
+    if (p.rateTable && p.rateTable.name) {
+      p._raw.rateTable = {
+        name: p.rateTable.name,
+        rows: (p.rateTable.rows || []).map(r => ({
+          regions: r.regions || [r.region],
+          service: r.service,
+          cost: r.cost
+        }))
+      };
+    } else {
+      delete p._raw.rateTable;
+    }
+
+    // Domestic Rate Table
+    if (p.domesticRateTable && p.domesticRateTable.name) {
+      p._raw.domesticRateTable = {
+        name: p.domesticRateTable.name,
+        type: p.domesticRateTable.type || 'small',
+        rows: (p.domesticRateTable.rows || []).map(r => ({
+          service: r.service,
+          regions: r.regions || [r.region],
+          cost: r.cost
+        }))
+      };
+    } else {
+      delete p._raw.domesticRateTable;
+    }
+
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
     if (wasCreating) {
