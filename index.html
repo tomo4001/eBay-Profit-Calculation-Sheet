@@ -10049,33 +10049,21 @@ Object.assign(Shipping, {
       'Economy': ['Economy', 'OtherInternational']
     }[p.service] || [];
 
-    // 既存のオプション（-- 選択しない --）を保持
+    // 既存の選択値を保持
     const currentValue = select.value;
     const options = ['<option value="">-- 選択しない --</option>'];
 
-    // editingIntlServices から Shipping Service を抽出（フィルタリング適用）
-    if (this.editingIntlServices && this.editingIntlServices.length > 0) {
-      this.editingIntlServices.forEach(svc => {
-        const code = svc.serviceCode || '';
-        if (code) {
-          // サービスコードが Policy タイプに対応しているかチェック
-          const matchesFilter = serviceFilter.length === 0 || serviceFilter.some(f => code.toLowerCase().includes(f.toLowerCase()));
-          if (matchesFilter && !options.includes(`<option value="${code}">${code}</option>`)) {
-            options.push(`<option value="${code}">${code}</option>`);
-          }
-        }
-      });
-    } else {
-      // editingIntlServices が無い場合は、SHIP_INTERNATIONAL_SERVICES から提案
-      SHIP_INTERNATIONAL_SERVICES.forEach(svc => {
-        const code = svc.code;
-        const matchesFilter = serviceFilter.length === 0 || serviceFilter.some(f => code.toLowerCase().includes(f.toLowerCase()));
-        if (matchesFilter) {
-          const label = `${code} - ${svc.label}`;
-          options.push(`<option value="${code}">${label}</option>`);
-        }
-      });
-    }
+    // SHIP_INTERNATIONAL_SERVICES から対応するサービスを表示
+    // (editingIntlServices ではなく、全マスターリストから Policy タイプに対応するものを提案)
+    SHIP_INTERNATIONAL_SERVICES.forEach(svc => {
+      const code = svc.code;
+      // サービスコードが Policy タイプに対応しているかチェック
+      const matchesFilter = serviceFilter.length === 0 || serviceFilter.some(f => code.toLowerCase().includes(f.toLowerCase()));
+      if (matchesFilter) {
+        const optionText = `${svc.label} — ${svc.days} business days`;
+        options.push(`<option value="${code}">${optionText}</option>`);
+      }
+    });
 
     select.innerHTML = options.join('');
     select.value = currentValue;
