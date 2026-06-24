@@ -11123,63 +11123,44 @@ Object.assign(Shipping, {
         intl = { optionType: 'INTERNATIONAL', costType: 'FLAT_RATE' };
         p._raw.shippingOptions.push(intl);
       }
-      intl.shippingServices = this.editingIntlServices.map(s => {
-        const service = {
-          shippingCarrierCode: 'GENERIC',
-          shippingServiceCode: s.serviceCode,
-          shippingCost:           { value: (s.cost || 0).toFixed(2),     currency: 'USD' },
-          additionalShippingCost: { value: (s.addtlCost || 0).toFixed(2), currency: 'USD' }
-        };
-        // excluded がない場合のみ regionIncluded を設定（regionExcluded と両立しないため）
-        if (this.editingPolicyExcluded.length === 0) {
-          service.shipToLocations = {
-            regionIncluded: (s.destinations || []).map(d => ({ regionName: d }))
-          };
-        } else {
-          service.shipToLocations = {};
+      intl.shippingServices = this.editingIntlServices.map(s => ({
+        shippingCarrierCode: 'GENERIC',
+        shippingServiceCode: s.serviceCode,
+        shippingCost:           { value: (s.cost || 0).toFixed(2),     currency: 'USD' },
+        additionalShippingCost: { value: (s.addtlCost || 0).toFixed(2), currency: 'USD' },
+        shipToLocations: {
+          regionIncluded: (s.destinations || []).map(d => ({ regionName: d }))
         }
-        return service;
-      });
+      }));
     }
 
-    // ----- Excluded countries + 📍 Additional locations -----
+    // ----- Excluded countries -----
     p.excluded = this.editingPolicyExcluded.slice();
     if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
-    p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
 
-    // 📍 Phase 2-H+++ FIX: Additional locations = 全 service destinations の和集合
-    // eBay の Additional locations は INTERNATIONAL option-level shipToLocations.regionIncluded に対応
-    // 念のため policy-level にも書き込む(eBay が両方を見る可能性あり)
-    const union = this.computeAdditionalLocationsUnion();
+    // ⚠️ eBay 仕様: regionIncluded のみを使用（regionExcluded は使用しない）
+    // regionIncluded = 全国コード - excluded
     const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    const isAllSelected = allCodes.every(c => union.includes(c)) && union.length === allCodes.length;
-    const regionIncludedPayload = isAllSelected
-      ? [{ regionName: 'Worldwide' }]
-      : union.map(c => ({ regionName: c }));
+    const excludedSet = new Set(p.excluded);
+    const includedCodes = allCodes.filter(c => !excludedSet.has(c));
 
-    // ⚠️ eBay 仕様: regionIncluded と regionExcluded は同時に使用不可（どちらか一方のみ）
-    // excluded が空の場合のみ regionIncluded を使用
-    if (p.excluded.length === 0) {
-      // (a) INTERNATIONAL option-level に regionIncluded を設定
-      if (intl) {
-        intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
-      }
-      // (b) policy-level にも書き込む
-      p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
+    if (includedCodes.length === allCodes.length) {
+      // 除外なし = Worldwide
+      p._raw.shipToLocations.regionIncluded = [{ regionName: 'Worldwide' }];
+    } else if (includedCodes.length > 0) {
+      // 一部除外 = 含める国リスト
+      p._raw.shipToLocations.regionIncluded = includedCodes.map(c => ({ regionName: c }));
     } else {
-      // excluded がある場合は regionIncluded を削除（regionExcluded のみ使用）
-      if (intl) {
-        intl.shipToLocations = {};
-        // service-level の regionIncluded も削除
-        if (Array.isArray(intl.shippingServices)) {
-          intl.shippingServices.forEach(s => {
-            if (s.shipToLocations) {
-              delete s.shipToLocations.regionIncluded;
-            }
-          });
-        }
-      }
-      delete p._raw.shipToLocations.regionIncluded;
+      // 全て除外（通常ありえない）
+      p._raw.shipToLocations.regionIncluded = [];
+    }
+
+    // regionExcluded は削除（regionIncluded のみ使用）
+    delete p._raw.shipToLocations.regionExcluded;
+
+    // option-level も同じ
+    if (intl) {
+      intl.shipToLocations = { regionIncluded: p._raw.shipToLocations.regionIncluded.slice() };
     }
 
     // ----- 後処理 -----
