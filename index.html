@@ -8417,10 +8417,14 @@ Object.assign(Shipping, {
 
     // 地域→国の対応(地域がONなら、その地域の国も実質除外として扱う)
     const REGION_TO_GROUP_NAME = {
-      'Europe': '🇪🇺 ヨーロッパ (49)',
+      'Europe': '🇪🇺 ヨーロッパ (50)',
       'Africa': '🌍 アフリカ (55)',
-      'South America': '🌎 南米 (14)',
-      'Central America and Caribbean': '🌎 中米・カリブ (30)',
+      'South America': '🌎 南米 (13)',
+      'Central America and Caribbean': '🌎 中米・カリブ (29)',
+      'Middle East': '🕌 中東 (12)',
+      'Asia': '🌏 アジア (43)',
+      'Oceania': '🌊 オセアニア (21)',
+      'North America': '🌎 北米 (5)',
     };
     // ある国コードがどの地域に含まれるか判定
     const isCoveredByRegion = (code) => {
@@ -9392,10 +9396,14 @@ Object.assign(Shipping, {
     // 除外国チェックボックス UI
     const excludedSet = new Set(this.editingPolicyExcluded);
     const REGION_TO_GROUP_NAME = {
-      'Europe': '🇪🇺 ヨーロッパ (49)',
+      'Europe': '🇪🇺 ヨーロッパ (50)',
       'Africa': '🌍 アフリカ (55)',
-      'South America': '🌎 南米 (14)',
-      'Central America and Caribbean': '🌎 中米・カリブ (30)',
+      'South America': '🌎 南米 (13)',
+      'Central America and Caribbean': '🌎 中米・カリブ (29)',
+      'Middle East': '🕌 中東 (12)',
+      'Asia': '🌏 アジア (43)',
+      'Oceania': '🌊 オセアニア (21)',
+      'North America': '🌎 北米 (5)',
     };
     const isCoveredByRegion = (code) => {
       for (const [region, groupName] of Object.entries(REGION_TO_GROUP_NAME)) {
