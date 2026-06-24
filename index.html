@@ -11149,12 +11149,17 @@ Object.assign(Shipping, {
       ? [{ regionName: 'Worldwide' }]
       : union.map(c => ({ regionName: c }));
 
-    // (a) INTERNATIONAL option-level に書き込み
+    // (a) INTERNATIONAL option-level に書き込み（regionExcluded がある場合は regionIncluded を使用しない）
     if (intl) {
-      intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
+      if (p.excluded.length > 0) {
+        // regionExcluded を使用するため shipToLocations を空にする
+        intl.shipToLocations = {};
+      } else {
+        intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
+      }
     }
-    // (b) policy-level にも書き込み(top-level)
-    p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
+    // (b) policy-level: regionExcluded のみを保持、regionIncluded は削除
+    delete p._raw.shipToLocations.regionIncluded;
 
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
