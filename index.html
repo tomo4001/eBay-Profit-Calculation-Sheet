@@ -10053,31 +10053,174 @@ Object.assign(Shipping, {
     const titleEl = document.getElementById('shipRateTableModalTitle');
     const regionLabelEl = document.getElementById('shipRateTableRegionLabel');
     const domTypeSection = document.getElementById('shipRateTableDomTypeSection');
+    const domServiceSection = document.getElementById('shipRateTableDomServiceSection');
     const regionSelectSection = document.getElementById('shipRateTableRegionSelectSection');
     const serviceSection = document.getElementById('shipRateTableServiceSection');
+    const addBtn = document.getElementById('shipRateTableAddBtn');
+    const rowsSection = document.getElementById('shipRateTableRowsSection');
 
     if (this.isDomesticRateTable) {
       // Domestic Rate Table
       titleEl.textContent = '📦 Domestic Rate table を作成';
       if (regionLabelEl) regionLabelEl.textContent = '米国の地域を選択';
       if (domTypeSection) domTypeSection.style.display = 'block';  // Rate Table type を表示
+      if (domServiceSection) domServiceSection.style.display = 'block';  // Domestic Service type セクションを表示
       if (regionSelectSection) regionSelectSection.style.display = 'block';
-      if (serviceSection) serviceSection.style.display = 'none';  // Shipping Service セクションは隠す
+      if (serviceSection) serviceSection.style.display = 'none';  // International Service セクションは隠す
+      if (addBtn) addBtn.style.display = 'none';  // International 用「行を追加」ボタンは隠す
+      if (rowsSection) rowsSection.style.display = 'none';  // International 用「設定済みの行」セクションは隠す
+
+      // Domestic Service セクションをレンダリング
+      this.updateDomesticServiceSections();
     } else {
       // International Rate Table
       titleEl.textContent = '📊 International Rate table を作成';
       if (regionLabelEl) regionLabelEl.textContent = '地域・国を選択';
       if (domTypeSection) domTypeSection.style.display = 'none';  // Rate Table type を隠す
+      if (domServiceSection) domServiceSection.style.display = 'none';  // Domestic Service type セクションは隠す
       if (regionSelectSection) regionSelectSection.style.display = 'block';
-      if (serviceSection) serviceSection.style.display = 'grid';  // Shipping Service セクションを表示
+      if (serviceSection) serviceSection.style.display = 'grid';  // International Service セクションを表示
+      if (addBtn) addBtn.style.display = 'block';  // International 用「行を追加」ボタンを表示
+      if (rowsSection) rowsSection.style.display = 'block';  // International 用「設定済みの行」セクションを表示
     }
   },
 
   // Domestic Rate Table: Rate Table type 変更時にサービスセクションを更新
   updateDomesticServiceSections() {
     const type = document.getElementById('shipRateTableDomType')?.value || 'small';
-    // Stage 2 で実装予定
-    console.log('[Domestic Rate Table] Type changed to:', type);
+    const container = document.getElementById('shipRateTableDomServiceSection');
+    if (!container) return;
+
+    let serviceTypes = [];
+    if (type === 'small') {
+      // Small package item: Overnight / Expedited / Standard / Economy
+      serviceTypes = [
+        { id: 'overnight', label: 'Overnight', name: 'Overnight' },
+        { id: 'expedited', label: 'Expedited', name: 'Expedited' },
+        { id: 'standard', label: 'Standard', name: 'Standard' },
+        { id: 'economy', label: 'Economy', name: 'Economy' }
+      ];
+    } else {
+      // Freight shipping item: Freight のみ
+      serviceTypes = [
+        { id: 'freight', label: 'Freight', name: 'Freight' }
+      ];
+    }
+
+    // Service type セクションをレンダリング
+    let html = '';
+    serviceTypes.forEach(service => {
+      html += `
+        <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px; margin-bottom:12px; background:#fafafa;">
+          <div style="font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">${service.label}</div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:8px;">
+            <div>
+              <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">地域を選択</label>
+              <select class="domServiceRegionSelect" data-service="${service.id}" onchange="Shipping.updateDomServiceRegions('${service.id}')">
+                <option value="">-- 地域を選択 --</option>
+                ${this.getDomServiceRegionOptions()}
+              </select>
+            </div>
+            <div>
+              <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Cost ($)</label>
+              <input type="number" class="domServiceCostInput" data-service="${service.id}" step="0.01" placeholder="0.00" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px;" />
+            </div>
+          </div>
+          <button onclick="Shipping.addDomServiceRow('${service.id}')" style="width:100%; padding:6px 8px; background:#2e75b6; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600;">+ 行を追加</button>
+          <div class="domServiceRowsContainer" data-service="${service.id}" style="margin-top:8px; max-height:150px; overflow-y:auto;">
+            <!-- 行がレンダリングされる -->
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  },
+
+  // Service type セクション内の地域オプションを生成
+  getDomServiceRegionOptions() {
+    const stateGroups = this.getUSStateGroups();
+    const stateNames = this.getUSStateNames();
+    let html = '';
+
+    for (const [groupName, groupData] of Object.entries(stateGroups)) {
+      html += `<optgroup label="${groupName}">`;
+      (groupData.items || []).forEach(code => {
+        html += `<option value="${code}">${code}（${stateNames[code]}）</option>`;
+      });
+      html += `</optgroup>`;
+    }
+
+    return html;
+  },
+
+  // Service type セクション内の行を追加
+  addDomServiceRow(serviceId) {
+    const regionSelect = document.querySelector(`.domServiceRegionSelect[data-service="${serviceId}"]`);
+    const costInput = document.querySelector(`.domServiceCostInput[data-service="${serviceId}"]`);
+
+    if (!regionSelect || !costInput) return;
+
+    const region = regionSelect.value;
+    const cost = costInput.value;
+
+    if (!region || !cost) {
+      alert('地域とコストを両方入力してください');
+      return;
+    }
+
+    // 行を保存（this.rateTableRows に追加）
+    this.rateTableRows.push({
+      service: serviceId,
+      region: region,
+      cost: parseFloat(cost)
+    });
+
+    // UI を更新
+    this.renderDomServiceRows(serviceId);
+    regionSelect.value = '';
+    costInput.value = '';
+  },
+
+  // Service type セクション内の行をレンダリング
+  renderDomServiceRows(serviceId) {
+    const container = document.querySelector(`.domServiceRowsContainer[data-service="${serviceId}"]`);
+    if (!container) return;
+
+    const rows = this.rateTableRows.filter(r => r.service === serviceId);
+    const stateNames = this.getUSStateNames();
+
+    let html = '';
+    rows.forEach((row, idx) => {
+      html += `
+        <div style="display:flex; gap:8px; align-items:center; padding:6px; background:white; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:4px; font-size:12px;">
+          <span style="flex:1;">${row.region}（${stateNames[row.region]}）</span>
+          <span style="font-weight:600;">$${row.cost.toFixed(2)}</span>
+          <button onclick="Shipping.removeDomServiceRow('${serviceId}', ${idx})" style="padding:2px 6px; background:#ff6b6b; color:white; border:none; border-radius:3px; cursor:pointer; font-size:11px;">削除</button>
+        </div>
+      `;
+    });
+
+    if (html === '') {
+      html = '<div style="text-align:center; color:#999; padding:8px; font-size:12px;">行がありません</div>';
+    }
+
+    container.innerHTML = html;
+  },
+
+  // Service type セクション内の行を削除
+  removeDomServiceRow(serviceId, idx) {
+    const serviceRows = this.rateTableRows.filter(r => r.service === serviceId);
+    if (idx < serviceRows.length) {
+      const rowToRemove = serviceRows[idx];
+      this.rateTableRows = this.rateTableRows.filter(r => !(r.service === serviceId && r.region === rowToRemove.region && r.cost === rowToRemove.cost));
+      this.renderDomServiceRows(serviceId);
+    }
+  },
+
+  // Service type セクション内の地域セレクタ更新
+  updateDomServiceRegions(serviceId) {
+    // 地域が選択されたときの処理（現在は不要）
   },
 
   renderEditDomRateTable(p) {
@@ -12853,7 +12996,12 @@ Object.assign(Shipping, {
       <div id="shipRateTableSelectedRegions" style="font-size:14px; font-weight:600; color:#2e75b6; min-height:20px;">（なし）</div>
     </div>
 
-    <!-- Shipping Service と Cost （International のみ） -->
+    <!-- Domestic 用: Service type セクション -->
+    <div id="shipRateTableDomServiceSection" style="display:none; margin-bottom:16px;">
+      <!-- JavaScript で Service type セクションを生成 -->
+    </div>
+
+    <!-- International 用: Shipping Service と Cost -->
     <div id="shipRateTableServiceSection" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
       <div>
         <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Shipping Service（optional）</label>
@@ -12868,10 +13016,10 @@ Object.assign(Shipping, {
       </div>
     </div>
 
-    <button onclick="Shipping.addRateTableRow()" style="width:100%; padding:10px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600; margin-bottom:16px;">+ 行を追加</button>
+    <button id="shipRateTableAddBtn" onclick="Shipping.addRateTableRow()" style="width:100%; padding:10px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600; margin-bottom:16px;">+ 行を追加</button>
 
-    <!-- 現在の設定 -->
-    <div style="border-top:1px solid #e5e7eb; padding-top:16px; margin-bottom:16px;">
+    <!-- 現在の設定 （International のみ） -->
+    <div id="shipRateTableRowsSection" style="border-top:1px solid #e5e7eb; padding-top:16px; margin-bottom:16px;">
       <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">設定済みの行</label>
       <div id="shipRateTableRowsContainer" style="max-height:250px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:8px;">
         <div style="text-align:center; color:#999; padding:16px;">行がありません</div>
