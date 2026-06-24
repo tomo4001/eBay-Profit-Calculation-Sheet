@@ -7035,11 +7035,6 @@ const Shipping = {
       const raw = (data.raw && data.raw.fulfillmentPolicies) || [];
       // 各ポリシーをパース
       this.policies = raw.map(p => this.parsePolicy(p));
-
-      // 📊 Rate Table リストを保存
-      this.ebayRateTables = (data.raw && data.raw.rateTables) || [];
-      console.log('[Rate Table] eBay から取得:', this.ebayRateTables);
-
       this.lastFetchAt = new Date();
       document.getElementById('shipTotalCount').textContent = this.policies.length;
       document.getElementById('shipFilteredCount').textContent = this.policies.length;
@@ -8128,76 +8123,6 @@ const SHIP_DOMESTIC_SERVICES = [
   { code: 'Other',                          label: 'Economy Shipping',                  days: '1-10' },
 ];
 
-// 国コード → カタカナ国名マッピング (eBay対応国)
-const COUNTRY_CODE_NAMES = {
-  'US': 'アメリカ', 'GB': 'イギリス', 'CA': 'カナダ', 'AU': 'オーストラリア',
-  'DE': 'ドイツ', 'FR': 'フランス', 'IT': 'イタリア', 'ES': 'スペイン',
-  'NL': 'オランダ', 'BE': 'ベルギー', 'AT': 'オーストリア', 'PL': 'ポーランド',
-  'CZ': 'チェコ', 'GR': 'ギリシャ', 'PT': 'ポルトガル', 'SE': 'スウェーデン',
-  'DK': 'デンマーク', 'FI': 'フィンランド', 'IE': 'アイルランド', 'LU': 'ルクセンブルク',
-  'MT': 'マルタ', 'CY': 'キプロス', 'SI': 'スロベニア', 'SK': 'スロバキア',
-  'HU': 'ハンガリー', 'RO': 'ルーマニア', 'BG': 'ブルガリア', 'HR': 'クロアチア',
-  'LV': 'ラトビア', 'LT': 'リトアニア', 'EE': 'エストニア', 'JP': '日本',
-  'CN': '中国', 'KR': '韓国', 'IN': 'インド', 'SG': 'シンガポール',
-  'HK': '香港', 'TW': '台湾', 'TH': 'タイ', 'MY': 'マレーシア',
-  'ID': 'インドネシア', 'PH': 'フィリピン', 'VN': 'ベトナム', 'MX': 'メキシコ',
-  'BR': 'ブラジル', 'AR': 'アルゼンチン', 'CH': 'スイス', 'NO': 'ノルウェー',
-  'NZ': 'ニュージーランド', 'ZA': '南アフリカ', 'AE': 'アラブ首長国連邦', 'SA': 'サウジアラビア',
-  'IL': 'イスラエル', 'TR': 'トルコ', 'RU': 'ロシア', 'UA': 'ウクライナ',
-  'CL': 'チリ', 'CO': 'コロンビア', 'PE': 'ペルー',
-  // ヨーロッパ追加
-  'AL': 'アルバニア', 'AD': 'アンドラ', 'BY': 'ベラルーシ', 'BA': 'ボスニア・ヘルツェゴビナ',
-  'GI': 'ジブラルタル', 'GG': 'ガーンジー', 'IS': 'アイスランド', 'JE': 'ジャージー',
-  'LI': 'リヒテンシュタイン', 'MK': '北マケドニア', 'MD': 'モルドバ', 'MC': 'モナコ',
-  'ME': 'モンテネグロ', 'SM': 'サンマリノ', 'RS': 'セルビア', 'SJ': 'スヴァールバル',
-  'VA': 'バチカン',
-  // 中東
-  'BH': 'バーレーン', 'IQ': 'イラク', 'JO': 'ヨルダン', 'KW': 'クウェート',
-  'LB': 'レバノン', 'OM': 'オマーン', 'QA': 'カタール', 'YE': 'イエメン',
-  // 東南アジア
-  'BN': 'ブルネイ', 'KH': 'カンボジア', 'LA': 'ラオス', 'MO': 'マカオ',
-  // アジア その他
-  'AF': 'アフガニスタン', 'AM': 'アルメニア', 'AZ': 'アゼルバイジャン', 'BD': 'バングラデシュ',
-  'BT': 'ブータン', 'GE': 'グルジア', 'KZ': 'カザフスタン', 'KG': 'キルギス',
-  'MV': 'モルディブ', 'MN': 'モンゴル', 'NP': 'ネパール', 'PK': 'パキスタン',
-  'LK': 'スリランカ', 'TJ': 'タジキスタン', 'TM': 'トルクメニスタン', 'UZ': 'ウズベキスタン',
-  // オセアニア
-  'AS': 'アメリカ領サモア', 'CK': 'クック諸島', 'FJ': 'フィジー', 'PF': 'フランス領ポリネシア',
-  'GU': 'グアム', 'KI': 'キリバス', 'MH': 'マーシャル諸島', 'FM': 'ミクロネシア',
-  'NR': 'ナウル', 'NC': 'ニューカレドニア', 'NU': 'ニウエ', 'PW': 'パラオ',
-  'PG': 'パプアニューギニア', 'SB': 'ソロモン諸島', 'TO': 'トンガ', 'TV': 'ツバル',
-  'VU': 'バヌアツ', 'WF': 'ウォリス・フツナ', 'WS': 'サモア',
-  // 北米
-  'BM': 'バミューダ', 'GL': 'グリーンランド', 'PM': 'サンピエール・ミクロン',
-  // 中米・カリブ
-  'AI': 'アンギラ', 'AG': 'アンティグア・バーブーダ', 'AW': 'アルバ', 'BS': 'バハマ',
-  'BB': 'バルバドス', 'BZ': 'ベリーズ', 'VG': 'イギリス領ヴァージン諸島', 'KY': 'ケイマン諸島',
-  'CR': 'コスタリカ', 'DM': 'ドミニカ', 'DO': 'ドミニカ共和国', 'SV': 'エルサルバドル',
-  'GD': 'グレナダ', 'GP': 'グアドループ', 'GT': 'グアテマラ', 'HT': 'ハイチ',
-  'HN': 'ホンジュラス', 'JM': 'ジャマイカ', 'MQ': 'マルティニーク', 'MS': 'モントセラト',
-  'AN': 'オランダ領アンティル', 'NI': 'ニカラグア', 'PA': 'パナマ', 'PR': 'プエルトリコ',
-  'KN': 'セントキッツ・ネイビス', 'LC': 'セントルシア', 'VC': 'セントビンセント・グレナディーン',
-  'TT': 'トリニダード・トバゴ', 'TC': 'タークス・カイコス諸島', 'VI': 'アメリカ領ヴァージン諸島',
-  // 南米
-  'BO': 'ボリビア', 'EC': 'エクアドル', 'FK': 'フォークランド諸島', 'GF': 'フランス領ギアナ',
-  'GY': 'ガイアナ', 'PY': 'パラグアイ', 'SR': 'スリナム', 'UY': 'ウルグアイ', 'VE': 'ベネズエラ',
-  // アフリカ
-  'DZ': 'アルジェリア', 'AO': 'アンゴラ', 'BJ': 'ベナン', 'BW': 'ボツワナ',
-  'BF': 'ブルキナファソ', 'BI': 'ブルンジ', 'CM': 'カメルーン', 'CV': 'カーボベルデ',
-  'CF': '中央アフリカ', 'TD': 'チャド', 'KM': 'コモロ', 'CD': 'コンゴ民主共和国',
-  'CG': 'コンゴ', 'CI': 'コートジボワール', 'DJ': 'ジブチ', 'EG': 'エジプト',
-  'GQ': '赤道ギニア', 'ER': 'エリトリア', 'ET': 'エチオピア', 'GA': 'ガボン',
-  'GM': 'ガンビア', 'GH': 'ガーナ', 'GN': 'ギニア', 'GW': 'ギニアビサウ',
-  'KE': 'ケニア', 'LS': 'レソト', 'LR': 'ライベリア', 'LY': 'リビア',
-  'MG': 'マダガスカル', 'MW': 'マラウイ', 'ML': 'マリ', 'MR': 'モーリタニア',
-  'MU': 'モーリシャス', 'YT': 'マヨット', 'MA': 'モロッコ', 'MZ': 'モザンビーク',
-  'NA': 'ナミビア', 'NE': 'ニジェール', 'NG': 'ナイジェリア', 'RE': 'レユニオン',
-  'RW': 'ルワンダ', 'SH': 'セントヘレナ', 'SN': 'セネガル', 'SC': 'セーシェル',
-  'SL': 'シエラレオネ', 'SO': 'ソマリア', 'SZ': 'エスワティニ', 'TZ': 'タンザニア',
-  'TG': 'トーゴ', 'TN': 'チュニジア', 'UG': 'ウガンダ', 'EH': '西サハラ',
-  'ZM': 'ザンビア', 'ZW': 'ジンバブエ'
-};
-
 // 国を地域グループ別に分類(eBay UI と完全一致)
 // 国名はeBay APIから動的取得して補完される
 const SHIP_COUNTRY_GROUPS = {
@@ -8205,14 +8130,17 @@ const SHIP_COUNTRY_GROUPS = {
     items: ['Europe','Africa','South America','Central America and Caribbean','Alaska/Hawaii','APO/FPO','PO Box','US Protectorates'],
     isRegion: true
   },
-  '🇪🇺 ヨーロッパ (50)': {
-    items: ['AL','AD','AT','BY','BE','BA','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GI','GR','GG','HU','IS','IE','IT','JE','LV','LI','LT','LU','MK','MT','MD','MC','ME','NL','NO','PL','PT','RO','RU','SM','RS','SK','SI','ES','SJ','SE','CH','UA','GB','VA','TR']
+  '🇪🇺 ヨーロッパ (49)': {
+    items: ['AL','AD','AT','BY','BE','BA','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GI','GR','GG','HU','IS','IE','IT','JE','LV','LI','LT','LU','MK','MT','MD','MC','ME','NL','NO','PL','PT','RO','RU','SM','RS','SK','SI','ES','SJ','SE','CH','UA','GB','VA']
   },
   '🕌 中東 (12)': {
     items: ['BH','IQ','IL','JO','KW','LB','OM','QA','SA','TR','AE','YE']
   },
-  '🌏 アジア (43)': {
-    items: ['AF','AM','AZ','BH','BD','BT','BN','KH','CN','GE','HK','IN','ID','IQ','IL','JP','JO','KZ','KR','KW','KG','LA','LB','MO','MY','MV','MN','NP','OM','PK','PH','QA','RU','SA','SG','LK','TW','TJ','TH','TR','TM','AE','UZ','VN','YE']
+  '🌏 東南アジア (12)': {
+    items: ['BN','KH','HK','ID','LA','MO','MY','PH','SG','TW','TH','VN']
+  },
+  '🌏 アジア その他 (中東/東南アジア以外, 20)': {
+    items: ['AF','AM','AZ','BD','BT','CN','GE','IN','JP','KZ','KR','KG','MV','MN','NP','PK','LK','TJ','TM','UZ']
   },
   '🌊 オセアニア (21)': {
     items: ['AS','AU','CK','FJ','PF','GU','KI','MH','FM','NR','NC','NZ','NU','PW','PG','SB','TO','TV','VU','WF','WS']
@@ -8291,7 +8219,6 @@ Object.assign(Shipping, {
   currentDefaultType: 'Expedited',
   editingRuleId: null,
   editingRuleCountries: [],
-  ebayRateTables: [],  // eBay から取得した Rate Table リスト
 
   // localStorageから復元
   loadSettings() {
@@ -8376,10 +8303,6 @@ Object.assign(Shipping, {
     this.renderSpecialRules();
     document.getElementById('shipSettingsModal').classList.add('active');
   },
-  openModal(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('active');
-  },
   closeModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
@@ -8423,14 +8346,10 @@ Object.assign(Shipping, {
 
     // 地域→国の対応(地域がONなら、その地域の国も実質除外として扱う)
     const REGION_TO_GROUP_NAME = {
-      'Europe': '🇪🇺 ヨーロッパ (50)',
+      'Europe': '🇪🇺 ヨーロッパ (49)',
       'Africa': '🌍 アフリカ (55)',
       'South America': '🌎 南米 (14)',
       'Central America and Caribbean': '🌎 中米・カリブ (30)',
-      'Middle East': '🕌 中東 (12)',
-      'Asia': '🌏 アジア (43)',
-      'Oceania': '🌊 オセアニア (21)',
-      'North America': '🌎 北米 (5)',
     };
     // ある国コードがどの地域に含まれるか判定
     const isCoveredByRegion = (code) => {
@@ -9402,14 +9321,10 @@ Object.assign(Shipping, {
     // 除外国チェックボックス UI
     const excludedSet = new Set(this.editingPolicyExcluded);
     const REGION_TO_GROUP_NAME = {
-      'Europe': '🇪🇺 ヨーロッパ (50)',
+      'Europe': '🇪🇺 ヨーロッパ (49)',
       'Africa': '🌍 アフリカ (55)',
       'South America': '🌎 南米 (14)',
       'Central America and Caribbean': '🌎 中米・カリブ (30)',
-      'Middle East': '🕌 中東 (12)',
-      'Asia': '🌏 アジア (43)',
-      'Oceania': '🌊 オセアニア (21)',
-      'North America': '🌎 北米 (5)',
     };
     const isCoveredByRegion = (code) => {
       for (const [region, groupName] of Object.entries(REGION_TO_GROUP_NAME)) {
@@ -9613,20 +9528,9 @@ Object.assign(Shipping, {
         </div>
         <div class="ship-field">
           <label>Rate Table</label>
-          <div style="display:flex; gap:8px; align-items:center; position:relative;">
-            <select id="shipEditDomRateTable" style="flex:1; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
-            </select>
-            <button type="button" id="shipEditDomRateTableMenuBtn" title="Create new / Edit rate table" style="padding:8px 12px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer; font-weight:600; position:relative;">⋮</button>
-            <!-- Rate table メニューポップアップ -->
-            <div id="shipEditDomRateTablePopup" style="position:absolute; top:100%; right:0; background:white; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:1000; min-width:180px; display:none; margin-top:4px; flex-direction:column;">
-              <button type="button" id="shipDomRateTableCreateBtn" style="display:block; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; border-bottom:1px solid #e5e7eb; font-weight:500;">✨ Create new</button>
-              <button type="button" id="shipDomRateTableEditBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; border-bottom:1px solid #e5e7eb; font-weight:500;">✏️ Edit rate table</button>
-              <button type="button" id="shipDomRateTableDeleteBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#d32f2f; font-weight:500;">🗑 Delete</button>
-            </div>
-          </div>
-          <div id="shipEditDomRateTableInfo" style="font-size:11px; color:#6b7280; margin-top:8px; padding:6px 10px; background:#f9fafb; border-radius:4px;">
-            Rate table は現在 <strong>None</strong> です（未使用）
-          </div>
+          <select id="shipEditDomRateTable">
+            <option value="">None</option>
+          </select>
         </div>
       </div>
 
@@ -9654,28 +9558,6 @@ Object.assign(Shipping, {
             編集したい場合は上の Primary Destinations / Add Service を変更してください。
           </div>
           <div id="shipEditAdditionalLocsContainer"></div>
-        </div>
-
-        <!-- 📊 Rate table (optional) -->
-        <div style="margin-top:16px; padding-top:14px; border-top:1px dashed #d1d5db;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div style="font-size:12px; font-weight:700; color:#4b5563;">📊 Rate table (optional)</div>
-            <div style="font-size:11px; color:#6b7280;">地域別・金額別の送料設定</div>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; position:relative;">
-            <select id="shipEditRateTable" style="flex:1; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
-            </select>
-            <button type="button" id="shipEditRateTableMenuBtn" title="Create new / Edit rate table" style="padding:8px 12px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer; font-weight:600; position:relative;">⋮</button>
-            <!-- Rate table メニューポップアップ -->
-            <div id="shipEditRateTablePopup" style="position:absolute; top:100%; right:0; background:white; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:1000; min-width:180px; display:none; margin-top:4px; flex-direction:column;">
-              <button type="button" id="shipRateTableCreateBtn" style="display:block; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; border-bottom:1px solid #e5e7eb; font-weight:500;">✨ Create new</button>
-              <button type="button" id="shipRateTableEditBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#333; border-bottom:1px solid #e5e7eb; font-weight:500;">✏️ Edit rate table</button>
-              <button type="button" id="shipRateTableDeleteBtn" style="display:none; width:100%; padding:10px 14px; background:none; border:none; text-align:left; cursor:pointer; font-size:13px; color:#d32f2f; font-weight:500;">🗑 Delete</button>
-            </div>
-          </div>
-          <div id="shipEditRateTableInfo" style="font-size:11px; color:#6b7280; margin-top:8px; padding:6px 10px; background:#f9fafb; border-radius:4px;">
-            Rate table は現在 <strong>None</strong> です（未使用）
-          </div>
         </div>
       </div>
 
@@ -9727,9 +9609,6 @@ Object.assign(Shipping, {
     this.renderEditIntlServices();
     // 📍 Phase 2-H: Additional locations (optional) を描画
     this.renderEditAdditionalLocations();
-    // 📊 Rate table (optional) を描画
-    this.renderEditRateTable(p);
-    this.renderEditDomRateTable(p);  // Domestic Rate Table を描画
 
     // 📌 タイトル自動生成プレビューを初期化
     // 新規作成時 or 既に自動生成パターンに従っている既存ポリシー → 自動更新モード
@@ -9896,1278 +9775,6 @@ Object.assign(Shipping, {
       </div>
       <div class="ship-dest-grid">${items}</div>
     `;
-  },
-
-  renderEditRateTable(p) {
-    const select = document.getElementById('shipEditRateTable');
-    const infoDiv = document.getElementById('shipEditRateTableInfo');
-    const menuBtn = document.getElementById('shipEditRateTableMenuBtn');
-    const popup = document.getElementById('shipEditRateTablePopup');
-    const createBtn = document.getElementById('shipRateTableCreateBtn');
-    const editBtn = document.getElementById('shipRateTableEditBtn');
-
-    if (!select || !infoDiv || !p || !popup) return;
-
-    // ドロップダウンを動的に生成
-    const options = [
-      { value: 'none', label: 'None' }
-    ];
-
-    // eBay から取得した Rate Table を追加
-    if (this.ebayRateTables && this.ebayRateTables.length > 0) {
-      this.ebayRateTables.forEach(rt => {
-        options.push({
-          value: `ebay_${rt.rateTableId}`,
-          label: rt.name,
-          source: 'ebay'
-        });
-      });
-    }
-
-    // ローカルで作成した Rate Table を追加（現在のポリシー）
-    if (p.rateTable && p.rateTable.name) {
-      options.push({
-        value: `local_${p.id}`,
-        label: `${p.rateTable.name} (ローカル)`,
-        source: 'local'
-      });
-    }
-
-    // ユーザーが作成したテーブル（他のポリシー）を追加
-    this.policies.forEach(policy => {
-      if (policy.id !== p.id && policy.rateTable) {
-        options.push({
-          value: `local_${policy.id}`,
-          label: `${policy.rateTable.name} (from ${policy.name})`,
-          source: 'local'
-        });
-      }
-    });
-
-    // ドロップダウンを再構築
-    select.innerHTML = options.map(opt =>
-      `<option value="${opt.value}">${opt.label}</option>`
-    ).join('');
-
-    // 現在の値を復元
-    const hasRateTable = p.rateTable && Object.keys(p.rateTable || {}).length > 0;
-    if (hasRateTable) {
-      // ユーザーが作成したテーブルを選択
-      select.value = `local_${p.id}`;
-    } else {
-      // None を選択
-      select.value = 'none';
-    }
-
-    // 情報テキスト
-    infoDiv.textContent = hasRateTable
-      ? `✅ Rate table が実装されています (Other International)`
-      : `❌ Rate table は現在 None です（未使用）`;
-
-    // ドロップダウン変更時（既存なら上書き）
-    if (!select.hasAttribute('data-listener-attached')) {
-      select.addEventListener('change', () => {
-        const val = select.value;
-        const policy = this.policies.find(x => x.id === this.editingPolicyId);
-
-        // Policy に Rate Table を保存
-        if (val === 'none') {
-          if (policy) policy.rateTable = null;
-          infoDiv.textContent = `❌ Rate table は None です（未使用）`;
-        } else if (val.startsWith('local_')) {
-          // ローカル Rate Table を選択
-          const policyId = val.replace('local_', '');
-          const selectedPolicy = this.policies.find(x => x.id === policyId);
-          if (policy && selectedPolicy && selectedPolicy.rateTable) {
-            policy.rateTable = JSON.parse(JSON.stringify(selectedPolicy.rateTable));
-          }
-          infoDiv.textContent = `Rate table を設定: ${policy && policy.rateTable ? policy.rateTable.name : '(未選択)'}`;
-        }
-
-        // Edit ボタンの表示制御
-        if (editBtn) {
-          editBtn.style.display = (policy && policy.rateTable) ? 'block' : 'none';
-        }
-        popup.style.display = 'none';
-      });
-      select.setAttribute('data-listener-attached', 'true');
-    }
-
-    // 3点メニューボタンのクリック（既存なら上書き）
-    if (!menuBtn.hasAttribute('data-listener-attached')) {
-      menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isOpen = popup.style.display === 'flex';
-        popup.style.display = isOpen ? 'none' : 'flex';
-      });
-      menuBtn.setAttribute('data-listener-attached', 'true');
-    }
-
-    // メニュー項目の表示制御
-    const rateTableMode = select.value;
-    if (createBtn && !createBtn.hasAttribute('data-listener-attached')) {
-      createBtn.addEventListener('click', () => {
-        // モーダルを開く（初期化）
-        this.rateTableRows = [];
-        this.selectedRateTableRegions.clear();
-        this.isDomesticRateTable = false;  // International フラグ
-        document.getElementById('shipRateTableName').value = '';
-        document.getElementById('shipRateTableService').value = '';
-        document.getElementById('shipRateTableCost').value = '';
-
-        // UI を更新
-        this.updateRateTableModalUI();
-        this.renderRateTableRegionGroups();
-        this.renderShippingServices();
-        this.renderRateTableRows();
-        this.updateSelectedRateTableRegionsDisplay();
-
-        this.openModal('shipRateTableCreateModal');
-        popup.style.display = 'none';
-      });
-      createBtn.setAttribute('data-listener-attached', 'true');
-    }
-    if (editBtn) {
-      editBtn.style.display = hasRateTable ? 'block' : 'none';
-      if (!editBtn.hasAttribute('data-listener-attached')) {
-        editBtn.addEventListener('click', () => {
-          // 既存の Rate Table を編集モーダルに読み込む
-          const policy = this.policies.find(x => x.id === this.editingPolicyId);
-          if (!policy || !policy.rateTable) {
-            alert('⚠️ Rate table がありません');
-            return;
-          }
-
-          // Rate Table データを編集用に読み込む
-          this.rateTableRows = (policy.rateTable.rows || []).map(r => ({ ...r }));
-          this.selectedRateTableRegions.clear();
-          this.isDomesticRateTable = false;  // International フラグ
-          document.getElementById('shipRateTableName').value = policy.rateTable.name || '';
-          document.getElementById('shipRateTableService').value = '';
-          document.getElementById('shipRateTableCost').value = '';
-
-          // UI を更新
-          this.updateRateTableModalUI();
-          this.renderRateTableRegionGroups();
-          this.renderShippingServices();
-          this.renderRateTableRows();
-          this.updateSelectedRateTableRegionsDisplay();
-
-          // 編集モーダルを開く
-          this.openModal('shipRateTableCreateModal');
-          popup.style.display = 'none';
-        });
-        editBtn.setAttribute('data-listener-attached', 'true');
-      }
-    }
-
-    // Delete ボタン
-    const deleteBtn = document.getElementById('shipRateTableDeleteBtn');
-    if (deleteBtn) {
-      deleteBtn.style.display = hasRateTable ? 'block' : 'none';
-      if (!deleteBtn.hasAttribute('data-listener-attached')) {
-        deleteBtn.addEventListener('click', () => {
-          if (!confirm('Rate table を削除しますか？')) {
-            return;
-          }
-
-          const policy = this.policies.find(x => x.id === this.editingPolicyId);
-          if (policy) {
-            policy.rateTable = null;
-            this.renderEditRateTable(policy);
-            this.savePoliciesCache();  // 💾 localStorage に保存
-            popup.style.display = 'none';
-            alert('✅ Rate table を削除しました');
-          }
-        });
-        deleteBtn.setAttribute('data-listener-attached', 'true');
-      }
-    }
-
-    // ドキュメント外クリックでポップアップを閉じる（1回だけ設定）
-    if (!window._rateTableListenerAttached) {
-      document.addEventListener('click', (e) => {
-        const popup = document.getElementById('shipEditRateTablePopup');
-        const menuBtn = document.getElementById('shipEditRateTableMenuBtn');
-        if (popup && menuBtn && !menuBtn.contains(e.target) && !popup.contains(e.target)) {
-          popup.style.display = 'none';
-        }
-      });
-      window._rateTableListenerAttached = true;
-    }
-  },
-
-  // Domestic Rate Table を描画（International と同じ構造）
-  // Rate Table モーダルの UI を更新（Domestic/International 切り替え）
-  updateRateTableModalUI() {
-    const titleEl = document.getElementById('shipRateTableModalTitle');
-    const domTypeSection = document.getElementById('shipRateTableDomTypeSection');
-    const domServiceSection = document.getElementById('shipRateTableDomServiceSection');
-    const regionSelectSection = document.getElementById('shipRateTableRegionSelectSection');
-    const selectedRegionsSection = document.getElementById('shipRateTableSelectedRegionsSection');
-    const serviceSection = document.getElementById('shipRateTableServiceSection');
-    const addBtn = document.getElementById('shipRateTableAddBtn');
-    const rowsSection = document.getElementById('shipRateTableRowsSection');
-
-    if (this.isDomesticRateTable) {
-      // Domestic Rate Table
-      titleEl.textContent = '📦 Domestic Rate table を作成';
-      if (domTypeSection) domTypeSection.style.display = 'block';  // Rate Table type を表示
-      if (domServiceSection) domServiceSection.style.display = 'block';  // Domestic Service type セクションを表示
-      if (regionSelectSection) regionSelectSection.style.display = 'none';  // 上部の地域選択は隠す
-      if (selectedRegionsSection) selectedRegionsSection.style.display = 'none';  // 選択中の地域は隠す
-      if (serviceSection) serviceSection.style.display = 'none';  // International Service セクションは隠す
-      if (addBtn) addBtn.style.display = 'none';  // International 用「行を追加」ボタンは隠す
-      if (rowsSection) rowsSection.style.display = 'none';  // International 用「設定済みの行」セクションは隠す
-
-      // Domestic Service セクションをレンダリング
-      this.updateDomesticServiceSections();
-    } else {
-      // International Rate Table
-      titleEl.textContent = '📊 International Rate table を作成';
-      if (domTypeSection) domTypeSection.style.display = 'none';  // Rate Table type を隠す
-      if (domServiceSection) domServiceSection.style.display = 'none';  // Domestic Service type セクションは隠す
-      if (regionSelectSection) regionSelectSection.style.display = 'block';  // 上部の地域選択を表示
-      if (selectedRegionsSection) selectedRegionsSection.style.display = 'block';  // 選択中の地域を表示
-      if (serviceSection) serviceSection.style.display = 'grid';  // International Service セクションを表示
-      if (addBtn) addBtn.style.display = 'block';  // International 用「行を追加」ボタンを表示
-      if (rowsSection) rowsSection.style.display = 'block';  // International 用「設定済みの行」セクションを表示
-    }
-  },
-
-  // Domestic Rate Table: Rate Table type 変更時にサービスセクションを更新
-  updateDomesticServiceSections() {
-    const type = document.getElementById('shipRateTableDomType')?.value || 'small';
-    const container = document.getElementById('shipRateTableDomServiceSection');
-    if (!container) return;
-
-    let serviceTypes = [];
-    if (type === 'small') {
-      // Small package item: Overnight / Expedited / Standard / Economy
-      serviceTypes = [
-        { id: 'overnight', label: 'Overnight', name: 'Overnight' },
-        { id: 'expedited', label: 'Expedited', name: 'Expedited' },
-        { id: 'standard', label: 'Standard', name: 'Standard' },
-        { id: 'economy', label: 'Economy', name: 'Economy' }
-      ];
-    } else {
-      // Freight shipping item: Freight のみ
-      serviceTypes = [
-        { id: 'freight', label: 'Freight', name: 'Freight' }
-      ];
-    }
-
-    // Service type セクションをレンダリング
-    let html = '';
-    serviceTypes.forEach(service => {
-      html += `
-        <div style="border:1px solid #e5e7eb; border-radius:6px; padding:12px; margin-bottom:12px; background:#fafafa;">
-          <div style="font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">${service.label}</div>
-
-          <!-- 地域選択（チェックボックス） -->
-          <div style="margin-bottom:8px;">
-            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:600;">地域を選択</label>
-            <div class="domServiceRegionCheckboxes" data-service="${service.id}" style="max-height:200px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:4px; padding:6px; background:white;">
-              ${this.renderDomServiceRegionCheckboxes(service.id)}
-            </div>
-          </div>
-
-          <!-- Cost 入力 -->
-          <div style="margin-bottom:8px;">
-            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Cost ($)</label>
-            <input type="number" class="domServiceCostInput" data-service="${service.id}" step="0.01" placeholder="0.00" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px;" />
-          </div>
-
-          <!-- 行を追加ボタン -->
-          <button onclick="Shipping.addDomServiceRow('${service.id}')" style="width:100%; padding:6px 8px; background:#2e75b6; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; margin-bottom:8px;">+ 行を追加</button>
-
-          <!-- 設定済みの行 -->
-          <div class="domServiceRowsContainer" data-service="${service.id}" style="max-height:150px; overflow-y:auto;">
-            <div style="text-align:center; color:#999; padding:8px; font-size:12px;">行がありません</div>
-          </div>
-        </div>
-      `;
-    });
-
-    container.innerHTML = html;
-  },
-
-  // Service type セクション内の地域チェックボックスをレンダリング
-  renderDomServiceRegionCheckboxes(serviceId) {
-    const stateGroups = this.getUSStateGroups();
-    const stateNames = this.getUSStateNames();
-    let html = '';
-
-    for (const [groupName, groupData] of Object.entries(stateGroups)) {
-      html += `<div style="margin-bottom:6px;">
-        <div style="font-size:12px; font-weight:600; color:#333; padding:4px 0; border-bottom:1px solid #e5e7eb; margin-bottom:4px;">${groupName}</div>`;
-
-      (groupData.items || []).forEach(code => {
-        html += `
-          <label style="display:block; padding:4px 0; cursor:pointer; font-size:12px;">
-            <input type="checkbox" class="domServiceRegionCheckbox" data-service="${serviceId}" value="${code}" />
-            ${code}（${stateNames[code]}）
-          </label>
-        `;
-      });
-
-      html += `</div>`;
-    }
-
-    return html;
-  },
-
-  // Service type セクション内の行を追加
-  addDomServiceRow(serviceId) {
-    const checkboxes = document.querySelectorAll(`.domServiceRegionCheckbox[data-service="${serviceId}"]:checked`);
-    const costInput = document.querySelector(`.domServiceCostInput[data-service="${serviceId}"]`);
-
-    if (!costInput) return;
-
-    const cost = costInput.value;
-
-    if (checkboxes.length === 0 || !cost) {
-      alert('地域とコストを両方選択/入力してください');
-      return;
-    }
-
-    // 選択された地域をグループとして1行で追加
-    const regions = Array.from(checkboxes).map(cb => cb.value);
-    this.rateTableRows.push({
-      service: serviceId,
-      regions: regions,
-      cost: parseFloat(cost)
-    });
-
-    // UI を更新
-    this.renderDomServiceRows(serviceId);
-    checkboxes.forEach(cb => cb.checked = false);
-    costInput.value = '';
-  },
-
-  // Domestic Rate Table の行を修正（編集モードから保存）
-  updateDomesticRateTableRow() {
-    if (this.editingRowIndex === null || this.editingRowIndex >= this.rateTableRows.length) {
-      alert('編集対象の行が見つかりません');
-      return;
-    }
-
-    const row = this.rateTableRows[this.editingRowIndex];
-    const serviceId = row.service;
-    const checkboxes = document.querySelectorAll(`.domServiceRegionCheckbox[data-service="${serviceId}"]:checked`);
-    const costInput = document.querySelector(`.domServiceCostInput[data-service="${serviceId}"]`);
-
-    if (!costInput) {
-      alert('Cost フィールドが見つかりません');
-      return;
-    }
-
-    const cost = costInput.value;
-
-    if (checkboxes.length === 0 || !cost) {
-      alert('地域とコストを両方選択/入力してください');
-      return;
-    }
-
-    // 行を更新
-    const regions = Array.from(checkboxes).map(cb => cb.value);
-    this.rateTableRows[this.editingRowIndex].regions = regions;
-    this.rateTableRows[this.editingRowIndex].cost = parseFloat(cost);
-
-    // UI を更新して編集モード終了
-    this.renderDomServiceRows(serviceId);
-    this.editingRowIndex = null;
-    this.updateRateTableModalButtons();
-
-    // チェックボックスをリセット
-    checkboxes.forEach(cb => cb.checked = false);
-    costInput.value = '';
-
-    // 💾 Policy に反映して localStorage に保存
-    const policy = this.policies.find(x => x.id === this.editingPolicyId);
-    if (policy && policy.domesticRateTable) {
-      policy.domesticRateTable.rows = this.rateTableRows;
-      this.savePoliciesCache();
-    }
-  },
-
-  // Service type セクション内の行をレンダリング
-  renderDomServiceRows(serviceId) {
-    const container = document.querySelector(`.domServiceRowsContainer[data-service="${serviceId}"]`);
-    if (!container) return;
-
-    const rows = this.rateTableRows.filter(r => r.service === serviceId);
-    const stateNames = this.getUSStateNames();
-
-    let html = '';
-    rows.forEach((row, filterIdx) => {
-      // 全体配列内のインデックスを計算
-      const globalIdx = this.rateTableRows.indexOf(row);
-
-      // 編集中の行かどうかを判定
-      const isEditing = this.editingRowIndex === globalIdx;
-      const bgColor = isEditing ? '#fff3cd' : 'white';
-
-      // 複数地域をグループ表示
-      const regions = row.regions || [row.region];  // 互換性のため両方対応
-      const regionsDisplay = regions.map(code => {
-        const name = stateNames[code] || code;
-        return `${code}（${name}）`;
-      }).join(', ');
-
-      // テーブルの行全体をクリック可能にする
-      html += `
-        <div style="display:flex; gap:8px; align-items:center; padding:6px; background:${bgColor}; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:4px; font-size:12px; cursor:pointer;" onclick='Shipping.selectRateTableRowForEdit(${globalIdx})' >
-          <span style="flex:1;">${regionsDisplay}</span>
-          <span style="font-weight:600;">$${row.cost.toFixed(2)}</span>
-          <button onclick="event.stopPropagation(); Shipping.removeDomServiceRow('${serviceId}', ${filterIdx})" style="padding:2px 6px; background:#ff6b6b; color:white; border:none; border-radius:3px; cursor:pointer; font-size:11px;">削除</button>
-        </div>
-      `;
-    });
-
-    if (html === '') {
-      html = '<div style="text-align:center; color:#999; padding:8px; font-size:12px;">行がありません</div>';
-    }
-
-    container.innerHTML = html;
-  },
-
-  // Service type セクション内の行を削除
-  removeDomServiceRow(serviceId, idx) {
-    const serviceRows = this.rateTableRows.filter(r => r.service === serviceId);
-    if (idx < serviceRows.length) {
-      const rowToRemove = serviceRows[idx];
-      // 行インデックスで削除
-      let count = 0;
-      this.rateTableRows = this.rateTableRows.filter(r => {
-        if (r.service === serviceId) {
-          if (count === idx) {
-            count++;
-            return false;  // この行は削除
-          }
-          count++;
-        }
-        return true;  // この行は保持
-      });
-      this.renderDomServiceRows(serviceId);
-
-      // 💾 Policy に反映して localStorage に保存
-      const policy = this.policies.find(x => x.id === this.editingPolicyId);
-      if (policy && policy.domesticRateTable) {
-        policy.domesticRateTable.rows = this.rateTableRows;
-        this.savePoliciesCache();
-      }
-    }
-  },
-
-
-  renderEditDomRateTable(p) {
-    const select = document.getElementById('shipEditDomRateTable');
-    const infoDiv = document.getElementById('shipEditDomRateTableInfo');
-    const menuBtn = document.getElementById('shipEditDomRateTableMenuBtn');
-    const popup = document.getElementById('shipEditDomRateTablePopup');
-    const createBtn = document.getElementById('shipDomRateTableCreateBtn');
-    const editBtn = document.getElementById('shipDomRateTableEditBtn');
-
-    if (!select || !infoDiv || !p || !popup) return;
-
-    // ドロップダウンを動的に生成
-    const options = [
-      { value: 'none', label: 'None' }
-    ];
-
-    // ローカルで作成した Domestic Rate Table を追加
-    if (p.domesticRateTable && p.domesticRateTable.name) {
-      options.push({
-        value: `local_${p.id}`,
-        label: `${p.domesticRateTable.name} (ローカル)`,
-        source: 'local'
-      });
-    }
-
-    // eBay から取得した Domestic Rate Table を追加
-    if (this.ebayRateTables && this.ebayRateTables.length > 0) {
-      this.ebayRateTables
-        .filter(rt => rt.locality === 'DOMESTIC')  // Domestic のみ
-        .forEach(rt => {
-          options.push({
-            value: `ebay_${rt.rateTableId}`,
-            label: rt.name,
-            source: 'ebay'
-          });
-        });
-    }
-
-    // ドロップダウンを再構築
-    select.innerHTML = options.map(opt =>
-      `<option value="${opt.value}">${opt.label}</option>`
-    ).join('');
-
-    // 現在の値を復元
-    const hasDomRateTable = p.domesticRateTable && Object.keys(p.domesticRateTable || {}).length > 0;
-    if (hasDomRateTable) {
-      select.value = `local_${p.id}`;
-    } else {
-      select.value = 'none';
-    }
-
-    // 情報テキスト
-    infoDiv.textContent = hasDomRateTable
-      ? `✅ Domestic Rate table が実装されています`
-      : `❌ Domestic Rate table は現在 None です（未使用）`;
-
-    // ドロップダウン変更時
-    if (!select.hasAttribute('data-listener-attached')) {
-      select.addEventListener('change', () => {
-        const val = select.value;
-        const hasValue = val !== 'none' && val !== '';
-        const policy = this.policies.find(x => x.id === this.editingPolicyId);
-
-        // Policy に Domestic Rate Table を保存
-        if (!hasValue) {
-          if (policy) policy.domesticRateTable = null;
-          infoDiv.textContent = `❌ Domestic Rate table は None です（未使用）`;
-        } else if (val.startsWith('local_')) {
-          // ローカル Domestic Rate Table を選択
-          const policyId = val.replace('local_', '');
-          const selectedPolicy = this.policies.find(x => x.id === policyId);
-          if (policy && selectedPolicy && selectedPolicy.domesticRateTable) {
-            policy.domesticRateTable = JSON.parse(JSON.stringify(selectedPolicy.domesticRateTable));
-          }
-          infoDiv.textContent = `✅ Domestic Rate table を設定`;
-        }
-
-        if (editBtn) {
-          editBtn.style.display = hasValue ? 'block' : 'none';
-        }
-        // popup.style.display = 'none'; ← メニューを自動で非表示にしない
-      });
-      select.setAttribute('data-listener-attached', 'true');
-    }
-
-    // メニューボタン
-    if (!menuBtn.hasAttribute('data-listener-attached')) {
-      menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isOpen = popup.style.display === 'flex';
-        popup.style.display = isOpen ? 'none' : 'flex';
-      });
-      menuBtn.setAttribute('data-listener-attached', 'true');
-    }
-
-    // Create ボタン
-    if (createBtn && !createBtn.hasAttribute('data-listener-attached')) {
-      createBtn.addEventListener('click', () => {
-        // モーダルを開く（初期化）
-        this.rateTableRows = [];
-        this.selectedRateTableRegions.clear();
-        this.isDomesticRateTable = true;  // Domestic フラグ
-        document.getElementById('shipRateTableName').value = '';
-        document.getElementById('shipRateTableDomType').value = 'small';  // Domestic: Small package item
-        document.getElementById('shipRateTableService').value = '';
-        document.getElementById('shipRateTableCost').value = '';
-
-        // UI を更新
-        this.updateRateTableModalUI();
-        this.renderRateTableRegionGroups();
-        this.renderShippingServices();
-        this.renderRateTableRows();
-        this.updateSelectedRateTableRegionsDisplay();
-
-        this.openModal('shipRateTableCreateModal');
-        popup.style.display = 'none';
-      });
-      createBtn.setAttribute('data-listener-attached', 'true');
-    }
-
-    // Edit ボタン
-    if (editBtn) {
-      // 初期表示時にドロップダウン値に応じて表示制御
-      editBtn.style.display = (select.value !== 'none' && select.value !== '') ? 'block' : 'none';
-
-      if (!editBtn.hasAttribute('data-listener-attached')) {
-        editBtn.addEventListener('click', () => {
-          // Domestic Rate Table を編集モードで開く
-          if (!p.domesticRateTable) return;
-
-          this.rateTableRows = JSON.parse(JSON.stringify(p.domesticRateTable.rows || []));
-          this.selectedRateTableRegions.clear();
-          this.isDomesticRateTable = true;
-          document.getElementById('shipRateTableName').value = p.domesticRateTable.name || '';
-          document.getElementById('shipRateTableDomType').value = p.domesticRateTable.type || 'small';
-          document.getElementById('shipRateTableService').value = '';
-          document.getElementById('shipRateTableCost').value = '';
-
-          // UI を更新
-          this.updateRateTableModalUI();
-          this.renderRateTableRegionGroups();
-          this.renderShippingServices();
-
-          // Domestic の場合は Service type ごとにレンダリング
-          if (this.isDomesticRateTable) {
-            const type = p.domesticRateTable.type || 'small';
-            const services = type === 'small'
-              ? ['overnight', 'expedited', 'standard', 'economy']
-              : ['freight'];
-            services.forEach(svc => this.renderDomServiceRows(svc));
-          } else {
-            this.renderRateTableRows();
-          }
-
-          this.updateSelectedRateTableRegionsDisplay();
-
-          this.openModal('shipRateTableCreateModal');
-          popup.style.display = 'none';
-        });
-        editBtn.setAttribute('data-listener-attached', 'true');
-      }
-    }
-
-    // Delete ボタン
-    const deleteBtn = document.getElementById('shipDomRateTableDeleteBtn');
-    if (deleteBtn) {
-      deleteBtn.style.display = hasDomRateTable ? 'block' : 'none';
-      if (!deleteBtn.hasAttribute('data-listener-attached')) {
-        deleteBtn.addEventListener('click', () => {
-          if (confirm('❓ このDomestic Rate tableを削除しますか？')) {
-            p.domesticRateTable = null;
-            this.renderEditDomRateTable(p);
-            this.savePoliciesCache();  // 💾 localStorage に保存
-            console.log('[Domestic Rate table] 削除完了');
-          }
-          popup.style.display = 'none';
-        });
-        deleteBtn.setAttribute('data-listener-attached', 'true');
-      }
-    }
-
-    // ドキュメント外クリックでポップアップを閉じる
-    if (!window._domRateTableListenerAttached) {
-      document.addEventListener('click', (e) => {
-        const popup = document.getElementById('shipEditDomRateTablePopup');
-        const menuBtn = document.getElementById('shipEditDomRateTableMenuBtn');
-        if (popup && menuBtn && !menuBtn.contains(e.target) && !popup.contains(e.target)) {
-          popup.style.display = 'none';
-        }
-      });
-      window._domRateTableListenerAttached = true;
-    }
-  },
-
-  // =====================================================================
-  // 🎨 Rate table 管理（Policy 内の Rate table 行管理）
-  // =====================================================================
-  rateTableRows: [],  // 現在の Rate table 行を保存
-  selectedRateTableRegions: new Set(),  // 選択中の地域コード
-  editingRowIndex: null,  // 編集中の行インデックス（null = 新規追加モード）
-
-  renderRateTableRegionGroups() {
-    const container = document.getElementById('shipRateTableRegionGroups');
-    if (!container) return;
-
-    // Domestic か International かで異なるグループを使用
-    const groupsToRender = this.isDomesticRateTable ? this.getUSStateGroups() : SHIP_COUNTRY_GROUPS;
-
-    let html = '';
-    for (const [groupName, groupData] of Object.entries(groupsToRender)) {
-      const items = groupData.items || [];
-      const itemsHtml = items.map(code => {
-        // 州の場合は州名、国の場合は国名を使用
-        let label;
-        if (this.isDomesticRateTable) {
-          const stateNames = this.getUSStateNames();
-          label = `${code}（${stateNames[code] || '不明'}）`;
-        } else {
-          const countryName = COUNTRY_CODE_NAMES[code];
-          label = countryName ? `${code}（${countryName}）` : code;
-        }
-        // チェック状態を反映
-        const isChecked = this.selectedRateTableRegions.has(code);
-        return `
-          <label style="display:block; padding:6px 10px; cursor:pointer; font-size:13px;">
-            <input type="checkbox" value="${code}" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleRateTableRegion('${code}')" />
-            ${label}
-          </label>
-        `;
-      }).join('');
-
-      html += `
-        <details class="ship-country-group">
-          <summary>
-            <span class="ship-country-group-name">${groupName}</span>
-            <span class="ship-country-group-count" style="margin-left:auto;">${items.length}</span>
-          </summary>
-          <div style="padding:8px; background:#fafafa;">
-            ${itemsHtml}
-          </div>
-        </details>
-      `;
-    }
-
-    container.innerHTML = html;
-  },
-
-  // US 州のグループを取得
-  getUSStateGroups() {
-    return {
-      'Northeast': { items: ['CT', 'DE', 'MA', 'MD', 'ME', 'NH', 'NJ', 'NY', 'PA', 'RI', 'VT'] },
-      'Southeast': { items: ['AL', 'AR', 'FL', 'GA', 'KY', 'LA', 'MS', 'NC', 'SC', 'TN', 'VA', 'WV', 'DC'] },
-      'Midwest': { items: ['IL', 'IN', 'IA', 'KS', 'MI', 'MN', 'MO', 'ND', 'NE', 'OH', 'SD', 'WI'] },
-      'Southwest': { items: ['AZ', 'NM', 'OK', 'TX'] },
-      'West': { items: ['AK', 'CA', 'CO', 'HI', 'ID', 'MT', 'NV', 'OR', 'UT', 'WA', 'WY'] }
-    };
-  },
-
-  // US 州名マッピング
-  getUSStateNames() {
-    return {
-      'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
-      'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
-      'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
-      'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
-      'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
-      'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
-      'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
-      'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
-      'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
-      'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
-      'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
-      'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
-      'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
-    };
-  },
-
-  toggleRateTableRegion(code) {
-    if (this.selectedRateTableRegions.has(code)) {
-      this.selectedRateTableRegions.delete(code);
-    } else {
-      this.selectedRateTableRegions.add(code);
-    }
-    this.updateSelectedRateTableRegionsDisplay();
-  },
-
-  updateSelectedRateTableRegionsDisplay() {
-    const display = document.getElementById('shipRateTableSelectedRegions');
-    if (this.selectedRateTableRegions.size === 0) {
-      display.textContent = '（なし）';
-    } else {
-      const selected = Array.from(this.selectedRateTableRegions).sort().map(code => {
-        const name = COUNTRY_CODE_NAMES[code] || '不明';
-        return `${code}（${name}）`;
-      }).join(', ');
-      display.textContent = selected;
-    }
-  },
-
-  renderShippingServices() {
-    const select = document.getElementById('shipRateTableService');
-    if (!select) return;
-
-    // 既存の選択値を保持
-    const currentValue = select.value;
-    const options = ['<option value="">-- 選択しない --</option>'];
-
-    // Rate Table はメインの 3 つのサービスのみ（全ポリシータイプ共通）
-    const mainServices = [
-      { code: 'ExpeditedInternational', label: 'Expedited International Shipping', days: '7-15' },
-      { code: 'StandardInternational', label: 'Standard International Shipping', days: '11-20' },
-      { code: 'OtherInternational', label: 'Economy International Shipping', days: '13-23' }
-    ];
-
-    mainServices.forEach(svc => {
-      const optionText = `${svc.label} — ${svc.days} business days`;
-      options.push(`<option value="${svc.code}">${optionText}</option>`);
-    });
-
-    select.innerHTML = options.join('');
-    select.value = currentValue;
-  },
-
-  addRateTableRow() {
-    const service = document.getElementById('shipRateTableService').value;
-    const cost = (document.getElementById('shipRateTableCost').value || '0.00');
-
-    if (this.selectedRateTableRegions.size === 0) {
-      alert('最低1つの地域を選択してください');
-      return;
-    }
-
-    // 選択中の地域をグループとして1行で追加
-    const row = {
-      regions: Array.from(this.selectedRateTableRegions),
-      service: service || null,
-      cost: parseFloat(cost)
-    };
-    this.rateTableRows.push(row);
-
-    // UI をリセット
-    document.getElementById('shipRateTableService').value = '';
-    document.getElementById('shipRateTableCost').value = '';
-    this.selectedRateTableRegions.clear();
-    this.updateSelectedRateTableRegionsDisplay();
-
-    // チェックボックスをリセット
-    document.querySelectorAll('#shipRateTableRegionGroups input[type="checkbox"]').forEach(cb => {
-      cb.checked = false;
-    });
-
-    // 行を表示
-    this.renderRateTableRows();
-  },
-
-  deleteRateTableRow(idx) {
-    this.rateTableRows.splice(idx, 1);
-    if (this.editingRowIndex === idx) {
-      this.editingRowIndex = null;
-    }
-    this.renderRateTableRows();
-
-    // 💾 Policy に反映して localStorage に保存
-    const policy = this.policies.find(x => x.id === this.editingPolicyId);
-    if (policy) {
-      if (this.isDomesticRateTable) {
-        if (policy.domesticRateTable) policy.domesticRateTable.rows = this.rateTableRows;
-      } else {
-        if (policy.rateTable) policy.rateTable.rows = this.rateTableRows;
-      }
-      this.savePoliciesCache();
-    }
-  },
-
-  // テーブルの行をクリック → 編集モードに入る
-  selectRateTableRowForEdit(idx) {
-    console.warn('*** selectRateTableRowForEdit called with idx:', idx);
-    if (idx >= this.rateTableRows.length) {
-      console.warn('*** Early return: idx >= rateTableRows.length');
-      return;
-    }
-
-    const row = this.rateTableRows[idx];
-    console.warn('*** Row data:', row);
-    this.editingRowIndex = idx;
-    console.warn('*** editingRowIndex set to:', this.editingRowIndex);
-
-    // 上部フォームにデータを読み込む
-    if (!this.isDomesticRateTable) {
-      console.warn('*** International mode');
-      // International
-      this.selectedRateTableRegions.clear();
-      const regions = row.regions || [row.region];  // 互換性のため両方対応
-      regions.forEach(r => this.selectedRateTableRegions.add(r));
-      document.getElementById('shipRateTableService').value = row.service || '';
-      document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
-      this.updateSelectedRateTableRegionsDisplay();
-      this.renderRateTableRegionGroups();  // チェックボックスを同期
-    } else {
-      console.warn('*** Domestic mode');
-      // Domestic: Service type セクション内のフィールドを更新
-      const serviceId = row.service;
-      console.warn('*** serviceId:', serviceId);
-      const costInput = document.querySelector(`.domServiceCostInput[data-service="${serviceId}"]`);
-      console.warn('*** costInput found:', !!costInput, costInput);
-      const regionCheckboxes = document.querySelectorAll(`.domServiceRegionCheckbox[data-service="${serviceId}"]`);
-      console.warn('*** regionCheckboxes count:', regionCheckboxes.length);
-
-      if (costInput) {
-        costInput.value = row.cost.toFixed(2);
-        console.warn('*** Updated Domestic cost input to:', row.cost.toFixed(2));
-      } else {
-        console.warn('*** ERROR: costInput not found! Selector was:', `.domServiceCostInput[data-service="${serviceId}"]`);
-      }
-
-      // 地域チェックボックスをチェック
-      const regions = row.regions || [row.region];
-      console.warn('*** Regions to check:', regions);
-      regionCheckboxes.forEach(checkbox => {
-        const shouldCheck = regions.includes(checkbox.value);
-        checkbox.checked = shouldCheck;
-        console.warn('*** Checkbox', checkbox.value, 'checked:', shouldCheck);
-      });
-      console.warn('*** Updated Domestic region checkboxes');
-    }
-
-    console.warn('*** Updating buttons and rerendering');
-    // ボタンの表示を切り替え
-    this.updateRateTableModalButtons();
-
-    // テーブルを再レンダリング（選択行をハイライト）
-    if (this.isDomesticRateTable) {
-      const serviceId = this.rateTableRows[this.editingRowIndex].service;
-      this.renderDomServiceRows(serviceId);
-    } else {
-      this.renderRateTableRows();
-    }
-    console.warn('*** selectRateTableRowForEdit completed');
-  },
-
-  // 「修正」ボタンをクリック → 行を更新
-  updateRateTableRow() {
-    // Domestic か International かで処理を分岐
-    if (this.isDomesticRateTable) {
-      this.updateDomesticRateTableRow();
-      return;
-    }
-
-    // International の処理
-    if (this.editingRowIndex === null || this.editingRowIndex >= this.rateTableRows.length) return;
-
-    if (this.selectedRateTableRegions.size === 0) {
-      alert('地域を選択してください');
-      return;
-    }
-
-    const cost = parseFloat(document.getElementById('shipRateTableCost').value || '0');
-    if (isNaN(cost) || cost < 0) {
-      alert('有効なコストを入力してください');
-      return;
-    }
-
-    const idx = this.editingRowIndex;
-    const regionsArray = Array.from(this.selectedRateTableRegions);
-
-    // 複数地域を1行にまとめて更新
-    this.rateTableRows[idx].regions = regionsArray;
-    if (!this.isDomesticRateTable) {
-      this.rateTableRows[idx].service = document.getElementById('shipRateTableService').value || null;
-    }
-    this.rateTableRows[idx].cost = cost;
-
-    // モード解除
-    this.editingRowIndex = null;
-    this.selectedRateTableRegions.clear();
-    document.getElementById('shipRateTableCost').value = '';
-    if (!this.isDomesticRateTable) {
-      document.getElementById('shipRateTableService').value = '';
-    }
-
-    this.updateRateTableModalButtons();
-    this.renderRateTableRows();
-
-    // 💾 Policy に反映して localStorage に保存
-    const policy = this.policies.find(x => x.id === this.editingPolicyId);
-    if (policy) {
-      if (this.isDomesticRateTable) {
-        if (policy.domesticRateTable) policy.domesticRateTable.rows = this.rateTableRows;
-      } else {
-        if (policy.rateTable) policy.rateTable.rows = this.rateTableRows;
-      }
-      this.savePoliciesCache();
-    }
-  },
-
-  // 「キャンセル」ボタンをクリック → 編集モード解除
-  cancelRateTableEdit() {
-    this.editingRowIndex = null;
-    this.selectedRateTableRegions.clear();
-    document.getElementById('shipRateTableCost').value = '';
-    if (!this.isDomesticRateTable) {
-      document.getElementById('shipRateTableService').value = '';
-    }
-    this.updateRateTableModalButtons();
-    this.renderRateTableRows();
-  },
-
-  // ボタン表示を切り替え（新規追加モード / 編集モード）
-  updateRateTableModalButtons() {
-    const addBtn = document.getElementById('shipRateTableAddBtn');
-    const editBtn = document.getElementById('shipRateTableModalEditBtn');
-    const cancelBtn = document.getElementById('shipRateTableModalCancelBtn');
-
-    if (this.editingRowIndex !== null) {
-      // 編集モード
-      if (addBtn) addBtn.style.display = 'none';
-      if (editBtn) editBtn.style.display = 'block';
-      if (cancelBtn) cancelBtn.style.display = 'block';
-    } else {
-      // 新規追加モード
-      if (addBtn) addBtn.style.display = 'block';
-      if (editBtn) editBtn.style.display = 'none';
-      if (cancelBtn) cancelBtn.style.display = 'none';
-    }
-  },
-
-  renderRateTableRows() {
-    const container = document.getElementById('shipRateTableRowsContainer');
-
-    if (this.rateTableRows.length === 0) {
-      container.innerHTML = '<div style="text-align:center; color:#999; padding:16px;">行がありません</div>';
-      return;
-    }
-
-    // テーブル形式でレンダリング
-    let tableHtml = '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
-
-    // ヘッダー
-    if (!this.isDomesticRateTable) {
-      // International: 地域 | Service | Cost
-      tableHtml += `
-        <thead>
-          <tr style="border-bottom:2px solid #ddd; background:#f5f5f5;">
-            <th style="text-align:left; padding:8px; font-weight:600;">地域・国</th>
-            <th style="text-align:left; padding:8px; font-weight:600;">Service</th>
-            <th style="text-align:right; padding:8px; font-weight:600; width:100px;">Cost ($)</th>
-            <th style="text-align:right; padding:8px; font-weight:600; width:80px;">操作</th>
-          </tr>
-        </thead>
-      `;
-    } else {
-      // Domestic: 地域 | Cost
-      tableHtml += `
-        <thead>
-          <tr style="border-bottom:2px solid #ddd; background:#f5f5f5;">
-            <th style="text-align:left; padding:8px; font-weight:600;">地域</th>
-            <th style="text-align:right; padding:8px; font-weight:600; width:100px;">Cost ($)</th>
-            <th style="text-align:right; padding:8px; font-weight:600; width:80px;">操作</th>
-          </tr>
-        </thead>
-      `;
-    }
-
-    // ボディ
-    tableHtml += '<tbody>';
-    this.rateTableRows.forEach((row, idx) => {
-      const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
-      const isEditing = this.editingRowIndex === idx;
-      const rowBg = isEditing ? '#fff3cd' : '';
-
-      // 複数地域をグループ表示
-      const regions = row.regions || [row.region];  // 互換性のため両方対応
-      const regionsDisplay = regions.map(code => {
-        const name = stateNames[code] || code;
-        return `${code}（${name}）`;
-      }).join(', ');
-
-      if (!this.isDomesticRateTable) {
-        // International
-        tableHtml += `
-          <tr style="border-bottom:1px solid #e5e7eb; background:${rowBg}; cursor:pointer;" onclick="Shipping.selectRateTableRowForEdit(${idx})">
-            <td style="padding:8px;">
-              ${regionsDisplay}
-            </td>
-            <td style="padding:8px;">
-              ${row.service || '（なし）'}
-            </td>
-            <td style="text-align:right; padding:8px;">
-              $${row.cost.toFixed(2)}
-            </td>
-            <td style="text-align:right; padding:8px;">
-              <button onclick="event.stopPropagation(); Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">削除</button>
-            </td>
-          </tr>
-        `;
-      } else {
-        // Domestic
-        tableHtml += `
-          <tr style="border-bottom:1px solid #e5e7eb; background:${rowBg}; cursor:pointer;" onclick="Shipping.selectRateTableRowForEdit(${idx})">
-            <td style="padding:8px;">
-              ${regionsDisplay}
-            </td>
-            <td style="text-align:right; padding:8px;">
-              $${row.cost.toFixed(2)}
-            </td>
-            <td style="text-align:right; padding:8px;">
-              <button onclick="event.stopPropagation(); Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">削除</button>
-            </td>
-          </tr>
-        `;
-      }
-    });
-
-    tableHtml += '</tbody></table>';
-    container.innerHTML = tableHtml;
-
-    // 「すべて削除」ボタン
-    if (this.rateTableRows.length > 0) {
-      const clearBtn = document.createElement('button');
-      clearBtn.textContent = '🗑 すべて削除';
-      clearBtn.style.cssText = 'width:100%; padding:8px 12px; background:#ff6b6b; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; margin-top:8px; font-weight:600;';
-      clearBtn.onclick = () => {
-        if (confirm('すべての行を削除しますか？')) {
-          this.rateTableRows = [];
-          this.renderRateTableRows();
-        }
-      };
-      container.appendChild(clearBtn);
-    }
-  },
-
-  // 行のフィールドを編集モードに変更
-  editRateTableRowField(idx, fieldName) {
-    const displayEl = document.querySelector(`.${fieldName}Display${idx}`);
-    const inputEl = document.querySelector(`.${fieldName}Input${idx}`);
-    if (displayEl && inputEl) {
-      displayEl.style.display = 'none';
-      inputEl.style.display = 'inline-block';
-      inputEl.focus();
-      if (fieldName === 'cost') {
-        inputEl.select();
-      }
-    }
-  },
-
-  // 行のフィールド編集を保存
-  saveRateTableRowField(idx, fieldName) {
-    if (idx >= this.rateTableRows.length) return;
-
-    const inputEl = document.querySelector(`.${fieldName}Input${idx}`);
-    const displayEl = document.querySelector(`.${fieldName}Display${idx}`);
-    if (!inputEl || !displayEl) return;
-
-    const newValue = inputEl.value;
-
-    if (fieldName === 'cost') {
-      const newCost = parseFloat(newValue);
-      if (!isNaN(newCost) && newCost >= 0) {
-        this.rateTableRows[idx].cost = newCost;
-        const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
-        displayEl.textContent = `$${newCost.toFixed(2)}`;
-        inputEl.style.display = 'none';
-        displayEl.style.display = 'inline';
-      } else {
-        alert('有効なコストを入力してください');
-        inputEl.value = this.rateTableRows[idx].cost.toFixed(2);
-      }
-    } else if (fieldName === 'region') {
-      if (newValue) {
-        this.rateTableRows[idx].region = newValue;
-        const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
-        const regionName = stateNames[newValue] || newValue;
-        displayEl.textContent = `${newValue}（${regionName}）`;
-        inputEl.style.display = 'none';
-        displayEl.style.display = 'inline';
-      } else {
-        alert('地域を選択してください');
-      }
-    } else if (fieldName === 'service') {
-      this.rateTableRows[idx].service = newValue;
-      displayEl.textContent = newValue || '（なし）';
-      inputEl.style.display = 'none';
-      displayEl.style.display = 'inline';
-    }
-  },
-
-  // International 用: 地域オプションを生成
-  renderRateTableRegionOptions() {
-    const stateGroups = this.isDomesticRateTable ? this.getUSStateGroups() : SHIP_COUNTRY_GROUPS;
-    const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
-    let html = '<option value="">-- 選択 --</option>';
-
-    for (const [groupName, groupData] of Object.entries(stateGroups)) {
-      html += `<optgroup label="${groupName}">`;
-      (groupData.items || []).forEach(code => {
-        html += `<option value="${code}">${code}（${stateNames[code] || code}）</option>`;
-      });
-      html += `</optgroup>`;
-    }
-
-    return html;
-  },
-
-  // Shipping Service オプションを生成（International 用）
-  getShippingServiceOptions() {
-    const services = (this.shippingServices || []).filter(s => s.policyType === 'Standard');
-    return services.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
-  },
-
-  // Cost 行を編集モードに変更
-  editRateTableRowCost(idx) {
-    const displayEl = document.querySelector(`.costDisplay${idx}`);
-    const inputEl = document.querySelector(`.costInput${idx}`);
-    if (displayEl && inputEl) {
-      displayEl.style.display = 'none';
-      inputEl.style.display = 'inline-block';
-      inputEl.focus();
-      inputEl.select();
-    }
-  },
-
-  // Cost 編集を保存
-  saveCostEdit(idx) {
-    const inputEl = document.querySelector(`.costInput${idx}`);
-    const displayEl = document.querySelector(`.costDisplay${idx}`);
-    if (!inputEl || !displayEl || idx >= this.rateTableRows.length) return;
-
-    const newCost = parseFloat(inputEl.value);
-    if (!isNaN(newCost) && newCost >= 0) {
-      this.rateTableRows[idx].cost = newCost;
-      displayEl.textContent = newCost.toFixed(2);
-      inputEl.style.display = 'none';
-      displayEl.style.display = 'inline';
-    } else {
-      alert('有効なコストを入力してください');
-      inputEl.value = this.rateTableRows[idx].cost.toFixed(2);
-    }
-  },
-
-  submitCreateRateTable() {
-    const name = (document.getElementById('shipRateTableName').value || '').trim();
-
-    if (!name) {
-      alert('Rate table 名を入力してください');
-      return;
-    }
-
-    if (this.rateTableRows.length === 0) {
-      alert('最低1つの地域を追加してください');
-      return;
-    }
-
-    const policy = this.policies.find(x => x.id === this.editingPolicyId);
-    if (!policy) return;
-
-    let isEditing = false;  // スコープを外側で定義
-
-    if (this.isDomesticRateTable) {
-      // ===== Domestic Rate Table =====
-      const type = (document.getElementById('shipRateTableDomType')?.value || 'small');
-
-      // 既存の Domestic Rate Table を確認
-      isEditing = policy.domesticRateTable && policy.domesticRateTable.rows && policy.domesticRateTable.rows.length > 0;
-
-      // Policy に Domestic Rate table データを保存
-      policy.domesticRateTable = {
-        name: name,
-        type: type,  // 'small' or 'freight'
-        rows: this.rateTableRows
-      };
-      console.log('[Domestic Rate table]', isEditing ? '更新' : '作成', '完了:', policy.domesticRateTable);
-
-    } else {
-      // ===== International Rate Table =====
-      // 既存の Rate Table を確認（編集 or 新規作成）
-      isEditing = policy.rateTable && policy.rateTable.rows && policy.rateTable.rows.length > 0;
-
-      // Policy に Rate table データを保存
-      policy.rateTable = {
-        name: name,
-        rows: this.rateTableRows
-      };
-      console.log('[International Rate table]', isEditing ? '更新' : '作成', '完了:', policy.rateTable);
-    }
-
-    const rowCount = this.rateTableRows.length;
-
-    // モーダルを閉じる
-    this.closeModal('shipRateTableCreateModal');
-
-    // UI をリセット
-    this.rateTableRows = [];
-    this.selectedRateTableRegions.clear();
-    document.getElementById('shipRateTableName').value = '';
-    document.getElementById('shipRateTableDomType').value = 'small';
-    document.getElementById('shipRateTableService').value = '';
-    document.getElementById('shipRateTableCost').value = '';
-    this.renderRateTableRows();
-    this.renderEditDomRateTable(policy);  // Domestic Rate Table ドロップダウンを更新
-    this.updateSelectedRateTableRegionsDisplay();
-
-    // Rate table セクションを再描画
-    this.renderEditRateTable(policy);
-
-    // 💾 localStorage に保存
-    this.savePoliciesCache();
-
-    alert(`✅ Rate table "${name}" を${isEditing ? '更新' : '作成'}しました（${rowCount} 行）`);
   },
 
   // =====================================================================
@@ -12549,36 +11156,6 @@ Object.assign(Shipping, {
     // (b) policy-level にも書き込み(top-level)
     p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
 
-    // ----- Rate Table 設定（International と Domestic） -----
-    // International Rate Table
-    if (p.rateTable && p.rateTable.name) {
-      p._raw.rateTable = {
-        name: p.rateTable.name,
-        rows: (p.rateTable.rows || []).map(r => ({
-          regions: r.regions || [r.region],
-          service: r.service,
-          cost: r.cost
-        }))
-      };
-    } else {
-      delete p._raw.rateTable;
-    }
-
-    // Domestic Rate Table
-    if (p.domesticRateTable && p.domesticRateTable.name) {
-      p._raw.domesticRateTable = {
-        name: p.domesticRateTable.name,
-        type: p.domesticRateTable.type || 'small',
-        rows: (p.domesticRateTable.rows || []).map(r => ({
-          service: r.service,
-          regions: r.regions || [r.region],
-          cost: r.cost
-        }))
-      };
-    } else {
-      delete p._raw.domesticRateTable;
-    }
-
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
     if (wasCreating) {
@@ -13584,81 +12161,1504 @@ Object.assign(Shipping, {
   </div>
 </div>
 
-<!-- Rate table 作成モーダル -->
-<div id="shipRateTableCreateModal" class="ship-modal-overlay">
-  <div class="ship-modal" style="max-width:750px;">
-    <h2 id="shipRateTableModalTitle">📊 Rate table を作成</h2>
-
-    <!-- Rate table 名 -->
-    <div style="margin-bottom:16px;">
-      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Rate table 名</label>
-      <input type="text" id="shipRateTableName" placeholder="例: EU27 Shipping, Asia Economy" style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" />
-    </div>
-
-    <!-- Domestic 用: Rate Table type -->
-    <div id="shipRateTableDomTypeSection" style="margin-bottom:16px; display:none;">
-      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Rate Table type</label>
-      <select id="shipRateTableDomType" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" onchange="Shipping.updateDomesticServiceSections()">
-        <option value="small">Small package item</option>
-        <option value="freight">Freight shipping item</option>
-      </select>
-    </div>
-
-    <!-- 地域選択（グループ展開） - International のみ -->
-    <div id="shipRateTableRegionSelectSection" style="margin-bottom:16px;">
-      <label id="shipRateTableRegionLabel" style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">地域・国を選択</label>
-      <div id="shipRateTableRegionGroups" style="max-height:250px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:8px;">
-        <!-- JavaScript で生成 -->
-      </div>
-    </div>
-
-    <!-- 現在選択中の地域 - International のみ -->
-    <div id="shipRateTableSelectedRegionsSection" style="margin-bottom:16px; padding:10px; background:#f0f7ff; border-radius:6px; border:1px solid #c0d8ec;">
-      <div style="font-size:12px; color:#666; margin-bottom:4px;">選択中の地域:</div>
-      <div id="shipRateTableSelectedRegions" style="font-size:14px; font-weight:600; color:#2e75b6; min-height:20px;">（なし）</div>
-    </div>
-
-    <!-- Domestic 用: Service type セクション -->
-    <div id="shipRateTableDomServiceSection" style="display:none; margin-bottom:16px;">
-      <!-- JavaScript で Service type セクションを生成 -->
-    </div>
-
-    <!-- International 用: Shipping Service と Cost -->
-    <div id="shipRateTableServiceSection" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
-      <div>
-        <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Shipping Service（optional）</label>
-        <select id="shipRateTableService" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
-          <option value="">-- 選択しない --</option>
-          <!-- JavaScript で生成 -->
-        </select>
-      </div>
-      <div>
-        <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Cost ($)</label>
-        <input type="number" id="shipRateTableCost" step="0.01" placeholder="0.00" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" />
-      </div>
-    </div>
-
-    <!-- ボタングループ -->
-    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-bottom:16px;">
-      <button id="shipRateTableAddBtn" onclick="Shipping.addRateTableRow()" style="padding:10px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">+ 追加</button>
-      <button id="shipRateTableModalEditBtn" onclick="Shipping.updateRateTableRow()" style="display:none; padding:10px 12px; background:#ffa500; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">修正</button>
-      <button id="shipRateTableModalCancelBtn" onclick="Shipping.cancelRateTableEdit()" style="display:none; padding:10px 12px; background:#999; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">キャンセル</button>
-    </div>
-
-    <!-- 現在の設定 （International のみ） -->
-    <div id="shipRateTableRowsSection" style="border-top:1px solid #e5e7eb; padding-top:16px; margin-bottom:16px;">
-      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">設定済みの行</label>
-      <div id="shipRateTableRowsContainer" style="max-height:250px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:8px;">
-        <div style="text-align:center; color:#999; padding:16px;">行がありません</div>
-      </div>
-    </div>
-
-    <div class="ship-modal-footer">
-      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipRateTableCreateModal')">キャンセル</button>
-      <button class="ship-btn-save" onclick="Shipping.submitCreateRateTable()">✓ 作成</button>
-    </div>
-  </div>
-</div>
-
 </body>
-</html>
+</html><!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>利益計算ツール v1</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: #f4f6fa;
+    color: #1a1a1a;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  header {
+    max-width: 900px;
+    margin: 0 auto 24px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    color: #2e75b6;
+  }
+  .subtitle {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #888;
+  }
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    display: grid;
+    gap: 20px;
+  }
+  .card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .card h2 {
+    margin: 0 0 16px;
+    font-size: 17px;
+    color: #2e75b6;
+    border-bottom: 2px solid #2e75b6;
+    padding-bottom: 6px;
+  }
+
+  /* ===== Calc card ===== */
+  .calc-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .calc-row label {
+    font-weight: 600;
+    color: #444;
+  }
+  .calc-row input[type="number"] {
+    font-size: 22px;
+    padding: 8px 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 280px;
+  }
+  .calc-row input[type="number"]:focus {
+    border-color: #2e75b6;
+    outline: none;
+  }
+  .result-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  /* 🔄 順算/逆算 モードタブ */
+  .calc-mode-tabs {
+    display: flex;
+    gap: 0;
+    margin: 12px 0 16px;
+    border-bottom: 2px solid #e5e7eb;
+  }
+  .calc-mode-tab {
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+    color: #888;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .calc-mode-tab:hover { background: #f3f4f6; color: #555; }
+  .calc-mode-tab.active {
+    color: #1565c0;
+    border-bottom-color: #1565c0;
+  }
+  .reverse-result-box {
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 2px solid #86efac;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-top: 16px;
+  }
+  .reverse-result-main {
+    font-size: 22px;
+    font-weight: 800;
+    color: #15803d;
+    margin: 4px 0 8px;
+  }
+  .reverse-result-row {
+    display: flex; justify-content: space-between;
+    font-size: 13px; color: #166534;
+    padding: 4px 0;
+    border-top: 1px dashed #86efac;
+  }
+  .reverse-result-row:first-child { border-top: none; }
+  .reverse-result-row strong { color: #14532d; }
+  .result {
+    background: #eef5fb;
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .result-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .result-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #2e75b6;
+  }
+  .result-sub {
+    font-size: 12px;
+    color: #888;
+    margin-top: 2px;
+  }
+  .result.error .result-value {
+    color: #c0504d;
+    font-size: 18px;
+  }
+  .result.editable {
+    background: #fff5e8;
+    border: 2px solid #f0a040;
+  }
+  .result-input {
+    font-size: 28px;
+    font-weight: 700;
+    color: #c97a00;
+    border: none;
+    background: transparent;
+    width: 100%;
+    padding: 0;
+    font-family: inherit;
+  }
+  .result-input:focus {
+    outline: 2px solid #f0c040;
+    background: #fffbe5;
+    border-radius: 4px;
+  }
+  .reset-x {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: #f0a040;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .reset-x:hover { background: #d18a30; }
+  .diff-row {
+    display: flex;
+    justify-content: space-between;
+    background: #f8f9fa;
+    padding: 12px 18px;
+    border-radius: 8px;
+    margin-top: 14px;
+    font-size: 14px;
+  }
+  .diff-row .label { color: #666; }
+  .diff-row .value { font-weight: 600; color: #2e75b6; }
+  .diff-row.warn .value { color: #c0504d; }
+
+  /* ===== Settings ===== */
+  .setting-group {
+    margin-bottom: 18px;
+  }
+  .setting-group-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2e75b6;
+    margin: 0 0 8px;
+    padding: 4px 10px;
+    background: #eef5fb;
+    border-left: 3px solid #2e75b6;
+    border-radius: 4px;
+  }
+  .setting-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 16px;
+  }
+  .setting-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: #fafafa;
+    border-radius: 6px;
+    border: 1px solid #eee;
+  }
+  .setting-row label {
+    font-size: 13px;
+    color: #444;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .setting-row input,
+  .setting-row select {
+    width: 80px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+    text-align: right;
+  }
+  .setting-row select {
+    width: 130px;
+    text-align: left;
+  }
+  .setting-row .unit {
+    font-size: 12px;
+    color: #888;
+    width: 16px;
+    text-align: left;
+  }
+  .setting-row.tariff-highlight {
+    background: #fff4e5;
+    border-color: #f0c040;
+  }
+  .setting-row.derived {
+    background: #eef5fb;
+    border-color: #c0d8ec;
+  }
+  .setting-row.derived input {
+    background: white;
+    color: #2e75b6;
+    font-weight: 600;
+  }
+  .auto-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    background: #2e75b6;
+    color: white;
+    border-radius: 10px;
+    font-size: 10px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .auto-tag.manual {
+    background: #888;
+  }
+  .auto-tag.warn {
+    background: #c0504d;
+  }
+
+  /* CSV import area */
+  .import-area {
+    padding: 16px;
+    background: #fafafa;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .import-area .stats {
+    margin-top: 8px;
+    color: #666;
+    font-size: 13px;
+  }
+  .col-mapping {
+    background: #fff8e7;
+    border: 1px solid #f0c040;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+  }
+  .col-mapping label {
+    display: inline-block;
+    margin-right: 8px;
+    font-size: 13px;
+  }
+  .col-mapping select {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-right: 12px;
+  }
+  table.cat-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  table.cat-table th,
+  table.cat-table td {
+    border: 1px solid #e0e0e0;
+    padding: 4px 8px;
+    text-align: left;
+  }
+  table.cat-table th {
+    background: #d5e8f0;
+    position: sticky;
+    top: 0;
+  }
+  .cat-search {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  .cat-table-wrapper {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 6px;
+  }
+  .cat-row-highlight { background: #fffbe5; }
+
+  /* ===== 頻繁入力カード(枠は元の黄系に戻す) ===== */
+  .quick-card {
+    background: linear-gradient(135deg, #fff8e7 0%, #ffeec1 100%);
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 2px solid #f0c040;
+  }
+  .quick-card h2 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    color: #c97a00;
+    border-bottom: 2px solid #f0c040;
+    padding-bottom: 4px;
+  }
+  .quick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .quick-row {
+    background: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #e8d090;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .quick-row label {
+    font-size: 12px;
+    color: #555;
+    font-weight: 600;
+    flex: 1;
+    white-space: nowrap;
+  }
+  .quick-row input,
+  .quick-row select {
+    width: 90px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: right;
+  }
+  .quick-row select { width: 110px; text-align: left; }
+  .quick-row .unit { color: #888; font-size: 12px; width: 14px; }
+  .fuel-pair {
+    background: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #e8d090;
+  }
+  .fuel-pair-label {
+    font-size: 12px;
+    color: #c97a00;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .fuel-pair-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .fuel-pair-row input {
+    width: 80px;
+    padding: 3px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    text-align: right;
+    font-size: 13px;
+  }
+  .fuel-pair-row .small {
+    color: #888;
+    font-size: 11px;
+  }
+
+  /* ===== 為替変換カード入力欄のプレースホルダー薄色化 ===== */
+  #fxUsd::placeholder,
+  #fxGbp::placeholder,
+  #fxEur::placeholder,
+  #fxCad::placeholder,
+  #fxAud::placeholder {
+    color: #d0d0d0;
+    opacity: 1;
+  }
+
+  /* ===== タブナビゲーション ===== */
+  .tab-nav {
+    display: flex;
+    gap: 4px;
+    margin: 0 0 14px 0;
+    border-bottom: 2px solid #d0d8e0;
+    padding: 0;
+  }
+  .tab-btn {
+    background: #f0f0f0;
+    border: 1px solid #ccc;
+    border-bottom: none;
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    margin-bottom: -2px;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { background: #e6ecf2; color: #333; }
+  .tab-btn.active {
+    background: #fff;
+    color: #2e75b6;
+    border-color: #d0d8e0;
+    border-bottom: 2px solid #fff;
+    box-shadow: 0 -2px 4px rgba(0,0,0,0.05);
+  }
+  .tab-btn.admin {
+    color: #b22a6e;
+  }
+  .tab-btn.admin.locked::after {
+    content: " 🔒";
+  }
+  .tab-btn.admin.unlocked::after {
+    content: " 🔓";
+    color: #2e7d32;
+  }
+  .tab-content {
+    display: none;
+  }
+  .tab-content.active { display: block; }
+  /* 管理者タブ用ヘッダー */
+  .admin-header {
+    background: linear-gradient(90deg, #fff5f8, #ffeef5);
+    border: 2px solid #ec5b9b;
+    color: #b22a6e;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .admin-lock-btn {
+    background: #b22a6e;
+    color: #fff;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .admin-lock-btn:hover { opacity: 0.85; }
+
+  /* ===== ログインモーダル ===== */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .login-overlay.active { display: flex; }
+  .login-modal {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px 30px;
+    width: 360px;
+    max-width: 92%;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+  }
+  .login-modal h3 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    color: #2c3e50;
+    border-bottom: 2px solid #2e75b6;
+    padding-bottom: 8px;
+  }
+  .login-modal label {
+    display: block;
+    font-size: 12px;
+    color: #555;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .login-modal input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    margin-bottom: 12px;
+    box-sizing: border-box;
+  }
+  .login-modal input:focus {
+    outline: 2px solid #2e75b6;
+    border-color: #2e75b6;
+  }
+  .login-modal .login-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+  }
+  .login-modal button {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .login-modal .btn-cancel { background: #e0e0e0; color: #555; }
+  .login-modal .btn-login { background: #2e75b6; color: #fff; }
+  .login-modal .login-error {
+    color: #c0504d;
+    font-size: 12px;
+    margin: 8px 0 0;
+    min-height: 16px;
+  }
+
+  /* ===== カテゴリNo の上下矢印を非表示 ===== */
+  #setCategoryNo::-webkit-inner-spin-button,
+  #setCategoryNo::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  #setCategoryNo {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  /* ===== 手入力欄(ピンク背景) ===== */
+  /* 頻繁入力 / SKU生成 / 計算 カード内の input・select・textarea のみ着色 */
+  .quick-card input,
+  .quick-card select,
+  .quick-card textarea,
+  .card.manual-input input:not([readonly]):not([disabled]),
+  .card.manual-input select,
+  .card.manual-input textarea {
+    background: #ffeef5 !important;
+    border: 1px solid #ec5b9b !important;
+  }
+  .quick-card input:focus,
+  .quick-card select:focus,
+  .quick-card textarea:focus,
+  .card.manual-input input:focus,
+  .card.manual-input select:focus,
+  .card.manual-input textarea:focus {
+    outline: 2px solid #ec5b9b;
+    outline-offset: 1px;
+    background: #ffd6e6 !important;
+  }
+  /* 自動取得・読み取り専用の為替欄は除外(自動の灰色を維持) */
+  .quick-card input[readonly],
+  .card.manual-input input[readonly],
+  .card.manual-input input[disabled] {
+    background: #f5f5f5 !important;
+    border-color: #ddd !important;
+  }
+
+  /* ===== Modal ===== */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-content {
+    background: white;
+    border-radius: 12px;
+    padding: 24px 28px;
+    max-width: 540px;
+    width: 100%;
+    position: relative;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .modal-content h3 {
+    margin: 0 0 8px;
+    color: #2e75b6;
+    font-size: 18px;
+  }
+  .modal-close {
+    position: absolute;
+    top: 12px; right: 14px;
+    background: none;
+    border: none;
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
+    color: #888;
+    padding: 0;
+    width: 32px; height: 32px;
+  }
+  .modal-close:hover { color: #333; }
+  .modal-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+  }
+  .modal-table th, .modal-table td {
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    text-align: center;
+    font-size: 14px;
+  }
+  .modal-table th {
+    background: #d5e8f0;
+    color: #1a1a1a;
+  }
+  .modal-table tbody tr {
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .modal-table tbody tr:hover {
+    background: #fff8d0;
+  }
+  .modal-table tbody tr.active {
+    background: #d5e8f0;
+    font-weight: 600;
+  }
+  .modal-table tbody tr.active td:first-child::before {
+    content: "✓ ";
+    color: #2e7d32;
+  }
+  .modal-note {
+    font-size: 13px;
+    color: #666;
+    margin: 8px 0;
+  }
+  .modal-warn {
+    font-size: 12px;
+    color: #c0504d;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #fff4e5;
+    border-left: 3px solid #c0504d;
+    border-radius: 4px;
+  }
+  .modal-source {
+    font-size: 11px;
+    color: #888;
+    text-align: right;
+    margin-top: 8px;
+  }
+  .clickable-label {
+    color: #2e75b6;
+    text-decoration: underline dotted;
+    cursor: pointer;
+  }
+  .clickable-label:hover { color: #235a8e; }
+
+  /* ===== 重量系 ===== */
+  .weight-section {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 16px;
+    margin: 16px 0 4px;
+    border: 1px solid #e8e8e8;
+  }
+  .weight-section-title {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+  .weight-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .weight-cell {
+    background: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .weight-cell.calc {
+    background: #eef5fb;
+    border-color: #c0d8ec;
+  }
+  .weight-cell label {
+    font-size: 13px;
+    color: #444;
+    flex: 1;
+    font-weight: 500;
+  }
+  .weight-cell input[type="number"] {
+    width: 90px;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 16px;
+    text-align: right;
+  }
+  .weight-cell input:focus {
+    border-color: #2e75b6;
+    outline: none;
+  }
+  .weight-cell .display-value {
+    width: 90px;
+    padding: 6px 10px;
+    font-size: 16px;
+    text-align: right;
+    color: #2e75b6;
+    font-weight: 600;
+  }
+  .weight-cell .unit-label {
+    color: #888;
+    font-size: 13px;
+    width: 16px;
+  }
+
+  .dimension-row {
+    background: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .dimension-row > .dim-label {
+    font-size: 13px;
+    color: #444;
+    font-weight: 500;
+  }
+  .dim-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .dim-inputs input {
+    width: 80px;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    text-align: center;
+  }
+  .dim-inputs input:focus {
+    border-color: #2e75b6;
+    outline: none;
+  }
+  .dim-inputs .x { color: #888; font-size: 14px; }
+  .dim-inputs .unit { color: #888; font-size: 13px; margin-left: 4px; }
+
+  .applied-weight {
+    background: #fff5e8;
+    border: 2px solid #f0a040;
+    padding: 12px 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .applied-weight label {
+    font-weight: 600;
+    color: #c97a00;
+    flex-shrink: 0;
+  }
+  .applied-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #c97a00;
+    flex: 1;
+    text-align: right;
+  }
+  .applied-weight .hint {
+    font-size: 11px;
+    color: #888;
+    flex-shrink: 0;
+  }
+
+  /* ===== 最高利益パネル ===== */
+  .winner-card {
+    background: linear-gradient(135deg, #2e7d32 0%, #4caf50 100%);
+    color: white;
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: 0 2px 8px rgba(46,125,50,0.25);
+  }
+  .winner-card.no-result {
+    background: linear-gradient(135deg, #888 0%, #aaa 100%);
+  }
+  .winner-card h2 {
+    color: white !important;
+    border-bottom: 1px solid rgba(255,255,255,0.3) !important;
+    margin: 0 0 16px;
+  }
+  .winner-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .winner-item {
+    background: rgba(255,255,255,0.15);
+    padding: 10px 14px;
+    border-radius: 8px;
+  }
+  .winner-item .label {
+    font-size: 11px;
+    opacity: 0.85;
+    margin-bottom: 2px;
+  }
+  .winner-item .value {
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .winner-item .value.big {
+    font-size: 26px;
+  }
+  .winner-item .sub {
+    font-size: 11px;
+    opacity: 0.85;
+    margin-top: 2px;
+  }
+  .winner-card.no-result .winner-item .value {
+    font-size: 14px;
+    color: #fff;
+  }
+
+  /* ===== トグル ===== */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #fafafa;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    border: 1px solid #eee;
+  }
+  .toggle-row label {
+    flex: 1;
+    font-size: 13px;
+    color: #444;
+  }
+  .toggle-row .hint {
+    font-size: 11px;
+    color: #888;
+    margin-left: 8px;
+  }
+  .toggle-switch {
+    position: relative;
+    width: 42px;
+    height: 22px;
+    background: #ccc;
+    border-radius: 11px;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    transition: left 0.2s;
+  }
+  .toggle-switch.on {
+    background: #2e7d32;
+  }
+  .toggle-switch.on::after {
+    left: 22px;
+  }
+
+  /* ===== 各社送料表示 ===== */
+  .carrier-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .carrier-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .carrier-card.full-width {
+    grid-column: 1 / -1;
+  }
+  .carrier-header {
+    padding: 8px 14px;
+    background: #2e75b6;
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .carrier-header .group {
+    font-size: 11px;
+    opacity: 0.85;
+    font-weight: normal;
+  }
+  .carrier-card.gov .carrier-header { background: #c0504d; }     /* 日本郵便 */
+  .carrier-card.cpass .carrier-header { background: #e6753b; }   /* CPaSS */
+  .carrier-card.elogi .carrier-header { background: #2e8b57; }   /* eLogi */
+  .carrier-rows {
+    padding: 4px 0;
+  }
+  .service-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    align-items: center;
+    padding: 6px 12px;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f0;
+    gap: 8px;
+  }
+  .service-row:last-child { border-bottom: none; }
+  .service-row.disabled {
+    background: #fafafa;
+    color: #aaa;
+  }
+  .svc-toggle {
+    width: 26px;
+    height: 22px;
+    border: 1px solid #2e7d32;
+    background: #2e7d32;
+    color: #fff;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    font-weight: 700;
+  }
+  .svc-toggle:hover { opacity: 0.85; }
+  .svc-toggle.excluded {
+    background: #c0504d;
+    border-color: #c0504d;
+    color: #fff;
+  }
+  .service-row.excluded .service-name,
+  .service-row.excluded .service-price {
+    text-decoration: line-through;
+    opacity: 0.45;
+  }
+  .service-row.excluded .service-price.best {
+    background: transparent;
+    color: #c0504d;
+  }
+  .service-name { color: #444; }
+  .service-price {
+    font-family: 'SF Mono', Consolas, monospace;
+    font-weight: 600;
+    color: #2e75b6;
+    text-align: right;
+    min-width: 70px;
+  }
+  .service-price.placeholder {
+    color: #ccc;
+    font-weight: normal;
+  }
+  .service-price.best {
+    color: white;
+    background: #2e7d32;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .carrier-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .carrier-grid-2col .service-row {
+    border-right: 1px solid #f0f0f0;
+  }
+  .carrier-grid-2col .service-row:nth-child(2n) {
+    border-right: none;
+  }
+
+  table.range-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+  table.range-table th,
+  table.range-table td {
+    border: 1px solid #e0e0e0;
+    padding: 6px 8px;
+    text-align: center;
+    font-size: 13px;
+  }
+  table.range-table th {
+    background: #d5e8f0;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+  table.range-table td input {
+    width: 100%;
+    border: none;
+    padding: 4px 6px;
+    text-align: right;
+    background: transparent;
+    font-size: 13px;
+  }
+  table.range-table td input:focus {
+    background: #fffbe5;
+    outline: 1px solid #f0c040;
+  }
+  table.range-table td.row-num {
+    background: #fafafa;
+    color: #999;
+    width: 40px;
+  }
+  table.range-table td.actions {
+    width: 60px;
+  }
+  .btn {
+    padding: 6px 12px;
+    background: #2e75b6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .btn:hover { background: #235a8e; }
+  .btn.secondary {
+    background: #888;
+  }
+  .btn.danger {
+    background: #c0504d;
+    padding: 4px 10px;
+  }
+  .btn.danger:hover { background: #a03d3a; }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .save-indicator {
+    display: inline-block;
+    margin-left: 12px;
+    padding: 2px 10px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 12px;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .save-indicator.show { opacity: 1; }
+
+  details {
+    margin-top: 8px;
+  }
+  details summary {
+    cursor: pointer;
+    color: #2e75b6;
+    font-size: 13px;
+    padding: 6px 0;
+  }
+  details .help {
+    background: #fafafa;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #555;
+    margin-top: 6px;
+  }
+
+  /* ===== シッピングポリシー管理タブ CSS ===== */
+  .ship-header {
+    background: #fff; padding: 14px 18px; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .ship-header h2 { margin: 0; font-size: 18px; color: #1a365d; }
+  .ship-header-info { font-size: 12px; color: #888; }
+  .ship-btn-refresh {
+    background: #2563eb; color: #fff; border: none;
+    padding: 8px 16px; border-radius: 6px; font-weight: 600;
+    cursor: pointer; font-size: 13px;
+  }
+  .ship-btn-refresh:hover:not(:disabled) { background: #1d4ed8; }
+  .ship-btn-refresh:disabled { background: #9ca3af; cursor: wait; }
+
+  .ship-table-wrap {
+    background: #fff; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .ship-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ship-table thead th {
+    background: #f3f4f6; padding: 9px 10px; text-align: left;
+    font-weight: 700; font-size: 11px; color: #374151;
+    border-bottom: 2px solid #e5e7eb; white-space: nowrap;
+  }
+  .ship-table tbody td {
+    padding: 9px 10px; border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+  }
+  .ship-table tbody tr:hover { background: #fafbfc; }
+  .ship-table tbody tr.legacy { opacity: 0.5; }
+  /* サービス種別ごとの行背景(薄め) */
+  .ship-table tbody tr.svc-expedited { background: #eff6ff; }  /* 薄い青 */
+  .ship-table tbody tr.svc-economy   { background: #f0fdf4; }  /* 薄い緑 */
+  .ship-table tbody tr.svc-standard  { background: #fffbeb; }  /* 薄いオレンジ */
+  .ship-table tbody tr.svc-other     { background: #f9fafb; }  /* 薄いグレー */
+  /* 選択時は行背景を上書き(チェック付きが分かりやすいように) */
+  .ship-table tbody tr.selected      { background: #fef3c7 !important; }
+  .ship-table tbody tr.svc-expedited.selected,
+  .ship-table tbody tr.svc-economy.selected,
+  .ship-table tbody tr.svc-standard.selected,
+  .ship-table tbody tr.svc-other.selected { background: #fde68a !important; }
+
+  .ship-name { font-weight: 600; color: #1f2937; min-width: 240px; max-width: 360px; }
+  .ship-tag {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    font-size: 10px; font-weight: 700; margin-right: 3px;
+  }
+  .ship-tag.exp  { background: #dbeafe; color: #1e40af; }
+  .ship-tag.eco  { background: #dcfce7; color: #166534; }
+  .ship-tag.std  { background: #fef3c7; color: #92400e; }
+  .ship-tag.vero { background: #fce7f3; color: #9d174d; }
+  .ship-tag.spec { background: #ede9fe; color: #5b21b6; }
+  .ship-tag.leg  { background: #e5e7eb; color: #6b7280; }
+  .ship-num { text-align: right; font-family: 'SF Mono', Consolas, monospace; }
+  .ship-excluded-badge {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    background: #fee2e2; color: #991b1b; font-size: 10px; font-weight: 700;
+  }
+  .ship-excluded-badge.zero { background: #f3f4f6; color: #9ca3af; }
+  .ship-status-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 700; white-space: nowrap; cursor: help;
+  }
+  .ship-status-badge.ok   { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .ship-status-badge.diff { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .ship-status-badge.skip { background: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb; }
+
+  /* 一括編集モーダル: サービス別デフォルトモード中は値セル(3列目)のみロック */
+  .be-defaults-mode tbody tr td:nth-child(3) {
+    pointer-events: none;
+    opacity: 0.6;
+  }
+
+  /* 編集モーダルでデフォルト差分のあるフィールドを強調 */
+  .ship-field.is-diff {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin: 0 -10px 6px -10px;
+  }
+  .ship-field-diff-banner {
+    font-size: 11px; color: #92400e; background: #fef3c7;
+    padding: 4px 10px; border-radius: 4px; margin-top: 4px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .ship-field-reset {
+    background: #fff; border: 1px solid #f59e0b; color: #92400e;
+    padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
+    font-weight: 600;
+  }
+  .ship-field-reset:hover { background: #fde68a; }
+  .ship-section-diff-banner {
+    background: #fef3c7; border: 1px solid #fcd34d;
+    padding: 8px 12px; border-radius: 6px; margin-bottom: 10px;
+    font-size: 12px; color: #92400e; display: flex; align-items: center; gap: 10px;
+  }
+  .ship-section-diff-banner strong { color: #78350f; }
+
+  .ship-loading {
+    text-align: center; padding: 60px 20px; color: #6b7280;
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .ship-error {
+    background: #fef2f2; border-left: 4px solid #dc2626;
+    padding: 14px 18px; border-radius: 6px; color: #991b1b;
+    font-size: 13px;
+  }
+  .ship-toolbar {
+    background: #fff; padding: 12px 16px; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 14px;
+  }
+  .ship-toolbar-field { display: flex; align-items: center; gap: 6px; }
+  .ship-toolbar-field label { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
+  .ship-toolbar-field input,
+  .ship-toolbar-field select {
+    padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; background: #fff;
+  }
+  .ship-toolbar-field input[type="text"] { width: 200px; }
+  .ship-bulk-bar {
+    background: #fef3c7; border: 1px solid #fbbf24;
+    padding: 10px 16px; border-radius: 8px; margin-bottom: 12px;
+    align-items: center; gap: 14px; flex-wrap: wrap;
+    color: #92400e; font-weight: 700;
+  }
+  .ship-bulk-btn {
+    background: #fff; border: 1px solid #92400e; color: #92400e;
+    padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .ship-bulk-btn:hover { background: #92400e; color: #fff; }
+  .ship-bulk-btn.danger { border-color: #b91c1c; color: #b91c1c; }
+  .ship-bulk-btn.danger:hover { background: #b91c1c; color: #fff; }
+  .ship-table tbody tr.selected { background: #fef9e7; }
+
+  /* シッピング モーダル系 */
+  .ship-modal-overlay {
+    display: none; position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%; background: rgba(0,0,0,0.5);
+    z-index: 1000; align-items: flex-start; justify-content: center;
+    overflow-y: auto; padding: 40px 20px;
+  }
+  .ship-modal-overlay.active { display: flex; }
+  .ship-modal {
+    background: #fff; border-radius: 12px; width: 100%;
+    padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  }
+  .ship-modal h2 { margin-top: 0; font-size: 18px; color: #1a365d; }
+  .ship-modal-footer {
+    display: flex; justify-content: flex-end; gap: 10px;
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid #e5e7eb;
+  }
+  .ship-btn-cancel {
+    background: #fff; border: 1px solid #d1d5db; color: #4b5563;
+    padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 600;
+  }
+  .ship-btn-save {
+    background: #16a34a; color: #fff; border: none;
+    padding: 8px 22px; border-radius: 6px; cursor: pointer; font-weight: 700;
+  }
+  .ship-btn-save:hover { background: #15803d; }
+  .ship-btn-delete-modal {
+    background: #b91c1c; color: #fff; border: none;
+    padding: 8px 18px; border-radius: 6px; cursor: pointer;
+    font-weight: 600; margin-right: auto;
+  }
+
+  .ship-field {
+    display: grid; grid-template-columns: 140px 1fr;
+    gap: 12px; margin-bottom: 10px; align-items: center;
+  }
+  .ship-field label { font-size: 12px; font-weight: 600; color: #374151; }
+  .ship-field input:not([type="checkbox"]):not([type="radio"]),
+  .ship-field select,
+  .ship-field textarea {
+    padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; width: 100%; font-family: inherit;
+  }
+  .ship-field input[type="checkbox"],
+  .ship-field input[type="radio"] {
+    width: auto; padding: 0; margin: 0;
+  }
+
+  .ship-settings-tabs {
+    display: flex; gap: 0; border-bottom: 2px solid #e5e7eb; margin-bottom: 14px;
+  }
+  .ship-settings-main-tab {
+    background: transparent; border: none; padding: 8px 16px;
+    cursor: pointer; font-size: 13px; font-weight: 600; color: #6b7280;
+    border-bottom: 3px solid transparent;
+  }
+  .ship-settings-main-tab.active { color: #1e40af; border-bottom-color: #1e40af; }
+  .ship-settings-sub-tabs {
+    display: flex; gap: 0; margin-bottom: 14px;
+  }
+  .ship-settings-sub-tab {
+    background: #f3f4f6; border: none; padding: 6px 14px;
+    border-radius: 6px 6px 0 0; cursor: pointer; font-size: 12px;
+    font-weight: 600; color: #6b7280;
+  }
+  .ship-settings-sub-tab.active { background: #dbeafe; color: #1e40af; }
+
+  .ship-modal-section {
+    border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 14px; margin-bottom: 14px; background: #fafbfc;
+  }
+  .ship-modal-section-title {
+    font-size: 12px; font-weight: 700; color: #4b5563;
+    margin-bottom: 10px; text-transform: uppercase;
+  }
+
+  /* 特別設定カード */
+  .ship-special-rule {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .ship-special-rule.active { border-left: 4px solid #16a34a; }
+  .ship-special-rule.inactive { opacity: 0.65; }
+  .ship-special-rule-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .ship-special-rule-name { font-weight: 700; font-size: 14px; }
+  .ship-special-rule-meta { font-size: 11px; color: #6b7280; margin-bottom: 8px; }
+  .ship-toggle-switch {
+    width: 38px; height: 20px; background: #d1d5db; border-radius: 10px;
+    position: relative; cursor: pointer; transition: background 0.2s;
+  }
+  .ship-toggle-switch.on { background: #16a34a; }
+  .ship-toggle-switch::after {
+    content: ''; position: absolute; left: 2px; top: 2px;
+    width: 16px; height: 16px; background: #fff; border-radius: 50%;
+    transition: left 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .ship-toggle-switch.on::after { left: 20px; }
+  .ship-rule-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .ship-rule-actions button {
+    background: #fff; border: 1px solid #d1d5db; padding: 4px 10px;
+    border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 600;
+  }
+  .ship-rule-actions button.edit { color: #2563eb; border-color: #2563eb; }
+  .ship-rule-actions button.delete { color: #b91c1c; border-color: #b91c1c; }
+
+  .ship-btn-add {
+    background: #fff; border: 1px dashed #2563eb; color: #2563eb;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 600; width: 100%; margin-top: 6px;
+  }
+  .ship-btn-add:hover { background: #2563eb; color: #fff; }
+  .ship-btn-add-chip {
+    background: #2563eb; color: #fff; border: none;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .ship-country-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px; background: #fff; border: 1px solid #d1d5db;
+    border-radius: 6px; min-height: 50px;
+  }
+  .ship-chip {
+    background: #fee2e2; color: #991b1b;
+    padding: 4px 10px; border-radius: 12px; font-size: 12px;
+    font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .ship-chip button {
+    background: rgba(255,255,255,0.6); border: none; color: #991b1b;
+    cursor: pointer; font-weight: bold; padding: 0 5px; line-height: 1.2;
+    border-radius: 50%; font-size: 13px;
+  }
+  .ship-chip button:hover { background: #991b1b; color: #fff; }
+  .ship-chip-region {
+    background: #fed7aa; color: #7c2d12;
+    font-weight: 700;
+  }
+  .ship-chip-region button { color: #7c2d12; }
+  .ship-chip-region button:hover { background: #7c2d12; color: #fff; }
+
+  /* チェックボックス除外国UI */
+  .ship-country-group {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+    margin-bottom: 8px; overflow: hidden;
+  }
+  .ship-country-group summary {
+    background: #f9fafb; padding: 10px 14px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer; user-select: none;
+    list-style: none;
+    border-bottom: 1px solid transparent;
+  }
+  .ship-country-group[open] summary {
+    border-bottom-color: #e5e7eb;
+  }
+  .ship-country-group summary::-webkit-details-marker { display: none; }
+  .ship-country-group summary::before {
+    content: '▶'; font-size: 10px; color: #6b7280;
+    transition: transform 0.2s;
+  }
+  .ship-country-group[open] summary::before {
+    transform: rotate(90deg);
+  }
+  .ship-country-group-name { font-weight: 700; font-size: 13px; color: #1f2937; }
+  .ship-country-group-count {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 700;
+  }
+  .ship-country-group-count.all { background: #fee2e2; color: #991b1b; }
+  .ship-country-group-count.partial { background: #fef3c7; color: #92400e; }
+  .ship-country-group-count.none { background: #f3f4f6; color: #6b7280; }
+  .ship-group-action {
+    background: #fff; border: 1px solid #d1d5db; color: #4b5563;
+    padding: 3px 10px; border-radius: 5px; cursor: pointer;
+    font-size: 11px; font-weight: 600;
+  }
+  .ship-group-action:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .ship-checkbox-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px;
+    padding: 10px 14px;
+    max-height: 280px; overflow-y: auto;
+  }
+  .ship-checkbox-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 6px; font-size: 12px; cursor: pointer;
+    border-radius: 4px;
+  }
+  .ship-checkbox-item:hover { background: #eff6ff; }
+  .ship-checkbox-item input { margin: 0; }
+  .ship-checkbox-item.covered {
+    background: #fef3c7;
+    cursor: not-allowed;
+  }
+  .ship-checkbox-item.covered:hover { background: #fef3c7; }
+  .ship-checkbox-item.covered input { cursor: not-allowed; }
+  /* 🕊️ 特別設定で除外されている国(オレンジ系) */
+  .ship-checkbox-item.rule-applied {
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+  }
+  .ship-checkbox-item.rule-applied:hover { background: #ffedd5; }
+  .ship-checkbox-item.rule-applied input[type="checkbox"] {
+    accent-color: #d97706;  /* オレンジ */
+  }
+
+  .ship-edit-btn {
+    background: #fff; border: 1px solid #2563eb; color: #2563eb;
+    padding: 4px 10px; border-radius: 5px; cursor: pointer;
+    font-size: 11px; font-weight: 600;
+  }
+  .ship-edit-btn:hover { background: #2563eb; color: #fff; }
+
+  /* Destinations 専用グリッド(13地域、右端チェックボックス) */
+  .ship-dest-grid {
+    display: grid !important;
