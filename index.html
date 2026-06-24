@@ -10598,11 +10598,13 @@ Object.assign(Shipping, {
       document.getElementById('shipRateTableService').value = row.service || '';
       document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
       this.updateSelectedRateTableRegionsDisplay();
+      this.renderRateTableRegionGroups();  // チェックボックスを同期
     } else {
       // Domestic
       this.selectedRateTableRegions.clear();
       this.selectedRateTableRegions.add(row.region);
       document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
+      this.renderRateTableRegionGroups();  // チェックボックスを同期
     }
 
     // ボタンの表示を切り替え
