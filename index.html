@@ -10014,7 +10014,7 @@ Object.assign(Shipping, {
       createBtn.setAttribute('data-listener-attached', 'true');
     }
     if (editBtn) {
-      editBtn.style.display = rateTableMode === 'other' ? 'block' : 'none';
+      editBtn.style.display = hasRateTable ? 'block' : 'none';
       if (!editBtn.hasAttribute('data-listener-attached')) {
         editBtn.addEventListener('click', () => {
           // 既存の Rate Table を編集モーダルに読み込む
@@ -10026,11 +10026,14 @@ Object.assign(Shipping, {
 
           // Rate Table データを編集用に読み込む
           this.rateTableRows = (policy.rateTable.rows || []).map(r => ({ ...r }));
+          this.selectedRateTableRegions.clear();
+          this.isDomesticRateTable = false;  // International フラグ
           document.getElementById('shipRateTableName').value = policy.rateTable.name || '';
           document.getElementById('shipRateTableService').value = '';
           document.getElementById('shipRateTableCost').value = '';
 
-          // UI を生成
+          // UI を更新
+          this.updateRateTableModalUI();
           this.renderRateTableRegionGroups();
           this.renderShippingServices();
           this.renderRateTableRows();
