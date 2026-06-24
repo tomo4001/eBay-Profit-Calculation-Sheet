@@ -11149,12 +11149,22 @@ Object.assign(Shipping, {
       ? [{ regionName: 'Worldwide' }]
       : union.map(c => ({ regionName: c }));
 
-    // (a) INTERNATIONAL option-level に書き込み
-    if (intl) {
-      intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
+    // ⚠️ eBay 仕様: regionIncluded と regionExcluded は同時に使用不可（どちらか一方のみ）
+    // excluded が空の場合のみ regionIncluded を使用
+    if (p.excluded.length === 0) {
+      // (a) INTERNATIONAL option-level に regionIncluded を設定
+      if (intl) {
+        intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
+      }
+      // (b) policy-level にも書き込む
+      p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
+    } else {
+      // excluded がある場合は regionIncluded を削除（regionExcluded のみ使用）
+      if (intl) {
+        intl.shipToLocations = {};
+      }
+      delete p._raw.shipToLocations.regionIncluded;
     }
-    // (b) policy-level にも書き込む
-    p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
 
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
