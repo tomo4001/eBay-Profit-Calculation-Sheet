@@ -10062,6 +10062,7 @@ Object.assign(Shipping, {
           if (policy) {
             policy.rateTable = null;
             this.renderEditRateTable(policy);
+            this.savePoliciesCache();  // 💾 localStorage に保存
             popup.style.display = 'none';
             alert('✅ Rate table を削除しました');
           }
@@ -10268,6 +10269,13 @@ Object.assign(Shipping, {
     // チェックボックスをリセット
     checkboxes.forEach(cb => cb.checked = false);
     costInput.value = '';
+
+    // 💾 Policy に反映して localStorage に保存
+    const policy = this.policies.find(x => x.id === this.editingPolicyId);
+    if (policy && policy.domesticRateTable) {
+      policy.domesticRateTable.rows = this.rateTableRows;
+      this.savePoliciesCache();
+    }
   },
 
   // Service type セクション内の行をレンダリング
@@ -10329,6 +10337,13 @@ Object.assign(Shipping, {
         return true;  // この行は保持
       });
       this.renderDomServiceRows(serviceId);
+
+      // 💾 Policy に反映して localStorage に保存
+      const policy = this.policies.find(x => x.id === this.editingPolicyId);
+      if (policy && policy.domesticRateTable) {
+        policy.domesticRateTable.rows = this.rateTableRows;
+        this.savePoliciesCache();
+      }
     }
   },
 
@@ -10493,6 +10508,7 @@ Object.assign(Shipping, {
           if (confirm('❓ このDomestic Rate tableを削除しますか？')) {
             p.domesticRateTable = null;
             this.renderEditDomRateTable(p);
+            this.savePoliciesCache();  // 💾 localStorage に保存
             console.log('[Domestic Rate table] 削除完了');
           }
           popup.style.display = 'none';
@@ -10681,6 +10697,17 @@ Object.assign(Shipping, {
       this.editingRowIndex = null;
     }
     this.renderRateTableRows();
+
+    // 💾 Policy に反映して localStorage に保存
+    const policy = this.policies.find(x => x.id === this.editingPolicyId);
+    if (policy) {
+      if (this.isDomesticRateTable) {
+        if (policy.domesticRateTable) policy.domesticRateTable.rows = this.rateTableRows;
+      } else {
+        if (policy.rateTable) policy.rateTable.rows = this.rateTableRows;
+      }
+      this.savePoliciesCache();
+    }
   },
 
   // テーブルの行をクリック → 編集モードに入る
@@ -10791,6 +10818,17 @@ Object.assign(Shipping, {
 
     this.updateRateTableModalButtons();
     this.renderRateTableRows();
+
+    // 💾 Policy に反映して localStorage に保存
+    const policy = this.policies.find(x => x.id === this.editingPolicyId);
+    if (policy) {
+      if (this.isDomesticRateTable) {
+        if (policy.domesticRateTable) policy.domesticRateTable.rows = this.rateTableRows;
+      } else {
+        if (policy.rateTable) policy.rateTable.rows = this.rateTableRows;
+      }
+      this.savePoliciesCache();
+    }
   },
 
   // 「キャンセル」ボタンをクリック → 編集モード解除
@@ -11101,6 +11139,9 @@ Object.assign(Shipping, {
 
     // Rate table セクションを再描画
     this.renderEditRateTable(policy);
+
+    // 💾 localStorage に保存
+    this.savePoliciesCache();
 
     alert(`✅ Rate table "${name}" を${isEditing ? '更新' : '作成'}しました（${rowCount} 行）`);
   },
