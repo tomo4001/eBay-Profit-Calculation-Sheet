@@ -10211,13 +10211,22 @@ Object.assign(Shipping, {
     const container = document.getElementById('shipRateTableRegionGroups');
     if (!container) return;
 
+    // Domestic か International かで異なるグループを使用
+    const groupsToRender = this.isDomesticRateTable ? this.getUSStateGroups() : SHIP_COUNTRY_GROUPS;
+
     let html = '';
-    for (const [groupName, groupData] of Object.entries(SHIP_COUNTRY_GROUPS)) {
+    for (const [groupName, groupData] of Object.entries(groupsToRender)) {
       const items = groupData.items || [];
       const itemsHtml = items.map(code => {
-        // マッピングがある場合は「DE（ドイツ）」、ない場合は「AL」だけ表示
-        const countryName = COUNTRY_CODE_NAMES[code];
-        const label = countryName ? `${code}（${countryName}）` : code;
+        // 州の場合は州名、国の場合は国名を使用
+        let label;
+        if (this.isDomesticRateTable) {
+          const stateNames = this.getUSStateNames();
+          label = `${code}（${stateNames[code] || '不明'}）`;
+        } else {
+          const countryName = COUNTRY_CODE_NAMES[code];
+          label = countryName ? `${code}（${countryName}）` : code;
+        }
         return `
           <label style="display:block; padding:6px 10px; cursor:pointer; font-size:13px;">
             <input type="checkbox" value="${code}" onchange="Shipping.toggleRateTableRegion('${code}')" />
@@ -10240,6 +10249,36 @@ Object.assign(Shipping, {
     }
 
     container.innerHTML = html;
+  },
+
+  // US 州のグループを取得
+  getUSStateGroups() {
+    return {
+      'Northeast': { items: ['CT', 'DE', 'MA', 'MD', 'ME', 'NH', 'NJ', 'NY', 'PA', 'RI', 'VT'] },
+      'Southeast': { items: ['AL', 'AR', 'FL', 'GA', 'KY', 'LA', 'MS', 'NC', 'SC', 'TN', 'VA', 'WV', 'DC'] },
+      'Midwest': { items: ['IL', 'IN', 'IA', 'KS', 'MI', 'MN', 'MO', 'ND', 'NE', 'OH', 'SD', 'WI'] },
+      'Southwest': { items: ['AZ', 'NM', 'OK', 'TX'] },
+      'West': { items: ['AK', 'CA', 'CO', 'HI', 'ID', 'MT', 'NV', 'OR', 'UT', 'WA', 'WY'] }
+    };
+  },
+
+  // US 州名マッピング
+  getUSStateNames() {
+    return {
+      'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+      'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+      'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+      'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+      'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+      'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+      'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+      'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+      'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+      'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+      'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+      'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+      'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
+    };
   },
 
   toggleRateTableRegion(code) {
