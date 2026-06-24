@@ -170,69 +170,7 @@ export default async function handler(req, res) {
     }
   }
 
-  if (!policyId) { res.status(400).json({ error: 'policyId が必要' }); return; }
-
-  // === 🗑️ DELETE 処理 ===
-  if (action === 'delete') {
-    // ローカル専用 ID は eBay に存在しない
-    if (typeof policyId === 'string' && policyId.startsWith('local_new_')) {
-      res.status(400).json({
-        ok: false,
-        error: 'ローカル専用ポリシー(local_new_*)は eBay に存在しないため API 削除不要',
-        policyId,
-      });
-      return;
-    }
-    try {
-      const accessToken = await getAccessToken(appId, certId, refreshToken);
-      const apiUrl = `https://api.ebay.com/sell/account/v1/fulfillment_policy/${encodeURIComponent(policyId)}`;
-      const apiRes = await fetch(apiUrl, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-        },
-      });
-      if (apiRes.status === 204 || apiRes.status === 200) {
-        res.status(200).json({
-          ok: true,
-          action: 'delete',
-          policyId,
-          status: apiRes.status,
-          message: '✓ eBay 上のポリシーを削除しました',
-        });
-        return;
-      }
-      const text = await apiRes.text();
-      let json = null;
-      try { json = text ? JSON.parse(text) : null; } catch (e) {}
-      if (apiRes.status === 404) {
-        res.status(200).json({
-          ok: true,
-          action: 'delete',
-          policyId,
-          status: 404,
-          notFound: true,
-          message: '⚪ eBay 上に該当ポリシー無し(既に削除済み)',
-        });
-        return;
-      }
-      res.status(apiRes.status).json({
-        ok: false,
-        action: 'delete',
-        policyId,
-        status: apiRes.status,
-        error: `eBay DELETE 失敗 (HTTP ${apiRes.status})`,
-        detail: json || text.slice(0, 1500),
-      });
-      return;
-    } catch (e) {
-      res.status(500).json({ ok: false, action: 'delete', error: e.message || String(e), policyId });
-      return;
-    }
-  }
-
-  // === 📊 Rate table 作成処理 ===
+  // === 📊 Rate table 作成処理（policyId不要）===
   if (action === 'createRateTable') {
     const name = body.name;
     if (!name || !name.trim()) {
@@ -307,6 +245,68 @@ export default async function handler(req, res) {
         action: 'createRateTable',
         error: e.message || '不明なエラー',
       });
+    }
+  }
+
+  if (!policyId) { res.status(400).json({ error: 'policyId が必要' }); return; }
+
+  // === 🗑️ DELETE 処理 ===
+  if (action === 'delete') {
+    // ローカル専用 ID は eBay に存在しない
+    if (typeof policyId === 'string' && policyId.startsWith('local_new_')) {
+      res.status(400).json({
+        ok: false,
+        error: 'ローカル専用ポリシー(local_new_*)は eBay に存在しないため API 削除不要',
+        policyId,
+      });
+      return;
+    }
+    try {
+      const accessToken = await getAccessToken(appId, certId, refreshToken);
+      const apiUrl = `https://api.ebay.com/sell/account/v1/fulfillment_policy/${encodeURIComponent(policyId)}`;
+      const apiRes = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+        },
+      });
+      if (apiRes.status === 204 || apiRes.status === 200) {
+        res.status(200).json({
+          ok: true,
+          action: 'delete',
+          policyId,
+          status: apiRes.status,
+          message: '✓ eBay 上のポリシーを削除しました',
+        });
+        return;
+      }
+      const text = await apiRes.text();
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch (e) {}
+      if (apiRes.status === 404) {
+        res.status(200).json({
+          ok: true,
+          action: 'delete',
+          policyId,
+          status: 404,
+          notFound: true,
+          message: '⚪ eBay 上に該当ポリシー無し(既に削除済み)',
+        });
+        return;
+      }
+      res.status(apiRes.status).json({
+        ok: false,
+        action: 'delete',
+        policyId,
+        status: apiRes.status,
+        error: `eBay DELETE 失敗 (HTTP ${apiRes.status})`,
+        detail: json || text.slice(0, 1500),
+      });
+      return;
+    } catch (e) {
+      res.status(500).json({ ok: false, action: 'delete', error: e.message || String(e), policyId });
+      return;
     }
   }
 
