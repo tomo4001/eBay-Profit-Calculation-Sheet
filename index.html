@@ -7087,22 +7087,8 @@ const Shipping = {
       }
     }
 
-    // 除外国（regionIncluded から逆算）
-    // eBay は regionIncluded のみを使用するため、regionIncluded に含まれていない国が除外国
-    let excluded = [];
-    const shipToLoc = p.shipToLocations || {};
-    const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    if (shipToLoc.regionIncluded && shipToLoc.regionIncluded.length > 0) {
-      // regionIncluded が「Worldwide」以外の場合、含まれていない国が除外国
-      const includedSet = new Set(shipToLoc.regionIncluded.map(r => r.regionName));
-      if (!includedSet.has('Worldwide')) {
-        excluded = allCodes.filter(c => !includedSet.has(c));
-      }
-    }
-    // 念のため regionExcluded も確認（後方互換性）
-    if (shipToLoc.regionExcluded && shipToLoc.regionExcluded.length > 0) {
-      excluded = shipToLoc.regionExcluded.map(r => r.regionName);
-    }
+    // 除外国
+    const excluded = ((p.shipToLocations && p.shipToLocations.regionExcluded) || []).map(r => r.regionName);
 
     return {
       id: p.fulfillmentPolicyId,
@@ -11148,34 +11134,26 @@ Object.assign(Shipping, {
       }));
     }
 
-    // ----- Excluded countries -----
+    // ----- Excluded countries + 📍 Additional locations -----
     p.excluded = this.editingPolicyExcluded.slice();
     if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
+    p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
 
-    // ⚠️ eBay 仕様: regionIncluded のみを使用（regionExcluded は使用しない）
-    // regionIncluded = 全国コード - excluded
+    // 📍 Phase 2-H+++ FIX: Additional locations = 全 service destinations の和集合
+    // eBay の Additional locations は INTERNATIONAL option-level shipToLocations.regionIncluded に対応
+    const union = this.computeAdditionalLocationsUnion();
     const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
-    const excludedSet = new Set(p.excluded);
-    const includedCodes = allCodes.filter(c => !excludedSet.has(c));
+    const isAllSelected = allCodes.every(c => union.includes(c)) && union.length === allCodes.length;
+    const regionIncludedPayload = isAllSelected
+      ? [{ regionName: 'Worldwide' }]
+      : union.map(c => ({ regionName: c }));
 
-    if (includedCodes.length === allCodes.length) {
-      // 除外なし = Worldwide
-      p._raw.shipToLocations.regionIncluded = [{ regionName: 'Worldwide' }];
-    } else if (includedCodes.length > 0) {
-      // 一部除外 = 含める国リスト
-      p._raw.shipToLocations.regionIncluded = includedCodes.map(c => ({ regionName: c }));
-    } else {
-      // 全て除外（通常ありえない）
-      p._raw.shipToLocations.regionIncluded = [];
-    }
-
-    // regionExcluded は削除（regionIncluded のみ使用）
-    delete p._raw.shipToLocations.regionExcluded;
-
-    // option-level も同じ
+    // (a) INTERNATIONAL option-level に regionIncluded を設定
     if (intl) {
-      intl.shipToLocations = { regionIncluded: p._raw.shipToLocations.regionIncluded.slice() };
+      intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
     }
+    // (b) policy-level にも書き込む
+    p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
 
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
