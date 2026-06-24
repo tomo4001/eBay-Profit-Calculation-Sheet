@@ -9727,6 +9727,7 @@ Object.assign(Shipping, {
     this.renderEditAdditionalLocations();
     // 📊 Rate table (optional) を描画
     this.renderEditRateTable(p);
+    this.renderEditDomRateTable(p);  // Domestic Rate Table を描画
 
     // 📌 タイトル自動生成プレビューを初期化
     // 新規作成時 or 既に自動生成パターンに従っている既存ポリシー → 自動更新モード
@@ -10041,6 +10042,126 @@ Object.assign(Shipping, {
         }
       });
       window._rateTableListenerAttached = true;
+    }
+  },
+
+  // Domestic Rate Table を描画（International と同じ構造）
+  renderEditDomRateTable(p) {
+    const select = document.getElementById('shipEditDomRateTable');
+    const infoDiv = document.getElementById('shipEditDomRateTableInfo');
+    const menuBtn = document.getElementById('shipEditDomRateTableMenuBtn');
+    const popup = document.getElementById('shipEditDomRateTablePopup');
+    const createBtn = document.getElementById('shipDomRateTableCreateBtn');
+    const editBtn = document.getElementById('shipDomRateTableEditBtn');
+
+    if (!select || !infoDiv || !p || !popup) return;
+
+    // ドロップダウンを動的に生成
+    const options = [
+      { value: 'none', label: 'None' }
+    ];
+
+    // eBay から取得した Domestic Rate Table を追加
+    if (this.ebayRateTables && this.ebayRateTables.length > 0) {
+      this.ebayRateTables
+        .filter(rt => rt.locality === 'DOMESTIC')  // Domestic のみ
+        .forEach(rt => {
+          options.push({
+            value: `ebay_${rt.rateTableId}`,
+            label: rt.name,
+            source: 'ebay'
+          });
+        });
+    }
+
+    // ドロップダウンを再構築
+    select.innerHTML = options.map(opt =>
+      `<option value="${opt.value}">${opt.label}</option>`
+    ).join('');
+
+    // 現在の値を復元
+    const hasDomRateTable = p.domRateTable && Object.keys(p.domRateTable || {}).length > 0;
+    if (hasDomRateTable) {
+      select.value = `local_${p.id}`;
+    } else {
+      select.value = 'none';
+    }
+
+    // 情報テキスト
+    infoDiv.textContent = hasDomRateTable
+      ? `✅ Domestic Rate table が実装されています`
+      : `❌ Domestic Rate table は現在 None です（未使用）`;
+
+    // ドロップダウン変更時
+    if (!select.hasAttribute('data-listener-attached')) {
+      select.addEventListener('change', () => {
+        const val = select.value;
+        infoDiv.textContent = val === 'none'
+          ? `❌ Domestic Rate table は None です（未使用）`
+          : `✅ Domestic Rate table を設定`;
+        if (editBtn) {
+          editBtn.style.display = val === 'none' ? 'none' : 'block';
+        }
+        popup.style.display = 'none';
+      });
+      select.setAttribute('data-listener-attached', 'true');
+    }
+
+    // メニューボタン
+    if (!menuBtn.hasAttribute('data-listener-attached')) {
+      menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = popup.style.display === 'flex';
+        popup.style.display = isOpen ? 'none' : 'flex';
+      });
+      menuBtn.setAttribute('data-listener-attached', 'true');
+    }
+
+    // Create ボタン
+    if (createBtn && !createBtn.hasAttribute('data-listener-attached')) {
+      createBtn.addEventListener('click', () => {
+        // モーダルを開く（初期化）
+        this.rateTableRows = [];
+        this.selectedRateTableRegions.clear();
+        this.isDomesticRateTable = true;  // Domestic フラグ
+        document.getElementById('shipRateTableName').value = '';
+        document.getElementById('shipRateTableService').value = '';
+        document.getElementById('shipRateTableCost').value = '';
+
+        // UI を生成
+        this.renderRateTableRegionGroups();
+        this.renderShippingServices();
+        this.renderRateTableRows();
+        this.updateSelectedRateTableRegionsDisplay();
+
+        this.openModal('shipRateTableCreateModal');
+        popup.style.display = 'none';
+      });
+      createBtn.setAttribute('data-listener-attached', 'true');
+    }
+
+    // Edit ボタン
+    if (editBtn) {
+      editBtn.style.display = hasDomRateTable ? 'block' : 'none';
+      if (!editBtn.hasAttribute('data-listener-attached')) {
+        editBtn.addEventListener('click', () => {
+          alert('🚧 Domestic Rate table 編集機能（未実装）');
+          popup.style.display = 'none';
+        });
+        editBtn.setAttribute('data-listener-attached', 'true');
+      }
+    }
+
+    // ドキュメント外クリックでポップアップを閉じる
+    if (!window._domRateTableListenerAttached) {
+      document.addEventListener('click', (e) => {
+        const popup = document.getElementById('shipEditDomRateTablePopup');
+        const menuBtn = document.getElementById('shipEditDomRateTableMenuBtn');
+        if (popup && menuBtn && !menuBtn.contains(e.target) && !popup.contains(e.target)) {
+          popup.style.display = 'none';
+        }
+      });
+      window._domRateTableListenerAttached = true;
     }
   },
 
