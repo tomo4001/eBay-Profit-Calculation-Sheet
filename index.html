@@ -11123,15 +11123,23 @@ Object.assign(Shipping, {
         intl = { optionType: 'INTERNATIONAL', costType: 'FLAT_RATE' };
         p._raw.shippingOptions.push(intl);
       }
-      intl.shippingServices = this.editingIntlServices.map(s => ({
-        shippingCarrierCode: 'GENERIC',
-        shippingServiceCode: s.serviceCode,
-        shippingCost:           { value: (s.cost || 0).toFixed(2),     currency: 'USD' },
-        additionalShippingCost: { value: (s.addtlCost || 0).toFixed(2), currency: 'USD' },
-        shipToLocations: {
-          regionIncluded: (s.destinations || []).map(d => ({ regionName: d }))
+      intl.shippingServices = this.editingIntlServices.map(s => {
+        const service = {
+          shippingCarrierCode: 'GENERIC',
+          shippingServiceCode: s.serviceCode,
+          shippingCost:           { value: (s.cost || 0).toFixed(2),     currency: 'USD' },
+          additionalShippingCost: { value: (s.addtlCost || 0).toFixed(2), currency: 'USD' }
+        };
+        // excluded がない場合のみ regionIncluded を設定（regionExcluded と両立しないため）
+        if (this.editingPolicyExcluded.length === 0) {
+          service.shipToLocations = {
+            regionIncluded: (s.destinations || []).map(d => ({ regionName: d }))
+          };
+        } else {
+          service.shipToLocations = {};
         }
-      }));
+        return service;
+      });
     }
 
     // ----- Excluded countries + 📍 Additional locations -----
