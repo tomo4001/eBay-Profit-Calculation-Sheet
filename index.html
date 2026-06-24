@@ -10051,10 +10051,10 @@ Object.assign(Shipping, {
   // Rate Table モーダルの UI を更新（Domestic/International 切り替え）
   updateRateTableModalUI() {
     const titleEl = document.getElementById('shipRateTableModalTitle');
-    const regionLabelEl = document.getElementById('shipRateTableRegionLabel');
     const domTypeSection = document.getElementById('shipRateTableDomTypeSection');
     const domServiceSection = document.getElementById('shipRateTableDomServiceSection');
     const regionSelectSection = document.getElementById('shipRateTableRegionSelectSection');
+    const selectedRegionsSection = document.getElementById('shipRateTableSelectedRegionsSection');
     const serviceSection = document.getElementById('shipRateTableServiceSection');
     const addBtn = document.getElementById('shipRateTableAddBtn');
     const rowsSection = document.getElementById('shipRateTableRowsSection');
@@ -10062,10 +10062,10 @@ Object.assign(Shipping, {
     if (this.isDomesticRateTable) {
       // Domestic Rate Table
       titleEl.textContent = '📦 Domestic Rate table を作成';
-      if (regionLabelEl) regionLabelEl.textContent = '米国の地域を選択';
       if (domTypeSection) domTypeSection.style.display = 'block';  // Rate Table type を表示
       if (domServiceSection) domServiceSection.style.display = 'block';  // Domestic Service type セクションを表示
-      if (regionSelectSection) regionSelectSection.style.display = 'block';
+      if (regionSelectSection) regionSelectSection.style.display = 'none';  // 上部の地域選択は隠す
+      if (selectedRegionsSection) selectedRegionsSection.style.display = 'none';  // 選択中の地域は隠す
       if (serviceSection) serviceSection.style.display = 'none';  // International Service セクションは隠す
       if (addBtn) addBtn.style.display = 'none';  // International 用「行を追加」ボタンは隠す
       if (rowsSection) rowsSection.style.display = 'none';  // International 用「設定済みの行」セクションは隠す
@@ -10075,10 +10075,10 @@ Object.assign(Shipping, {
     } else {
       // International Rate Table
       titleEl.textContent = '📊 International Rate table を作成';
-      if (regionLabelEl) regionLabelEl.textContent = '地域・国を選択';
       if (domTypeSection) domTypeSection.style.display = 'none';  // Rate Table type を隠す
       if (domServiceSection) domServiceSection.style.display = 'none';  // Domestic Service type セクションは隠す
-      if (regionSelectSection) regionSelectSection.style.display = 'block';
+      if (regionSelectSection) regionSelectSection.style.display = 'block';  // 上部の地域選択を表示
+      if (selectedRegionsSection) selectedRegionsSection.style.display = 'block';  // 選択中の地域を表示
       if (serviceSection) serviceSection.style.display = 'grid';  // International Service セクションを表示
       if (addBtn) addBtn.style.display = 'block';  // International 用「行を追加」ボタンを表示
       if (rowsSection) rowsSection.style.display = 'block';  // International 用「設定済みの行」セクションを表示
@@ -12992,7 +12992,7 @@ Object.assign(Shipping, {
       </select>
     </div>
 
-    <!-- 地域選択（グループ展開） -->
+    <!-- 地域選択（グループ展開） - International のみ -->
     <div id="shipRateTableRegionSelectSection" style="margin-bottom:16px;">
       <label id="shipRateTableRegionLabel" style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">地域・国を選択</label>
       <div id="shipRateTableRegionGroups" style="max-height:250px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:8px;">
@@ -13000,8 +13000,8 @@ Object.assign(Shipping, {
       </div>
     </div>
 
-    <!-- 現在選択中の地域 -->
-    <div style="margin-bottom:16px; padding:10px; background:#f0f7ff; border-radius:6px; border:1px solid #c0d8ec;">
+    <!-- 現在選択中の地域 - International のみ -->
+    <div id="shipRateTableSelectedRegionsSection" style="margin-bottom:16px; padding:10px; background:#f0f7ff; border-radius:6px; border:1px solid #c0d8ec;">
       <div style="font-size:12px; color:#666; margin-bottom:4px;">選択中の地域:</div>
       <div id="shipRateTableSelectedRegions" style="font-size:14px; font-weight:600; color:#2e75b6; min-height:20px;">（なし）</div>
     </div>
