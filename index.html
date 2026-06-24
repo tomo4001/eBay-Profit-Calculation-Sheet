@@ -9822,48 +9822,59 @@ Object.assign(Shipping, {
       ? `✅ Rate table が実装されています (Other International)`
       : `❌ Rate table は現在 None です（未使用）`;
 
-    // ドロップダウン変更時
-    select.onchange = () => {
-      const val = select.value;
-      infoDiv.textContent = val === 'none'
-        ? `❌ Rate table は None です（未使用）`
-        : `Rate table を設定: Other International`;
-      // ポップアップメニューを閉じる
-      popup.style.display = 'none';
-    };
+    // ドロップダウン変更時（既存なら上書き）
+    if (!select.hasAttribute('data-listener-attached')) {
+      select.addEventListener('change', () => {
+        const val = select.value;
+        infoDiv.textContent = val === 'none'
+          ? `❌ Rate table は None です（未使用）`
+          : `Rate table を設定: Other International`;
+        popup.style.display = 'none';
+      });
+      select.setAttribute('data-listener-attached', 'true');
+    }
 
-    // 3点メニューボタンのクリック → ポップアップ表示
-    if (menuBtn) {
-      menuBtn.onclick = (e) => {
+    // 3点メニューボタンのクリック（既存なら上書き）
+    if (!menuBtn.hasAttribute('data-listener-attached')) {
+      menuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const isOpen = popup.style.display === 'flex';
         popup.style.display = isOpen ? 'none' : 'flex';
-        popup.style.flexDirection = 'column';
-      };
+      });
+      menuBtn.setAttribute('data-listener-attached', 'true');
     }
 
     // メニュー項目の表示制御
     const rateTableMode = select.value;
-    if (createBtn) {
-      createBtn.onclick = () => {
+    if (createBtn && !createBtn.hasAttribute('data-listener-attached')) {
+      createBtn.addEventListener('click', () => {
         alert('🚧 Rate table 作成機能（未実装）\n\nCreate new をクリックして、\neBay Rate table 編集画面を開きます。');
         popup.style.display = 'none';
-      };
+      });
+      createBtn.setAttribute('data-listener-attached', 'true');
     }
     if (editBtn) {
       editBtn.style.display = rateTableMode === 'other' ? 'block' : 'none';
-      editBtn.onclick = () => {
-        alert('🚧 Rate table 編集機能（未実装）\n\nEdit rate table をクリックして、\n既存の Rate table を編集します。');
-        popup.style.display = 'none';
-      };
+      if (!editBtn.hasAttribute('data-listener-attached')) {
+        editBtn.addEventListener('click', () => {
+          alert('🚧 Rate table 編集機能（未実装）\n\nEdit rate table をクリックして、\n既存の Rate table を編集します。');
+          popup.style.display = 'none';
+        });
+        editBtn.setAttribute('data-listener-attached', 'true');
+      }
     }
 
-    // ドキュメント外クリックでポップアップを閉じる
-    document.addEventListener('click', (e) => {
-      if (!menuBtn.contains(e.target) && !popup.contains(e.target)) {
-        popup.style.display = 'none';
-      }
-    });
+    // ドキュメント外クリックでポップアップを閉じる（1回だけ設定）
+    if (!document.hasAttribute('data-rate-table-listener')) {
+      document.addEventListener('click', (e) => {
+        const popup = document.getElementById('shipEditRateTablePopup');
+        const menuBtn = document.getElementById('shipEditRateTableMenuBtn');
+        if (popup && menuBtn && !menuBtn.contains(e.target) && !popup.contains(e.target)) {
+          popup.style.display = 'none';
+        }
+      });
+      document.setAttribute('data-rate-table-listener', 'true');
+    }
   },
 
   // =====================================================================
