@@ -9887,25 +9887,94 @@ Object.assign(Shipping, {
   },
 
   // =====================================================================
-  // 🎨 Rate table 行追加（Policy 内の Rate table に行を追加）
+  // 🎨 Rate table 管理（Policy 内の Rate table 行管理）
   // =====================================================================
-  submitCreateRateTable() {
-    // モーダルを閉じる
-    this.closeModal('shipRateTableCreateModal');
+  rateTableRows: [],  // 現在の Rate table 行を保存
 
-    // 入力値を取得
-    const nameInput = document.getElementById('shipRateTableName');
-    const name = (nameInput.value || '').trim();
+  addRateTableRow() {
+    const region = document.getElementById('shipRateTableRegion').value;
+    const service = document.getElementById('shipRateTableService').value;
+    const cost = (document.getElementById('shipRateTableCost').value || '0.00');
 
-    if (!name) {
-      alert('国または地域を選択してください');
+    if (!region) {
+      alert('地域を選択してください');
       return;
     }
 
-    // ここで editingPolicy に Rate table 行を追加する処理
-    // TODO: Rate table 行追加機能を実装
-    alert('機能実装中: Rate table 行を追加します\n地域: ' + name);
-    nameInput.value = '';
+    // 行をリストに追加
+    const row = {
+      id: 'row_' + Date.now(),
+      region: region,
+      service: service || null,
+      cost: parseFloat(cost)
+    };
+
+    this.rateTableRows.push(row);
+
+    // UI をリセット
+    document.getElementById('shipRateTableRegion').value = '';
+    document.getElementById('shipRateTableService').value = '';
+    document.getElementById('shipRateTableCost').value = '';
+
+    // 行を表示
+    this.renderRateTableRows();
+  },
+
+  deleteRateTableRow(rowId) {
+    this.rateTableRows = this.rateTableRows.filter(r => r.id !== rowId);
+    this.renderRateTableRows();
+  },
+
+  renderRateTableRows() {
+    const container = document.getElementById('shipRateTableRowsContainer');
+
+    if (this.rateTableRows.length === 0) {
+      container.innerHTML = '<div style="text-align:center; color:#999; padding:16px;">行がありません</div>';
+      return;
+    }
+
+    const html = this.rateTableRows.map(row => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:#f9fafb; border-radius:6px; margin-bottom:8px; border:1px solid #e5e7eb;">
+        <div style="flex:1;">
+          <strong>${row.region}</strong>
+          ${row.service ? ' / ' + row.service : ''}
+          <span style="float:right; font-weight:600; color:#2e75b6;">$${row.cost.toFixed(2)}</span>
+        </div>
+        <button onclick="Shipping.deleteRateTableRow('${row.id}')" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; margin-left:8px;">削除</button>
+      </div>
+    `).join('');
+
+    container.innerHTML = html;
+  },
+
+  submitCreateRateTable() {
+    // Rate table 行がない場合
+    if (this.rateTableRows.length === 0) {
+      alert('最低1つの地域を追加してください');
+      return;
+    }
+
+    // editingPolicy に Rate table データを保存
+    if (this.editingPolicy) {
+      this.editingPolicy.rateTable = {
+        rows: this.rateTableRows
+      };
+      console.log('[Rate table] Policy に保存されました:', this.editingPolicy.rateTable);
+    }
+
+    const rowCount = this.rateTableRows.length;
+
+    // モーダルを閉じる
+    this.closeModal('shipRateTableCreateModal');
+
+    // UI をリセット
+    this.rateTableRows = [];
+    document.getElementById('shipRateTableRegion').value = '';
+    document.getElementById('shipRateTableService').value = '';
+    document.getElementById('shipRateTableCost').value = '';
+    this.renderRateTableRows();
+
+    alert(`✅ Rate table を設定しました（${rowCount} 地域）`);
   },
 
   // =====================================================================
@@ -12292,19 +12361,73 @@ Object.assign(Shipping, {
   </div>
 </div>
 
-<!-- Rate table 作成モーダル -->
+<!-- Rate table 編集モーダル -->
 <div id="shipRateTableCreateModal" class="ship-modal-overlay">
-  <div class="ship-modal" style="max-width:450px;">
-    <h2>✨ Rate table を作成</h2>
+  <div class="ship-modal" style="max-width:700px;">
+    <h2>📊 Rate table を編集</h2>
 
     <div style="margin-bottom:16px;">
-      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Rate table 名（例: EU27 Shipping）</label>
-      <input type="text" id="shipRateTableName" placeholder="Rate table の名前を入力" style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" />
+      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">地域を選択</label>
+      <select id="shipRateTableRegion" style="width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px; margin-bottom:8px;">
+        <option value="">-- 地域を選択 --</option>
+        <option value="DE">Germany (DE)</option>
+        <option value="FR">France (FR)</option>
+        <option value="IT">Italy (IT)</option>
+        <option value="ES">Spain (ES)</option>
+        <option value="NL">Netherlands (NL)</option>
+        <option value="BE">Belgium (BE)</option>
+        <option value="AT">Austria (AT)</option>
+        <option value="PL">Poland (PL)</option>
+        <option value="CZ">Czech Republic (CZ)</option>
+        <option value="GR">Greece (GR)</option>
+        <option value="PT">Portugal (PT)</option>
+        <option value="SE">Sweden (SE)</option>
+        <option value="DK">Denmark (DK)</option>
+        <option value="FI">Finland (FI)</option>
+        <option value="IE">Ireland (IE)</option>
+        <option value="LU">Luxembourg (LU)</option>
+        <option value="MT">Malta (MT)</option>
+        <option value="CY">Cyprus (CY)</option>
+        <option value="SI">Slovenia (SI)</option>
+        <option value="SK">Slovakia (SK)</option>
+        <option value="HU">Hungary (HU)</option>
+        <option value="RO">Romania (RO)</option>
+        <option value="BG">Bulgaria (BG)</option>
+        <option value="HR">Croatia (HR)</option>
+        <option value="LV">Latvia (LV)</option>
+        <option value="LT">Lithuania (LT)</option>
+        <option value="EE">Estonia (EE)</option>
+      </select>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
+        <div>
+          <label style="font-size:12px; color:#666;">Shipping Service（optional）</label>
+          <select id="shipRateTableService" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:6px; font-size:12px;">
+            <option value="">-- 選択しない --</option>
+            <option value="Expedited">Expedited</option>
+            <option value="Standard">Standard</option>
+            <option value="Economy">Economy</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px; color:#666;">Cost ($)</label>
+          <input type="number" id="shipRateTableCost" step="0.01" placeholder="0.00" style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:6px; font-size:12px;" />
+        </div>
+      </div>
+
+      <button onclick="Shipping.addRateTableRow()" style="width:100%; padding:8px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">+ 行を追加</button>
+    </div>
+
+    <div style="margin-bottom:16px; border-top:1px solid #e5e7eb; padding-top:16px;">
+      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:8px;">現在の設定</label>
+      <div id="shipRateTableRowsContainer" style="max-height:300px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:8px;">
+        <div style="text-align:center; color:#999; padding:16px;">行がありません</div>
+      </div>
     </div>
 
     <div class="ship-modal-footer">
       <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipRateTableCreateModal')">キャンセル</button>
-      <button class="ship-btn-save" onclick="Shipping.submitCreateRateTable()">✓ 作成</button>
+      <button class="ship-btn-save" onclick="Shipping.submitCreateRateTable()">✓ 完了</button>
     </div>
   </div>
 </div>
