@@ -106,7 +106,7 @@ export default async function handler(req, res) {
       offset += limit;
     }
 
-    // 📊 Rate Table 一覧も取得
+    // 📊 Rate Table 一覧も取得（v1）
     let rateTables = [];
     try {
       const rateTableUrl = `https://api.ebay.com/sell/account/v1/rate_table?country_code=${marketplace === 'EBAY_US' ? 'US' : 'GB'}`;
@@ -121,6 +121,33 @@ export default async function handler(req, res) {
       if (rateTableRes.ok) {
         const rateTableData = await rateTableRes.json();
         rateTables = rateTableData.rateTables || [];
+
+        // 📊 各 Rate Table の詳細を取得（v2）
+        const rateTableDetails = [];
+        for (const rt of rateTables) {
+          try {
+            const detailUrl = `https://api.ebay.com/sell/account/v2/rate_table/${encodeURIComponent(rt.rateTableId)}`;
+            const detailRes = await fetch(detailUrl, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json',
+              },
+            });
+
+            if (detailRes.ok) {
+              const detail = await detailRes.json();
+              rateTableDetails.push({
+                ...rt,
+                detail: detail  // 詳細データを追加
+              });
+            } else {
+              rateTableDetails.push(rt);  // 詳細取得失敗時は基本情報のみ
+            }
+          } catch (e) {
+            rateTableDetails.push(rt);  // エラー時は基本情報のみ
+          }
+        }
+        rateTables = rateTableDetails;
       }
     } catch (e) {
       console.warn('[Rate Table 取得] エラー:', e.message);
