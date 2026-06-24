@@ -8303,6 +8303,10 @@ Object.assign(Shipping, {
     this.renderSpecialRules();
     document.getElementById('shipSettingsModal').classList.add('active');
   },
+  openModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+  },
   closeModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
@@ -9851,7 +9855,9 @@ Object.assign(Shipping, {
     const rateTableMode = select.value;
     if (createBtn && !createBtn.hasAttribute('data-listener-attached')) {
       createBtn.addEventListener('click', () => {
-        alert('🚧 Rate table 作成機能（未実装）\n\nCreate new をクリックして、\neBay Rate table 編集画面を開きます。');
+        // モーダルを開く
+        document.getElementById('shipRateTableName').value = '';
+        this.openModal('shipRateTableCreateModal');
         popup.style.display = 'none';
       });
       createBtn.setAttribute('data-listener-attached', 'true');
@@ -9877,6 +9883,65 @@ Object.assign(Shipping, {
         }
       });
       window._rateTableListenerAttached = true;
+    }
+  },
+
+  // =====================================================================
+  // 🎨 Rate table 作成
+  // =====================================================================
+  async submitCreateRateTable() {
+    const nameInput = document.getElementById('shipRateTableName');
+    const name = (nameInput.value || '').trim();
+
+    if (!name) {
+      alert('Rate table 名を入力してください');
+      return;
+    }
+
+    // ローディング状態
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = '作成中...';
+    btn.disabled = true;
+
+    try {
+      // eBay Rate table API で作成（ebay-policy-update に統合）
+      const res = await fetch('/api/ebay-policy-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'createRateTable',
+          name: name
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.ok && data.rateTableId) {
+        // 成功: モーダルを閉じて、ドロップダウンを更新
+        this.closeModal('shipRateTableCreateModal');
+
+        // ドロップダウンを "Other International" に変更
+        const select = document.getElementById('shipEditRateTable');
+        if (select) {
+          select.value = 'other';
+          // 情報を更新
+          const infoDiv = document.getElementById('shipEditRateTableInfo');
+          if (infoDiv) {
+            infoDiv.textContent = `✅ Rate table が実装されています (Other International)`;
+          }
+        }
+
+        alert(`✅ Rate table "${name}" を作成しました！\nID: ${data.rateTableId}`);
+        nameInput.value = '';
+      } else {
+        alert('エラー: ' + (data.error || '不明なエラー'));
+      }
+    } catch (e) {
+      alert('通信エラー: ' + (e.message || e));
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
     }
   },
 
@@ -12260,6 +12325,23 @@ Object.assign(Shipping, {
       <button class="ship-btn-delete-modal" id="shipRuleDeleteBtn" style="display:none;" onclick="Shipping.deleteCurrentRule()">🗑 削除</button>
       <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipSpecialRuleEditor')">キャンセル</button>
       <button class="ship-btn-save" onclick="Shipping.saveSpecialRule()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rate table 作成モーダル -->
+<div id="shipRateTableCreateModal" class="ship-modal-overlay">
+  <div class="ship-modal" style="max-width:450px;">
+    <h2>✨ Rate table を作成</h2>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:13px; font-weight:600; color:#444; margin-bottom:6px;">Rate table 名（例: EU27 Shipping）</label>
+      <input type="text" id="shipRateTableName" placeholder="Rate table の名前を入力" style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;" />
+    </div>
+
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipRateTableCreateModal')">キャンセル</button>
+      <button class="ship-btn-save" onclick="Shipping.submitCreateRateTable()">✓ 作成</button>
     </div>
   </div>
 </div>
