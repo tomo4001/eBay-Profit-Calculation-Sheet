@@ -9936,8 +9936,9 @@ Object.assign(Shipping, {
         nameInput.value = '';
       } else {
         // 詳細なエラー情報をコンソールに出力
-        console.error('[Rate table 作成失敗] 詳細情報:', data);
-        alert(`❌ Rate table 作成失敗\n\nエラー: ${data.error || '不明なエラー'}\n\nブラウザのコンソール(F12)でエラー詳細を確認してください`);
+        console.error('[Rate table 作成失敗] 全体:', data);
+        console.error('[Rate table 作成失敗] detail 詳細:', JSON.stringify(data.detail, null, 2));
+        alert(`❌ Rate table 作成失敗\n\nエラー: ${data.error || '不明なエラー'}\n\nブラウザのコンソール(F12)で詳細を確認してください`);
       }
     } catch (e) {
       alert('通信エラー: ' + (e.message || e));
