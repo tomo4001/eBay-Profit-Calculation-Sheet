@@ -10322,13 +10322,16 @@ Object.assign(Shipping, {
     if (!select.hasAttribute('data-listener-attached')) {
       select.addEventListener('change', () => {
         const val = select.value;
-        infoDiv.textContent = val === 'none'
-          ? `❌ Domestic Rate table は None です（未使用）`
-          : `✅ Domestic Rate table を設定`;
+        const hasValue = val !== 'none' && val !== '';
+
+        infoDiv.textContent = hasValue
+          ? `✅ Domestic Rate table を設定`
+          : `❌ Domestic Rate table は None です（未使用）`;
+
         if (editBtn) {
-          editBtn.style.display = val === 'none' ? 'none' : 'block';
+          editBtn.style.display = hasValue ? 'block' : 'none';
         }
-        popup.style.display = 'none';
+        // popup.style.display = 'none'; ← メニューを自動で非表示にしない
       });
       select.setAttribute('data-listener-attached', 'true');
     }
@@ -10370,7 +10373,7 @@ Object.assign(Shipping, {
 
     // Edit ボタン
     if (editBtn) {
-      editBtn.style.display = hasDomRateTable ? 'block' : 'none';
+      // 初期表示時は表示制御をしない（ドロップダウン change イベントで制御）
       if (!editBtn.hasAttribute('data-listener-attached')) {
         editBtn.addEventListener('click', () => {
           // Domestic Rate Table を編集モードで開く
