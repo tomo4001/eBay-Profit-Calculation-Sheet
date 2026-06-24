@@ -36,40 +36,6 @@ async function getAccessToken(appId, certId, refreshToken) {
   return data.access_token;
 }
 
-// Rate Table を eBay API で作成
-async function createRateTableOneBay(accessToken, rateTableData) {
-  if (!rateTableData || !rateTableData.name) return null;
-
-  // Rate Table は名前だけで作成（中身は空で初期化）
-  const payload = {
-    name: rateTableData.name,
-    tableDefinition: {
-      rows: []  // 初期状態では空
-    }
-  };
-
-  try {
-    const createRes = await fetch('https://api.ebay.com/sell/account/v1/rate_table', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!createRes.ok) {
-      console.warn(`[Rate table 作成エラー] HTTP ${createRes.status}`);
-      return null;
-    }
-
-    const data = await createRes.json();
-    return data.rateTableId || data.id;
-  } catch (e) {
-    console.warn('[Rate table 作成 例外]', e.message);
-    return null;
-  }
-}
 
 // クライアントサイド検証(必須項目チェック)
 function validatePolicy(policy) {
@@ -98,37 +64,12 @@ function validatePolicy(policy) {
   return errors;
 }
 
-// 不要フィールドの除去 & Rate Table 処理
-async function cleanPolicy(policy, accessToken) {
+// 不要フィールドの除去
+function cleanPolicy(policy) {
   const cleaned = JSON.parse(JSON.stringify(policy));
   delete cleaned.fulfillmentPolicyId;  // URL に含めるので body には不要
   delete cleaned.warnings;
   delete cleaned.errors;
-
-  // Rate Table 処理: eBay で作成して ID を取得
-  if (cleaned.domesticRateTable) {
-    const domRateTableId = await createRateTableOneBay(accessToken, cleaned.domesticRateTable);
-    if (domRateTableId) {
-      // DOMESTIC option に rateTableId を追加
-      const domOption = cleaned.shippingOptions?.find(o => o.optionType === 'DOMESTIC');
-      if (domOption) {
-        domOption.rateTableId = domRateTableId;
-      }
-    }
-    delete cleaned.domesticRateTable;  // eBay API では不要
-  }
-
-  if (cleaned.rateTable) {
-    const rateTableId = await createRateTableOneBay(accessToken, cleaned.rateTable);
-    if (rateTableId) {
-      // INTERNATIONAL option に rateTableId を追加
-      const intlOption = cleaned.shippingOptions?.find(o => o.optionType === 'INTERNATIONAL');
-      if (intlOption) {
-        intlOption.rateTableId = rateTableId;
-      }
-    }
-    delete cleaned.rateTable;  // eBay API では不要
-  }
 
   // 念のため shipToLocations 内の local-only フィールドを除去
   if (Array.isArray(cleaned.shippingOptions)) {
@@ -183,7 +124,7 @@ export default async function handler(req, res) {
     }
     try {
       const accessToken = await getAccessToken(appId, certId, refreshToken);
-      const cleaned = await cleanPolicy(policy, accessToken);
+      const cleaned = cleanPolicy(policy);
       if (dryRun) {
         res.status(200).json({
           ok: true, action: 'create', dryRun: true,
@@ -310,7 +251,7 @@ export default async function handler(req, res) {
 
   try {
     const accessToken = await getAccessToken(appId, certId, refreshToken);
-    const cleaned = await cleanPolicy(policy, accessToken);
+    const cleaned = cleanPolicy(policy);
 
     if (dryRun) {
       res.status(200).json({
