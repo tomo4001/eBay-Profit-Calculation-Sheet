@@ -9887,65 +9887,25 @@ Object.assign(Shipping, {
   },
 
   // =====================================================================
-  // 🎨 Rate table 作成
+  // 🎨 Rate table 行追加（Policy 内の Rate table に行を追加）
   // =====================================================================
-  async submitCreateRateTable() {
+  submitCreateRateTable() {
+    // モーダルを閉じる
+    this.closeModal('shipRateTableCreateModal');
+
+    // 入力値を取得
     const nameInput = document.getElementById('shipRateTableName');
     const name = (nameInput.value || '').trim();
 
     if (!name) {
-      alert('Rate table 名を入力してください');
+      alert('国または地域を選択してください');
       return;
     }
 
-    // ローディング状態
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.textContent = '作成中...';
-    btn.disabled = true;
-
-    try {
-      // eBay Rate table API で作成（ebay-policy-update に統合）
-      const res = await fetch('/api/ebay-policy-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'createRateTable',
-          name: name
-        })
-      });
-
-      const data = await res.json();
-
-      if (data.ok && data.rateTableId) {
-        // 成功: モーダルを閉じて、ドロップダウンを更新
-        this.closeModal('shipRateTableCreateModal');
-
-        // ドロップダウンを "Other International" に変更
-        const select = document.getElementById('shipEditRateTable');
-        if (select) {
-          select.value = 'other';
-          // 情報を更新
-          const infoDiv = document.getElementById('shipEditRateTableInfo');
-          if (infoDiv) {
-            infoDiv.textContent = `✅ Rate table が実装されています (Other International)`;
-          }
-        }
-
-        alert(`✅ Rate table "${name}" を作成しました！\nID: ${data.rateTableId}`);
-        nameInput.value = '';
-      } else {
-        // 詳細なエラー情報をコンソールに出力
-        console.error('[Rate table 作成失敗] 全体:', data);
-        console.error('[Rate table 作成失敗] detail 詳細:', JSON.stringify(data.detail, null, 2));
-        alert(`❌ Rate table 作成失敗\n\nエラー: ${data.error || '不明なエラー'}\n\nブラウザのコンソール(F12)で詳細を確認してください`);
-      }
-    } catch (e) {
-      alert('通信エラー: ' + (e.message || e));
-    } finally {
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }
+    // ここで editingPolicy に Rate table 行を追加する処理
+    // TODO: Rate table 行追加機能を実装
+    alert('機能実装中: Rate table 行を追加します\n地域: ' + name);
+    nameInput.value = '';
   },
 
   // =====================================================================
