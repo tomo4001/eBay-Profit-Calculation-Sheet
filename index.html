@@ -10626,10 +10626,13 @@ Object.assign(Shipping, {
     }
 
     const row = this.rateTableRows[idx];
+    console.warn('*** Row data:', row);
     this.editingRowIndex = idx;
+    console.warn('*** editingRowIndex set to:', this.editingRowIndex);
 
     // 上部フォームにデータを読み込む
     if (!this.isDomesticRateTable) {
+      console.warn('*** International mode');
       // International
       this.selectedRateTableRegions.clear();
       const regions = row.regions || [row.region];  // 互換性のため両方対応
@@ -10639,6 +10642,7 @@ Object.assign(Shipping, {
       this.updateSelectedRateTableRegionsDisplay();
       this.renderRateTableRegionGroups();  // チェックボックスを同期
     } else {
+      console.warn('*** Domestic mode');
       // Domestic
       this.selectedRateTableRegions.clear();
       const regions = row.regions || [row.region];  // 互換性のため両方対応
@@ -10647,11 +10651,13 @@ Object.assign(Shipping, {
       this.renderRateTableRegionGroups();  // チェックボックスを同期
     }
 
+    console.warn('*** Updating buttons and rerendering');
     // ボタンの表示を切り替え
     this.updateRateTableModalButtons();
 
     // テーブルを再レンダリング（選択行をハイライト）
     this.renderRateTableRows();
+    console.warn('*** selectRateTableRowForEdit completed');
   },
 
   // 「修正」ボタンをクリック → 行を更新
