@@ -11162,6 +11162,14 @@ Object.assign(Shipping, {
       // excluded がある場合は regionIncluded を削除（regionExcluded のみ使用）
       if (intl) {
         intl.shipToLocations = {};
+        // service-level の regionIncluded も削除
+        if (Array.isArray(intl.shippingServices)) {
+          intl.shippingServices.forEach(s => {
+            if (s.shipToLocations) {
+              delete s.shipToLocations.regionIncluded;
+            }
+          });
+        }
       }
       delete p._raw.shipToLocations.regionIncluded;
     }
