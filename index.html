@@ -10194,13 +10194,12 @@ Object.assign(Shipping, {
       return;
     }
 
-    // 選択された地域ごとに行を追加
-    checkboxes.forEach(checkbox => {
-      this.rateTableRows.push({
-        service: serviceId,
-        region: checkbox.value,
-        cost: parseFloat(cost)
-      });
+    // 選択された地域をグループとして1行で追加
+    const regions = Array.from(checkboxes).map(cb => cb.value);
+    this.rateTableRows.push({
+      service: serviceId,
+      regions: regions,
+      cost: parseFloat(cost)
     });
 
     // UI を更新
@@ -10549,16 +10548,13 @@ Object.assign(Shipping, {
       return;
     }
 
-    // 選択中の各地域に対して行を追加
-    this.selectedRateTableRegions.forEach(region => {
-      const row = {
-        id: 'row_' + Date.now() + '_' + region,
-        region: region,
-        service: service || null,
-        cost: parseFloat(cost)
-      };
-      this.rateTableRows.push(row);
-    });
+    // 選択中の地域をグループとして1行で追加
+    const row = {
+      regions: Array.from(this.selectedRateTableRegions),
+      service: service || null,
+      cost: parseFloat(cost)
+    };
+    this.rateTableRows.push(row);
 
     // UI をリセット
     document.getElementById('shipRateTableService').value = '';
@@ -10594,7 +10590,8 @@ Object.assign(Shipping, {
     if (!this.isDomesticRateTable) {
       // International
       this.selectedRateTableRegions.clear();
-      this.selectedRateTableRegions.add(row.region);
+      const regions = row.regions || [row.region];  // 互換性のため両方対応
+      regions.forEach(r => this.selectedRateTableRegions.add(r));
       document.getElementById('shipRateTableService').value = row.service || '';
       document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
       this.updateSelectedRateTableRegionsDisplay();
@@ -10602,7 +10599,8 @@ Object.assign(Shipping, {
     } else {
       // Domestic
       this.selectedRateTableRegions.clear();
-      this.selectedRateTableRegions.add(row.region);
+      const regions = row.regions || [row.region];  // 互換性のため両方対応
+      regions.forEach(r => this.selectedRateTableRegions.add(r));
       document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
       this.renderRateTableRegionGroups();  // チェックボックスを同期
     }
@@ -10630,28 +10628,14 @@ Object.assign(Shipping, {
     }
 
     const idx = this.editingRowIndex;
-
-    // 選択された地域で行を更新
     const regionsArray = Array.from(this.selectedRateTableRegions);
-    if (regionsArray.length === 1) {
-      // 単一地域の場合
-      this.rateTableRows[idx].region = regionsArray[0];
-      if (!this.isDomesticRateTable) {
-        this.rateTableRows[idx].service = document.getElementById('shipRateTableService').value || null;
-      }
-      this.rateTableRows[idx].cost = cost;
-    } else {
-      // 複数地域の場合は、既存行を削除して複数行を追加
-      const oldService = this.rateTableRows[idx].service;
-      this.rateTableRows.splice(idx, 1);
-      regionsArray.forEach(region => {
-        this.rateTableRows.push({
-          region: region,
-          service: !this.isDomesticRateTable ? (document.getElementById('shipRateTableService').value || null) : oldService,
-          cost: cost
-        });
-      });
+
+    // 複数地域を1行にまとめて更新
+    this.rateTableRows[idx].regions = regionsArray;
+    if (!this.isDomesticRateTable) {
+      this.rateTableRows[idx].service = document.getElementById('shipRateTableService').value || null;
     }
+    this.rateTableRows[idx].cost = cost;
 
     // モード解除
     this.editingRowIndex = null;
@@ -10737,16 +10721,22 @@ Object.assign(Shipping, {
     tableHtml += '<tbody>';
     this.rateTableRows.forEach((row, idx) => {
       const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
-      const regionName = stateNames[row.region] || row.region;
       const isEditing = this.editingRowIndex === idx;
       const rowBg = isEditing ? '#fff3cd' : '';
+
+      // 複数地域をグループ表示
+      const regions = row.regions || [row.region];  // 互換性のため両方対応
+      const regionsDisplay = regions.map(code => {
+        const name = stateNames[code] || code;
+        return `${code}（${name}）`;
+      }).join(', ');
 
       if (!this.isDomesticRateTable) {
         // International
         tableHtml += `
           <tr style="border-bottom:1px solid #e5e7eb; background:${rowBg}; cursor:pointer;" onclick="Shipping.selectRateTableRowForEdit(${idx})">
             <td style="padding:8px;">
-              ${row.region}（${regionName}）
+              ${regionsDisplay}
             </td>
             <td style="padding:8px;">
               ${row.service || '（なし）'}
@@ -10764,7 +10754,7 @@ Object.assign(Shipping, {
         tableHtml += `
           <tr style="border-bottom:1px solid #e5e7eb; background:${rowBg}; cursor:pointer;" onclick="Shipping.selectRateTableRowForEdit(${idx})">
             <td style="padding:8px;">
-              ${row.region}（${regionName}）
+              ${regionsDisplay}
             </td>
             <td style="text-align:right; padding:8px;">
               $${row.cost.toFixed(2)}
