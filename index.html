@@ -9803,7 +9803,7 @@ Object.assign(Shipping, {
     const menuBtn = document.getElementById('shipEditRateTableMenuBtn');
     const p = this.editingPolicy;
 
-    if (!select || !infoDiv) return;
+    if (!select || !infoDiv || !p) return;
 
     // 簡易実装: rateTable の有無で状態を表示
     const hasRateTable = p.rateTable && Object.keys(p.rateTable || {}).length > 0;
