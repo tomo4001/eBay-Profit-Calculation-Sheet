@@ -10572,8 +10572,8 @@ Object.assign(Shipping, {
     this.renderRateTableRows();
   },
 
-  deleteRateTableRow(rowId) {
-    this.rateTableRows = this.rateTableRows.filter(r => r.id !== rowId);
+  deleteRateTableRow(idx) {
+    this.rateTableRows.splice(idx, 1);
     this.renderRateTableRows();
   },
 
@@ -10585,18 +10585,65 @@ Object.assign(Shipping, {
       return;
     }
 
-    const html = this.rateTableRows.map(row => `
+    const html = this.rateTableRows.map((row, idx) => `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:#f9fafb; border-radius:6px; margin-bottom:8px; border:1px solid #e5e7eb;">
         <div style="flex:1;">
           <strong>${row.region}</strong>
           ${row.service ? ' / ' + row.service : ''}
-          <span style="float:right; font-weight:600; color:#2e75b6;">$${row.cost.toFixed(2)}</span>
+          <span style="margin-left:12px; cursor:pointer; font-weight:600; color:#2e75b6;" onclick="Shipping.editRateTableRowCost(${idx})" title="クリックで編集">
+            $<span class="costDisplay${idx}">${row.cost.toFixed(2)}</span>
+          </span>
+          <input type="number" class="costInput${idx}" value="${row.cost.toFixed(2)}" step="0.01" style="display:none; width:80px; padding:4px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; margin-left:12px;" onblur="Shipping.saveCostEdit(${idx})" onkeydown="if(event.key==='Enter') Shipping.saveCostEdit(${idx})" />
         </div>
-        <button onclick="Shipping.deleteRateTableRow('${row.id}')" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; margin-left:8px;">削除</button>
+        <button onclick="Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; margin-left:8px;">削除</button>
       </div>
     `).join('');
 
     container.innerHTML = html;
+
+    // 「すべて削除」ボタン
+    if (this.rateTableRows.length > 0) {
+      const clearBtn = document.createElement('button');
+      clearBtn.textContent = '🗑 すべて削除';
+      clearBtn.style.cssText = 'width:100%; padding:8px 12px; background:#ff6b6b; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px; margin-top:8px; font-weight:600;';
+      clearBtn.onclick = () => {
+        if (confirm('すべての行を削除しますか？')) {
+          this.rateTableRows = [];
+          this.renderRateTableRows();
+        }
+      };
+      container.appendChild(clearBtn);
+    }
+  },
+
+  // Cost 行を編集モードに変更
+  editRateTableRowCost(idx) {
+    const displayEl = document.querySelector(`.costDisplay${idx}`);
+    const inputEl = document.querySelector(`.costInput${idx}`);
+    if (displayEl && inputEl) {
+      displayEl.style.display = 'none';
+      inputEl.style.display = 'inline-block';
+      inputEl.focus();
+      inputEl.select();
+    }
+  },
+
+  // Cost 編集を保存
+  saveCostEdit(idx) {
+    const inputEl = document.querySelector(`.costInput${idx}`);
+    const displayEl = document.querySelector(`.costDisplay${idx}`);
+    if (!inputEl || !displayEl || idx >= this.rateTableRows.length) return;
+
+    const newCost = parseFloat(inputEl.value);
+    if (!isNaN(newCost) && newCost >= 0) {
+      this.rateTableRows[idx].cost = newCost;
+      displayEl.textContent = newCost.toFixed(2);
+      inputEl.style.display = 'none';
+      displayEl.style.display = 'inline';
+    } else {
+      alert('有効なコストを入力してください');
+      inputEl.value = this.rateTableRows[idx].cost.toFixed(2);
+    }
   },
 
   submitCreateRateTable() {
