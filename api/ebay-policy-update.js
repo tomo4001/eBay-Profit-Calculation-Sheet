@@ -40,15 +40,11 @@ async function getAccessToken(appId, certId, refreshToken) {
 async function createRateTableOneBay(accessToken, rateTableData) {
   if (!rateTableData || !rateTableData.name) return null;
 
+  // Rate Table は名前だけで作成（中身は空で初期化）
   const payload = {
     name: rateTableData.name,
     tableDefinition: {
-      rows: (rateTableData.rows || []).map(r => ({
-        region: r.regions && r.regions[0] ? r.regions[0] : undefined,
-        regions: r.regions || [],
-        service: r.service,
-        cost: r.cost
-      }))
+      rows: []  // 初期状態では空
     }
   };
 
