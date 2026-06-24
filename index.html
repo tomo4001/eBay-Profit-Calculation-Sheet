@@ -9968,12 +9968,25 @@ Object.assign(Shipping, {
     if (!select.hasAttribute('data-listener-attached')) {
       select.addEventListener('change', () => {
         const val = select.value;
-        infoDiv.textContent = val === 'none'
-          ? `❌ Rate table は None です（未使用）`
-          : `Rate table を設定: Other International`;
+        const policy = this.policies.find(x => x.id === this.editingPolicyId);
+
+        // Policy に Rate Table を保存
+        if (val === 'none') {
+          if (policy) policy.rateTable = null;
+          infoDiv.textContent = `❌ Rate table は None です（未使用）`;
+        } else if (val.startsWith('local_')) {
+          // ローカル Rate Table を選択
+          const policyId = val.replace('local_', '');
+          const selectedPolicy = this.policies.find(x => x.id === policyId);
+          if (policy && selectedPolicy && selectedPolicy.rateTable) {
+            policy.rateTable = JSON.parse(JSON.stringify(selectedPolicy.rateTable));
+          }
+          infoDiv.textContent = `Rate table を設定: ${policy && policy.rateTable ? policy.rateTable.name : '(未選択)'}`;
+        }
+
         // Edit ボタンの表示制御
         if (editBtn) {
-          editBtn.style.display = val === 'other' ? 'block' : 'none';
+          editBtn.style.display = (policy && policy.rateTable) ? 'block' : 'none';
         }
         popup.style.display = 'none';
       });
@@ -10408,10 +10421,21 @@ Object.assign(Shipping, {
       select.addEventListener('change', () => {
         const val = select.value;
         const hasValue = val !== 'none' && val !== '';
+        const policy = this.policies.find(x => x.id === this.editingPolicyId);
 
-        infoDiv.textContent = hasValue
-          ? `✅ Domestic Rate table を設定`
-          : `❌ Domestic Rate table は None です（未使用）`;
+        // Policy に Domestic Rate Table を保存
+        if (!hasValue) {
+          if (policy) policy.domesticRateTable = null;
+          infoDiv.textContent = `❌ Domestic Rate table は None です（未使用）`;
+        } else if (val.startsWith('local_')) {
+          // ローカル Domestic Rate Table を選択
+          const policyId = val.replace('local_', '');
+          const selectedPolicy = this.policies.find(x => x.id === policyId);
+          if (policy && selectedPolicy && selectedPolicy.domesticRateTable) {
+            policy.domesticRateTable = JSON.parse(JSON.stringify(selectedPolicy.domesticRateTable));
+          }
+          infoDiv.textContent = `✅ Domestic Rate table を設定`;
+        }
 
         if (editBtn) {
           editBtn.style.display = hasValue ? 'block' : 'none';
