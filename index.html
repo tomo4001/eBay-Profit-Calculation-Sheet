@@ -9559,6 +9559,24 @@ Object.assign(Shipping, {
           </div>
           <div id="shipEditAdditionalLocsContainer"></div>
         </div>
+
+        <!-- 📊 Rate table (optional) -->
+        <div style="margin-top:16px; padding-top:14px; border-top:1px dashed #d1d5db;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="font-size:12px; font-weight:700; color:#4b5563;">📊 Rate table (optional)</div>
+            <div style="font-size:11px; color:#6b7280;">地域別・金額別の送料設定</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="shipEditRateTable" style="flex:1; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
+              <option value="none">None</option>
+              <option value="other">Other International</option>
+            </select>
+            <button type="button" id="shipEditRateTableMenuBtn" title="Create new / Edit rate table" style="padding:8px 12px; background:#f5f5f5; border:1px solid #ddd; border-radius:6px; cursor:pointer; font-weight:600;">⋮</button>
+          </div>
+          <div id="shipEditRateTableInfo" style="font-size:11px; color:#6b7280; margin-top:8px; padding:6px 10px; background:#f9fafb; border-radius:4px;">
+            Rate table は現在 <strong>None</strong> です（未使用）
+          </div>
+        </div>
       </div>
 
       <div class="ship-modal-section">
@@ -9609,6 +9627,8 @@ Object.assign(Shipping, {
     this.renderEditIntlServices();
     // 📍 Phase 2-H: Additional locations (optional) を描画
     this.renderEditAdditionalLocations();
+    // 📊 Rate table (optional) を描画
+    this.renderEditRateTable();
 
     // 📌 タイトル自動生成プレビューを初期化
     // 新規作成時 or 既に自動生成パターンに従っている既存ポリシー → 自動更新モード
@@ -9775,6 +9795,44 @@ Object.assign(Shipping, {
       </div>
       <div class="ship-dest-grid">${items}</div>
     `;
+  },
+
+  renderEditRateTable() {
+    const select = document.getElementById('shipEditRateTable');
+    const infoDiv = document.getElementById('shipEditRateTableInfo');
+    const menuBtn = document.getElementById('shipEditRateTableMenuBtn');
+    const p = this.editingPolicy;
+
+    if (!select || !infoDiv) return;
+
+    // 簡易実装: rateTable の有無で状態を表示
+    const hasRateTable = p.rateTable && Object.keys(p.rateTable || {}).length > 0;
+    select.value = hasRateTable ? 'other' : 'none';
+
+    // 情報テキスト
+    infoDiv.textContent = hasRateTable
+      ? `✅ Rate table が実装されています`
+      : `❌ Rate table は現在 None です（未使用）`;
+
+    // 3点メニューボタンのイベント
+    if (menuBtn) {
+      menuBtn.onclick = () => {
+        const rateTableMode = select.value;
+        if (rateTableMode === 'none') {
+          alert('🚧 Rate table 作成機能\n（未実装）\n\nCreate new ボタンをクリックして、\neBay Rate table 編集画面を開きます。');
+        } else {
+          alert('🚧 Rate table 編集機能\n（未実装）\n\nCreate new / Edit rate table\nの選択肢が表示されます。');
+        }
+      };
+    }
+
+    // ドロップダウン変更時
+    select.onchange = () => {
+      const val = select.value;
+      infoDiv.textContent = val === 'none'
+        ? `❌ Rate table は None です（未使用）`
+        : `Rate table を設定: Other International`;
+    };
   },
 
   // =====================================================================
