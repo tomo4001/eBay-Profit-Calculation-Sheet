@@ -10208,6 +10208,45 @@ Object.assign(Shipping, {
     costInput.value = '';
   },
 
+  // Domestic Rate Table の行を修正（編集モードから保存）
+  updateDomesticRateTableRow() {
+    if (this.editingRowIndex === null || this.editingRowIndex >= this.rateTableRows.length) {
+      alert('編集対象の行が見つかりません');
+      return;
+    }
+
+    const row = this.rateTableRows[this.editingRowIndex];
+    const serviceId = row.service;
+    const checkboxes = document.querySelectorAll(`.domServiceRegionCheckbox[data-service="${serviceId}"]:checked`);
+    const costInput = document.querySelector(`.domServiceCostInput[data-service="${serviceId}"]`);
+
+    if (!costInput) {
+      alert('Cost フィールドが見つかりません');
+      return;
+    }
+
+    const cost = costInput.value;
+
+    if (checkboxes.length === 0 || !cost) {
+      alert('地域とコストを両方選択/入力してください');
+      return;
+    }
+
+    // 行を更新
+    const regions = Array.from(checkboxes).map(cb => cb.value);
+    this.rateTableRows[this.editingRowIndex].regions = regions;
+    this.rateTableRows[this.editingRowIndex].cost = parseFloat(cost);
+
+    // UI を更新して編集モード終了
+    this.renderDomServiceRows(serviceId);
+    this.editingRowIndex = null;
+    this.updateRateTableModalButtons();
+
+    // チェックボックスをリセット
+    checkboxes.forEach(cb => cb.checked = false);
+    costInput.value = '';
+  },
+
   // Service type セクション内の行をレンダリング
   renderDomServiceRows(serviceId) {
     const container = document.querySelector(`.domServiceRowsContainer[data-service="${serviceId}"]`);
@@ -10680,6 +10719,13 @@ Object.assign(Shipping, {
 
   // 「修正」ボタンをクリック → 行を更新
   updateRateTableRow() {
+    // Domestic か International かで処理を分岐
+    if (this.isDomesticRateTable) {
+      this.updateDomesticRateTableRow();
+      return;
+    }
+
+    // International の処理
     if (this.editingRowIndex === null || this.editingRowIndex >= this.rateTableRows.length) return;
 
     if (this.selectedRateTableRegions.size === 0) {
