@@ -10416,6 +10416,7 @@ Object.assign(Shipping, {
   // =====================================================================
   rateTableRows: [],  // 現在の Rate table 行を保存
   selectedRateTableRegions: new Set(),  // 選択中の地域コード
+  editingRowIndex: null,  // 編集中の行インデックス（null = 新規追加モード）
 
   renderRateTableRegionGroups() {
     const container = document.getElementById('shipRateTableRegionGroups');
@@ -10574,7 +10575,121 @@ Object.assign(Shipping, {
 
   deleteRateTableRow(idx) {
     this.rateTableRows.splice(idx, 1);
+    if (this.editingRowIndex === idx) {
+      this.editingRowIndex = null;
+    }
     this.renderRateTableRows();
+  },
+
+  // テーブルの行をクリック → 編集モードに入る
+  selectRateTableRowForEdit(idx) {
+    if (idx >= this.rateTableRows.length) return;
+
+    const row = this.rateTableRows[idx];
+    this.editingRowIndex = idx;
+
+    // 上部フォームにデータを読み込む
+    if (!this.isDomesticRateTable) {
+      // International
+      this.selectedRateTableRegions.clear();
+      this.selectedRateTableRegions.add(row.region);
+      document.getElementById('shipRateTableService').value = row.service || '';
+      document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
+      this.updateSelectedRateTableRegionsDisplay();
+    } else {
+      // Domestic
+      this.selectedRateTableRegions.clear();
+      this.selectedRateTableRegions.add(row.region);
+      document.getElementById('shipRateTableCost').value = row.cost.toFixed(2);
+    }
+
+    // ボタンの表示を切り替え
+    this.updateRateTableModalButtons();
+
+    // テーブルを再レンダリング（選択行をハイライト）
+    this.renderRateTableRows();
+  },
+
+  // 「修正」ボタンをクリック → 行を更新
+  updateRateTableRow() {
+    if (this.editingRowIndex === null || this.editingRowIndex >= this.rateTableRows.length) return;
+
+    if (this.selectedRateTableRegions.size === 0) {
+      alert('地域を選択してください');
+      return;
+    }
+
+    const cost = parseFloat(document.getElementById('shipRateTableCost').value || '0');
+    if (isNaN(cost) || cost < 0) {
+      alert('有効なコストを入力してください');
+      return;
+    }
+
+    const idx = this.editingRowIndex;
+
+    // 選択された地域で行を更新
+    const regionsArray = Array.from(this.selectedRateTableRegions);
+    if (regionsArray.length === 1) {
+      // 単一地域の場合
+      this.rateTableRows[idx].region = regionsArray[0];
+      if (!this.isDomesticRateTable) {
+        this.rateTableRows[idx].service = document.getElementById('shipRateTableService').value || null;
+      }
+      this.rateTableRows[idx].cost = cost;
+    } else {
+      // 複数地域の場合は、既存行を削除して複数行を追加
+      const oldService = this.rateTableRows[idx].service;
+      this.rateTableRows.splice(idx, 1);
+      regionsArray.forEach(region => {
+        this.rateTableRows.push({
+          region: region,
+          service: !this.isDomesticRateTable ? (document.getElementById('shipRateTableService').value || null) : oldService,
+          cost: cost
+        });
+      });
+    }
+
+    // モード解除
+    this.editingRowIndex = null;
+    this.selectedRateTableRegions.clear();
+    document.getElementById('shipRateTableCost').value = '';
+    if (!this.isDomesticRateTable) {
+      document.getElementById('shipRateTableService').value = '';
+    }
+
+    this.updateRateTableModalButtons();
+    this.renderRateTableRows();
+  },
+
+  // 「キャンセル」ボタンをクリック → 編集モード解除
+  cancelRateTableEdit() {
+    this.editingRowIndex = null;
+    this.selectedRateTableRegions.clear();
+    document.getElementById('shipRateTableCost').value = '';
+    if (!this.isDomesticRateTable) {
+      document.getElementById('shipRateTableService').value = '';
+    }
+    this.updateRateTableModalButtons();
+    this.renderRateTableRows();
+  },
+
+  // ボタン表示を切り替え（新規追加モード / 編集モード）
+  updateRateTableModalButtons() {
+    const addBtn = document.getElementById('shipRateTableAddBtn');
+    const editBtn = document.getElementById('shipRateTableEditBtn');
+    const cancelBtn = document.getElementById('shipRateTableCancelBtn');
+
+    if (this.editingRowIndex !== null) {
+      // 編集モード
+      if (addBtn) addBtn.style.display = 'none';
+      if (editBtn) editBtn.style.display = 'block';
+      if (cancelBtn) cancelBtn.style.display = 'block';
+    } else {
+      // 新規追加モード
+      if (addBtn) addBtn.style.display = 'block';
+      if (editBtn) editBtn.style.display = 'none';
+      if (cancelBtn) cancelBtn.style.display = 'none';
+    }
   },
 
   renderRateTableRows() {
@@ -10619,59 +10734,39 @@ Object.assign(Shipping, {
     this.rateTableRows.forEach((row, idx) => {
       const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
       const regionName = stateNames[row.region] || row.region;
+      const isEditing = this.editingRowIndex === idx;
+      const rowBg = isEditing ? '#fff3cd' : '';
 
       if (!this.isDomesticRateTable) {
         // International
         tableHtml += `
-          <tr style="border-bottom:1px solid #e5e7eb; hover-bg:#f9f9f9;">
+          <tr style="border-bottom:1px solid #e5e7eb; background:${rowBg}; cursor:pointer;" onclick="Shipping.selectRateTableRowForEdit(${idx})">
             <td style="padding:8px;">
-              <span class="regionDisplay${idx}" onclick="Shipping.editRateTableRowField(${idx}, 'region')" style="cursor:pointer; color:#2e75b6; font-weight:500;" title="クリックで編集">
-                ${row.region}（${regionName}）
-              </span>
-              <select class="regionInput${idx}" style="display:none; width:150px; padding:4px; border:1px solid #ddd; border-radius:4px; font-size:12px;" onblur="Shipping.saveRateTableRowField(${idx}, 'region')" onchange="Shipping.saveRateTableRowField(${idx}, 'region')">
-                ${this.renderRateTableRegionOptions()}
-              </select>
+              ${row.region}（${regionName}）
             </td>
             <td style="padding:8px;">
-              <span class="serviceDisplay${idx}" onclick="Shipping.editRateTableRowField(${idx}, 'service')" style="cursor:pointer; color:#2e75b6; font-weight:500;" title="クリックで編集">
-                ${row.service || '（なし）'}
-              </span>
-              <select class="serviceInput${idx}" style="display:none; width:150px; padding:4px; border:1px solid #ddd; border-radius:4px; font-size:12px;" onblur="Shipping.saveRateTableRowField(${idx}, 'service')" onchange="Shipping.saveRateTableRowField(${idx}, 'service')">
-                <option value="">-- なし --</option>
-                ${this.getShippingServiceOptions()}
-              </select>
+              ${row.service || '（なし）'}
             </td>
             <td style="text-align:right; padding:8px;">
-              <span class="costDisplay${idx}" onclick="Shipping.editRateTableRowField(${idx}, 'cost')" style="cursor:pointer; color:#2e75b6; font-weight:600;" title="クリックで編集">
-                $${row.cost.toFixed(2)}
-              </span>
-              <input type="number" class="costInput${idx}" value="${row.cost.toFixed(2)}" step="0.01" style="display:none; width:80px; padding:4px; border:1px solid #ddd; border-radius:4px; font-size:12px;" onblur="Shipping.saveRateTableRowField(${idx}, 'cost')" onkeydown="if(event.key==='Enter') Shipping.saveRateTableRowField(${idx}, 'cost')" />
+              $${row.cost.toFixed(2)}
             </td>
             <td style="text-align:right; padding:8px;">
-              <button onclick="Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">削除</button>
+              <button onclick="event.stopPropagation(); Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">削除</button>
             </td>
           </tr>
         `;
       } else {
         // Domestic
         tableHtml += `
-          <tr style="border-bottom:1px solid #e5e7eb;">
+          <tr style="border-bottom:1px solid #e5e7eb; background:${rowBg}; cursor:pointer;" onclick="Shipping.selectRateTableRowForEdit(${idx})">
             <td style="padding:8px;">
-              <span class="regionDisplay${idx}" onclick="Shipping.editRateTableRowField(${idx}, 'region')" style="cursor:pointer; color:#2e75b6; font-weight:500;" title="クリックで編集">
-                ${row.region}（${regionName}）
-              </span>
-              <select class="regionInput${idx}" style="display:none; width:150px; padding:4px; border:1px solid #ddd; border-radius:4px; font-size:12px;" onblur="Shipping.saveRateTableRowField(${idx}, 'region')" onchange="Shipping.saveRateTableRowField(${idx}, 'region')">
-                ${this.getDomServiceRegionOptions()}
-              </select>
+              ${row.region}（${regionName}）
             </td>
             <td style="text-align:right; padding:8px;">
-              <span class="costDisplay${idx}" onclick="Shipping.editRateTableRowField(${idx}, 'cost')" style="cursor:pointer; color:#2e75b6; font-weight:600;" title="クリックで編集">
-                $${row.cost.toFixed(2)}
-              </span>
-              <input type="number" class="costInput${idx}" value="${row.cost.toFixed(2)}" step="0.01" style="display:none; width:80px; padding:4px; border:1px solid #ddd; border-radius:4px; font-size:12px;" onblur="Shipping.saveRateTableRowField(${idx}, 'cost')" onkeydown="if(event.key==='Enter') Shipping.saveRateTableRowField(${idx}, 'cost')" />
+              $${row.cost.toFixed(2)}
             </td>
             <td style="text-align:right; padding:8px;">
-              <button onclick="Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">削除</button>
+              <button onclick="event.stopPropagation(); Shipping.deleteRateTableRow(${idx})" style="padding:4px 8px; background:#ff4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">削除</button>
             </td>
           </tr>
         `;
@@ -10753,8 +10848,8 @@ Object.assign(Shipping, {
 
   // International 用: 地域オプションを生成
   renderRateTableRegionOptions() {
-    const stateGroups = this.getUSStateGroups ? {} : SHIP_COUNTRY_GROUPS;
-    const stateNames = COUNTRY_CODE_NAMES;
+    const stateGroups = this.isDomesticRateTable ? this.getUSStateGroups() : SHIP_COUNTRY_GROUPS;
+    const stateNames = this.isDomesticRateTable ? this.getUSStateNames() : COUNTRY_CODE_NAMES;
     let html = '<option value="">-- 選択 --</option>';
 
     for (const [groupName, groupData] of Object.entries(stateGroups)) {
@@ -13310,7 +13405,12 @@ Object.assign(Shipping, {
       </div>
     </div>
 
-    <button id="shipRateTableAddBtn" onclick="Shipping.addRateTableRow()" style="width:100%; padding:10px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600; margin-bottom:16px;">+ 行を追加</button>
+    <!-- ボタングループ -->
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-bottom:16px;">
+      <button id="shipRateTableAddBtn" onclick="Shipping.addRateTableRow()" style="padding:10px 12px; background:#2e75b6; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">+ 追加</button>
+      <button id="shipRateTableEditBtn" onclick="Shipping.updateRateTableRow()" style="display:none; padding:10px 12px; background:#ffa500; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">修正</button>
+      <button id="shipRateTableCancelBtn" onclick="Shipping.cancelRateTableEdit()" style="display:none; padding:10px 12px; background:#999; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">キャンセル</button>
+    </div>
 
     <!-- 現在の設定 （International のみ） -->
     <div id="shipRateTableRowsSection" style="border-top:1px solid #e5e7eb; padding-top:16px; margin-bottom:16px;">
