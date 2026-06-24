@@ -9923,6 +9923,15 @@ Object.assign(Shipping, {
       });
     }
 
+    // ローカルで作成した Rate Table を追加（現在のポリシー）
+    if (p.rateTable && p.rateTable.name) {
+      options.push({
+        value: `local_${p.id}`,
+        label: `${p.rateTable.name} (ローカル)`,
+        source: 'local'
+      });
+    }
+
     // ユーザーが作成したテーブル（他のポリシー）を追加
     this.policies.forEach(policy => {
       if (policy.id !== p.id && policy.rateTable) {
