@@ -7507,9 +7507,11 @@ const Shipping = {
       return;
     }
 
-    if (!confirm(`📍 Additional locations 整列\n\n` +
+    if (!confirm(`⚠️ 📍 Additional locations 整列(破壊的操作)\n\n` +
       `${needUpdate.length} 件のポリシーで option-level / policy-level shipToLocations が Primary Destinations と合っていません。\n\n` +
-      `これらを Primary Destinations + Add Service の合計に整列しますか?\n\n` +
+      `⚠️ 注意: このボタンは policy-level / option-level の regionIncluded を強制上書きします。\n` +
+      `eBay 側の既存設定と異なる場合、push 時に破壊的変更となるリスクがあります。\n\n` +
+      `本当に整列しますか?(通常は使わなくて OK です)\n\n` +
       `※ ローカル状態のみ更新。eBay への反映は別途「🚀 選択分を eBay に反映」で行ってください。`)) return;
 
     // 適用
@@ -11139,8 +11141,13 @@ Object.assign(Shipping, {
     if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
     p._raw.shipToLocations.regionExcluded = p.excluded.map(c => ({ regionName: c }));
 
-    // 📍 Phase 2-H+++ FIX: Additional locations = 全 service destinations の和集合
-    // eBay の Additional locations は INTERNATIONAL option-level shipToLocations.regionIncluded に対応
+    // 📍 Phase 2-H++++ 安全化(2026-06-25):
+    // 旧 Phase 2-H+++ は毎回 policy-level / option-level の regionIncluded を
+    // ツール計算値で **完全置換** していたため、eBay 側の正しい設定を破壊する事故が発生した。
+    // 修正方針:
+    //   ・既存値(eBay から取得 or 過去に保存済み)があれば **触らない**
+    //   ・新規ポリシー or 値が空のときだけ初期値として書き込む
+    //   ・service-level destinations の編集は通常通り反映される(line 11132)
     const union = this.computeAdditionalLocationsUnion();
     const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
     const isAllSelected = allCodes.every(c => union.includes(c)) && union.length === allCodes.length;
@@ -11148,12 +11155,22 @@ Object.assign(Shipping, {
       ? [{ regionName: 'Worldwide' }]
       : union.map(c => ({ regionName: c }));
 
-    // (a) INTERNATIONAL option-level に regionIncluded を設定
+    // (a) INTERNATIONAL option-level に regionIncluded を設定 — 既存値があれば触らない
     if (intl) {
-      intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
+      const optExisting = (intl.shipToLocations && Array.isArray(intl.shipToLocations.regionIncluded))
+        ? intl.shipToLocations.regionIncluded : null;
+      if (!optExisting || optExisting.length === 0) {
+        intl.shipToLocations = { regionIncluded: regionIncludedPayload.slice() };
+      }
+      // else: eBay の現状値をそのまま維持(破壊的上書きを防止)
     }
-    // (b) policy-level にも書き込む
-    p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
+    // (b) policy-level — 既存値があれば触らない(これが今朝の事故の真犯人だった)
+    const polExisting = Array.isArray(p._raw.shipToLocations.regionIncluded)
+      ? p._raw.shipToLocations.regionIncluded : null;
+    if (!polExisting || polExisting.length === 0) {
+      p._raw.shipToLocations.regionIncluded = regionIncludedPayload.slice();
+    }
+    // else: eBay の現状値をそのまま維持
 
     // ----- 後処理 -----
     const wasCreating = this.isCreatingNew;
