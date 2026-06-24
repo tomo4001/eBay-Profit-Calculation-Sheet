@@ -10603,12 +10603,14 @@ Object.assign(Shipping, {
     const policy = this.policies.find(x => x.id === this.editingPolicyId);
     if (!policy) return;
 
+    let isEditing = false;  // スコープを外側で定義
+
     if (this.isDomesticRateTable) {
       // ===== Domestic Rate Table =====
       const type = (document.getElementById('shipRateTableDomType')?.value || 'small');
 
       // 既存の Domestic Rate Table を確認
-      const isEditing = policy.domesticRateTable && policy.domesticRateTable.rows && policy.domesticRateTable.rows.length > 0;
+      isEditing = policy.domesticRateTable && policy.domesticRateTable.rows && policy.domesticRateTable.rows.length > 0;
 
       // Policy に Domestic Rate table データを保存
       policy.domesticRateTable = {
@@ -10621,7 +10623,7 @@ Object.assign(Shipping, {
     } else {
       // ===== International Rate Table =====
       // 既存の Rate Table を確認（編集 or 新規作成）
-      const isEditing = policy.rateTable && policy.rateTable.rows && policy.rateTable.rows.length > 0;
+      isEditing = policy.rateTable && policy.rateTable.rows && policy.rateTable.rows.length > 0;
 
       // Policy に Rate table データを保存
       policy.rateTable = {
