@@ -8123,6 +8123,25 @@ const SHIP_DOMESTIC_SERVICES = [
   { code: 'Other',                          label: 'Economy Shipping',                  days: '1-10' },
 ];
 
+// 国コード → カタカナ国名マッピング
+const COUNTRY_CODE_NAMES = {
+  'US': 'アメリカ', 'GB': 'イギリス', 'CA': 'カナダ', 'AU': 'オーストラリア',
+  'DE': 'ドイツ', 'FR': 'フランス', 'IT': 'イタリア', 'ES': 'スペイン',
+  'NL': 'オランダ', 'BE': 'ベルギー', 'AT': 'オーストリア', 'PL': 'ポーランド',
+  'CZ': 'チェコ', 'GR': 'ギリシャ', 'PT': 'ポルトガル', 'SE': 'スウェーデン',
+  'DK': 'デンマーク', 'FI': 'フィンランド', 'IE': 'アイルランド', 'LU': 'ルクセンブルク',
+  'MT': 'マルタ', 'CY': 'キプロス', 'SI': 'スロベニア', 'SK': 'スロバキア',
+  'HU': 'ハンガリー', 'RO': 'ルーマニア', 'BG': 'ブルガリア', 'HR': 'クロアチア',
+  'LV': 'ラトビア', 'LT': 'リトアニア', 'EE': 'エストニア', 'JP': '日本',
+  'CN': '中国', 'KR': '韓国', 'IN': 'インド', 'SG': 'シンガポール',
+  'HK': '香港', 'TW': '台湾', 'TH': 'タイ', 'MY': 'マレーシア',
+  'ID': 'インドネシア', 'PH': 'フィリピン', 'VN': 'ベトナム', 'MX': 'メキシコ',
+  'BR': 'ブラジル', 'AR': 'アルゼンチン', 'CH': 'スイス', 'NO': 'ノルウェー',
+  'NZ': 'ニュージーランド', 'ZA': '南アフリカ', 'AE': 'アラブ首長国連邦', 'SA': 'サウジアラビア',
+  'IL': 'イスラエル', 'TR': 'トルコ', 'RU': 'ロシア', 'UA': 'ウクライナ',
+  'CL': 'チリ', 'CO': 'コロンビア', 'PE': 'ペルー'
+};
+
 // 国を地域グループ別に分類(eBay UI と完全一致)
 // 国名はeBay APIから動的取得して補完される
 const SHIP_COUNTRY_GROUPS = {
@@ -9910,12 +9929,15 @@ Object.assign(Shipping, {
     let html = '';
     for (const [groupName, groupData] of Object.entries(SHIP_COUNTRY_GROUPS)) {
       const items = groupData.items || [];
-      const itemsHtml = items.map(code => `
-        <label style="display:block; padding:6px 10px; cursor:pointer; font-size:13px;">
-          <input type="checkbox" value="${code}" onchange="Shipping.toggleRateTableRegion('${code}')" />
-          ${code}
-        </label>
-      `).join('');
+      const itemsHtml = items.map(code => {
+        const countryName = COUNTRY_CODE_NAMES[code] || '不明';
+        return `
+          <label style="display:block; padding:6px 10px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" value="${code}" onchange="Shipping.toggleRateTableRegion('${code}')" />
+            ${code}（${countryName}）
+          </label>
+        `;
+      }).join('');
 
       html += `
         <details class="ship-country-group">
@@ -9947,7 +9969,11 @@ Object.assign(Shipping, {
     if (this.selectedRateTableRegions.size === 0) {
       display.textContent = '（なし）';
     } else {
-      display.textContent = Array.from(this.selectedRateTableRegions).sort().join(', ');
+      const selected = Array.from(this.selectedRateTableRegions).sort().map(code => {
+        const name = COUNTRY_CODE_NAMES[code] || '不明';
+        return `${code}（${name}）`;
+      }).join(', ');
+      display.textContent = selected;
     }
   },
 
