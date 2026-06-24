@@ -10717,7 +10717,12 @@ Object.assign(Shipping, {
     this.updateRateTableModalButtons();
 
     // テーブルを再レンダリング（選択行をハイライト）
-    this.renderRateTableRows();
+    if (this.isDomesticRateTable) {
+      const serviceId = this.rateTableRows[this.editingRowIndex].service;
+      this.renderDomServiceRows(serviceId);
+    } else {
+      this.renderRateTableRows();
+    }
     console.warn('*** selectRateTableRowForEdit completed');
   },
 
