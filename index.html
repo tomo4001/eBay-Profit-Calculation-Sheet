@@ -10438,9 +10438,11 @@ Object.assign(Shipping, {
           const countryName = COUNTRY_CODE_NAMES[code];
           label = countryName ? `${code}（${countryName}）` : code;
         }
+        // チェック状態を反映
+        const isChecked = this.selectedRateTableRegions.has(code);
         return `
           <label style="display:block; padding:6px 10px; cursor:pointer; font-size:13px;">
-            <input type="checkbox" value="${code}" onchange="Shipping.toggleRateTableRegion('${code}')" />
+            <input type="checkbox" value="${code}" ${isChecked ? 'checked' : ''} onchange="Shipping.toggleRateTableRegion('${code}')" />
             ${label}
           </label>
         `;
