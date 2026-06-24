@@ -9633,7 +9633,7 @@ Object.assign(Shipping, {
     // 📍 Phase 2-H: Additional locations (optional) を描画
     this.renderEditAdditionalLocations();
     // 📊 Rate table (optional) を描画
-    this.renderEditRateTable();
+    this.renderEditRateTable(p);
 
     // 📌 タイトル自動生成プレビューを初期化
     // 新規作成時 or 既に自動生成パターンに従っている既存ポリシー → 自動更新モード
@@ -9802,14 +9802,13 @@ Object.assign(Shipping, {
     `;
   },
 
-  renderEditRateTable() {
+  renderEditRateTable(p) {
     const select = document.getElementById('shipEditRateTable');
     const infoDiv = document.getElementById('shipEditRateTableInfo');
     const menuBtn = document.getElementById('shipEditRateTableMenuBtn');
     const popup = document.getElementById('shipEditRateTablePopup');
     const createBtn = document.getElementById('shipRateTableCreateBtn');
     const editBtn = document.getElementById('shipRateTableEditBtn');
-    const p = this.editingPolicy;
 
     if (!select || !infoDiv || !p || !popup) return;
 
