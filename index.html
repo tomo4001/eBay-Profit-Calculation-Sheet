@@ -10619,7 +10619,11 @@ Object.assign(Shipping, {
 
   // テーブルの行をクリック → 編集モードに入る
   selectRateTableRowForEdit(idx) {
-    if (idx >= this.rateTableRows.length) return;
+    console.warn('*** selectRateTableRowForEdit called with idx:', idx);
+    if (idx >= this.rateTableRows.length) {
+      console.warn('*** Early return: idx >= rateTableRows.length');
+      return;
+    }
 
     const row = this.rateTableRows[idx];
     this.editingRowIndex = idx;
