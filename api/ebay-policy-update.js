@@ -1,14 +1,16 @@
 // =============================================================================
-// Vercel Serverless Function: eBay Fulfillment Policy & Rate Table 操作
+// Vercel Serverless Function: eBay Fulfillment Policy 更新
 //
 // POST /api/ebay-policy-update
 //   body: {
-//     action: 'update'|'create'|'delete'|'createRateTable',
+//     action: 'update'|'create'|'delete',
 //     policyId: "xxx",           // 既存ポリシーの fulfillmentPolicyId
 //     policy: { ... },           // 更新後の policy オブジェクト(eBay構造)
-//     name: "Rate table 名",     // Rate table 作成時に使用
+//                                // ※ Policy 内に rateTable を含めることで Rate table も一緒に設定
 //     dryRun: true|false         // true なら検証のみ、PUT しない
 //   }
+//
+// 注意: Rate table は Policy の内部設定項目であり、Policy を更新する際に一緒に送信される
 //
 // 必要な環境変数:
 //   EBAY_APP_ID, EBAY_CERT_ID, EBAY_REFRESH_TOKEN
@@ -167,81 +169,6 @@ export default async function handler(req, res) {
     } catch (e) {
       res.status(500).json({ ok: false, action: 'create', error: e.message || String(e) });
       return;
-    }
-  }
-
-  // === 📊 Rate table 作成処理（policyId不要）===
-  if (action === 'createRateTable') {
-    const name = body.name;
-    if (!name || !name.trim()) {
-      return res.status(400).json({
-        ok: false,
-        action: 'createRateTable',
-        error: 'Rate table 名 (name) が必要です',
-      });
-    }
-
-    try {
-      const accessToken = await getAccessToken(appId, certId, refreshToken);
-
-      const rateTablePayload = {
-        name: name.trim()
-      };
-
-      const apiUrl = 'https://api.ebay.com/sell/account/v1/rate_table';
-      const apiRes = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'Content-Language': 'en-US',
-        },
-        body: JSON.stringify(rateTablePayload),
-      });
-
-      const text = await apiRes.text();
-      let json = null;
-      try { json = text ? JSON.parse(text) : null; } catch (e) {}
-
-      if (!apiRes.ok) {
-        console.error(`[Rate table 作成エラー] HTTP ${apiRes.status}:`, text.slice(0, 500));
-        return res.status(apiRes.status).json({
-          ok: false,
-          action: 'createRateTable',
-          status: apiRes.status,
-          error: `eBay API エラー (HTTP ${apiRes.status})`,
-          detail: json || text.slice(0, 1500),
-        });
-      }
-
-      const rateTableId = (json && (json.rateTableId || json.id)) || null;
-      if (!rateTableId) {
-        console.warn('[Rate table 作成] レスポンスに ID がありません:', json);
-        return res.status(400).json({
-          ok: false,
-          action: 'createRateTable',
-          error: 'Rate table ID が取得できませんでした',
-          response: json,
-        });
-      }
-
-      return res.status(200).json({
-        ok: true,
-        action: 'createRateTable',
-        status: apiRes.status,
-        rateTableId: rateTableId,
-        message: `✓ Rate table "${name}" を作成しました`,
-        created: json,
-      });
-
-    } catch (e) {
-      console.error('[Rate table 作成] 例外エラー:', e.message);
-      return res.status(500).json({
-        ok: false,
-        action: 'createRateTable',
-        error: e.message || '不明なエラー',
-      });
     }
   }
 
