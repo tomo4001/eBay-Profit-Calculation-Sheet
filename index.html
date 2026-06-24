@@ -7035,6 +7035,11 @@ const Shipping = {
       const raw = (data.raw && data.raw.fulfillmentPolicies) || [];
       // 各ポリシーをパース
       this.policies = raw.map(p => this.parsePolicy(p));
+
+      // 📊 Rate Table リストを保存
+      this.ebayRateTables = (data.raw && data.raw.rateTables) || [];
+      console.log('[Rate Table] eBay から取得:', this.ebayRateTables);
+
       this.lastFetchAt = new Date();
       document.getElementById('shipTotalCount').textContent = this.policies.length;
       document.getElementById('shipFilteredCount').textContent = this.policies.length;
@@ -8286,6 +8291,7 @@ Object.assign(Shipping, {
   currentDefaultType: 'Expedited',
   editingRuleId: null,
   editingRuleCountries: [],
+  ebayRateTables: [],  // eBay から取得した Rate Table リスト
 
   // localStorageから復元
   loadSettings() {
@@ -9647,8 +9653,6 @@ Object.assign(Shipping, {
           </div>
           <div style="display:flex; gap:8px; align-items:center; position:relative;">
             <select id="shipEditRateTable" style="flex:1; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
-              <option value="none">None</option>
-              <option value="other">Other International</option>
             </select>
             <button type="button" id="shipEditRateTableMenuBtn" title="Create new / Edit rate table" style="padding:8px 12px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer; font-weight:600; position:relative;">⋮</button>
             <!-- Rate table メニューポップアップ -->
@@ -9891,9 +9895,47 @@ Object.assign(Shipping, {
 
     if (!select || !infoDiv || !p || !popup) return;
 
-    // rateTable の有無で状態を表示
+    // ドロップダウンを動的に生成
+    const options = [
+      { value: 'none', label: 'None' }
+    ];
+
+    // eBay から取得した Rate Table を追加
+    if (this.ebayRateTables && this.ebayRateTables.length > 0) {
+      this.ebayRateTables.forEach(rt => {
+        options.push({
+          value: `ebay_${rt.rateTableId}`,
+          label: rt.name,
+          source: 'ebay'
+        });
+      });
+    }
+
+    // ユーザーが作成したテーブル（他のポリシー）を追加
+    this.policies.forEach(policy => {
+      if (policy.id !== p.id && policy.rateTable) {
+        options.push({
+          value: `local_${policy.id}`,
+          label: `${policy.rateTable.name} (from ${policy.name})`,
+          source: 'local'
+        });
+      }
+    });
+
+    // ドロップダウンを再構築
+    select.innerHTML = options.map(opt =>
+      `<option value="${opt.value}">${opt.label}</option>`
+    ).join('');
+
+    // 現在の値を復元
     const hasRateTable = p.rateTable && Object.keys(p.rateTable || {}).length > 0;
-    select.value = hasRateTable ? 'other' : 'none';
+    if (hasRateTable) {
+      // ユーザーが作成したテーブルを選択
+      select.value = `local_${p.id}`;
+    } else {
+      // None を選択
+      select.value = 'none';
+    }
 
     // 情報テキスト
     infoDiv.textContent = hasRateTable
