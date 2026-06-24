@@ -285,10 +285,16 @@ export default async function handler(req, res) {
     try { json = text ? JSON.parse(text) : null; } catch (e) {}
 
     if (!apiRes.ok) {
-      // 🔍 eBay 特殊エラー: 20403 "Business Profile information is the same"
-      // → これは「データ同一なので変更不要」を意味する。失敗ではなく noChange として扱う。
+      // 🔍 eBay 特殊エラー: 20403 は多目的エラーコードで、メッセージ内容で判別が必要
+      //   - "Business Profile information is the same" → データ同一(noChange 扱い)
+      //   - "Invalid policyID" "Forbidden" など → 本当の失敗
       const errors = (json && Array.isArray(json.errors)) ? json.errors : [];
-      const noChangeError = errors.find(e => e && e.errorId === 20403);
+      const noChangeError = errors.find(e => {
+        if (!e || e.errorId !== 20403) return false;
+        const msg = ((e.message || '') + ' ' + (e.longMessage || '')).toLowerCase();
+        // "same" "identical" "not different" 系のメッセージ含むものだけ noChange 扱い
+        return /\b(same|identical|not\s+different|no\s+(change|difference))\b/.test(msg);
+      });
       if (noChangeError) {
         res.status(200).json({
           ok: true,
@@ -297,6 +303,7 @@ export default async function handler(req, res) {
           status: apiRes.status,
           noChange: true,
           message: '⚪ eBay 上のデータが同一(変更不要)',
+          detail: json,  // ← 念のため eBay の生レスポンスも返す(デバッグ用)
         });
         return;
       }
