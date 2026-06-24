@@ -185,10 +185,7 @@ export default async function handler(req, res) {
       const accessToken = await getAccessToken(appId, certId, refreshToken);
 
       const rateTablePayload = {
-        name: name.trim(),
-        tableDefinition: {
-          rows: []  // 初期状態では空
-        }
+        name: name.trim()
       };
 
       const apiUrl = 'https://api.ebay.com/sell/account/v1/rate_table';
