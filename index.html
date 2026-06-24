@@ -7087,8 +7087,22 @@ const Shipping = {
       }
     }
 
-    // 除外国
-    const excluded = ((p.shipToLocations && p.shipToLocations.regionExcluded) || []).map(r => r.regionName);
+    // 除外国（regionIncluded から逆算）
+    // eBay は regionIncluded のみを使用するため、regionIncluded に含まれていない国が除外国
+    let excluded = [];
+    const shipToLoc = p.shipToLocations || {};
+    const allCodes = SHIP_INTL_DESTINATIONS.map(d => d.code);
+    if (shipToLoc.regionIncluded && shipToLoc.regionIncluded.length > 0) {
+      // regionIncluded が「Worldwide」以外の場合、含まれていない国が除外国
+      const includedSet = new Set(shipToLoc.regionIncluded.map(r => r.regionName));
+      if (!includedSet.has('Worldwide')) {
+        excluded = allCodes.filter(c => !includedSet.has(c));
+      }
+    }
+    // 念のため regionExcluded も確認（後方互換性）
+    if (shipToLoc.regionExcluded && shipToLoc.regionExcluded.length > 0) {
+      excluded = shipToLoc.regionExcluded.map(r => r.regionName);
+    }
 
     return {
       id: p.fulfillmentPolicyId,
