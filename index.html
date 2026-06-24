@@ -9856,7 +9856,8 @@ Object.assign(Shipping, {
     if (createBtn && !createBtn.hasAttribute('data-listener-attached')) {
       createBtn.addEventListener('click', () => {
         // モーダルを開く
-        document.getElementById('shipRateTableName').value = '';
+        this.rateTableRows = [];  // リセット
+        this.renderRateTableRows();
         this.openModal('shipRateTableCreateModal');
         popup.style.display = 'none';
       });
