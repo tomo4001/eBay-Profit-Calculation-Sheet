@@ -10373,7 +10373,9 @@ Object.assign(Shipping, {
 
     // Edit ボタン
     if (editBtn) {
-      // 初期表示時は表示制御をしない（ドロップダウン change イベントで制御）
+      // 初期表示時にドロップダウン値に応じて表示制御
+      editBtn.style.display = (select.value !== 'none' && select.value !== '') ? 'block' : 'none';
+
       if (!editBtn.hasAttribute('data-listener-attached')) {
         editBtn.addEventListener('click', () => {
           // Domestic Rate Table を編集モードで開く
