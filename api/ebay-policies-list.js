@@ -106,6 +106,27 @@ export default async function handler(req, res) {
       offset += limit;
     }
 
+    // 📊 Rate Table 一覧も取得
+    let rateTables = [];
+    try {
+      const rateTableUrl = `https://api.ebay.com/sell/account/v1/rate_table?country_code=${marketplace === 'EBAY_US' ? 'US' : 'GB'}`;
+      const rateTableRes = await fetch(rateTableUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (rateTableRes.ok) {
+        const rateTableData = await rateTableRes.json();
+        rateTables = rateTableData.rateTables || [];
+      }
+    } catch (e) {
+      console.warn('[Rate Table 取得] エラー:', e.message);
+      // Rate Table 取得失敗時も続行
+    }
+
     res.status(200).json({
       ok: true,
       marketplace,
@@ -123,6 +144,7 @@ export default async function handler(req, res) {
       raw: {
         fulfillmentPolicies: allPolicies,
         total: allPolicies.length,
+        rateTables: rateTables,
       },
     });
 
