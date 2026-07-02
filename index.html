@@ -1625,6 +1625,21 @@
   <!-- ===== ユーザータブ ===== -->
   <div id="tabUser" class="tab-content active">
 
+  <!-- 🌍 マスター送料率 (外注さんも編集可能。レンジ表 + シッピングポリシーで共通使用) -->
+  <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:12px 14px; margin-bottom:14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
+    <div style="font-weight:700; color:#1e3a8a; font-size:14px;">🌍 マスター送料率</div>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <input type="number" id="masterShipRate" step="0.1" value="15" style="width:80px; padding:5px 8px; border:1px solid #93c5fd; border-radius:5px; font-size:13px;" />
+      <span style="font-weight:600;">%</span>
+    </div>
+    <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
+      <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。<br>
+      💡 「関税率」は別項目です(⚙️ 管理者設定タブで設定)。
+    </div>
+    <!-- マスター率と DDP関税率のズレ警告 -->
+    <div id="rateMismatchBanner" style="display:none; font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;"></div>
+  </div>
+
   <!-- ===== 頻繁入力カード ===== -->
   <div class="quick-card">
     <h2>📌 頻繁入力</h2>
@@ -2574,27 +2589,10 @@
       <span class="save-indicator" id="saveIndicator">保存しました</span>
     </h2>
 
-    <!-- 🌍 マスター送料率 (全体共通: レンジ表 + シッピングポリシー両方に適用) -->
-    <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:12px 14px; margin-bottom:14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
-      <div style="font-weight:700; color:#1e3a8a; font-size:14px;">🌍 マスター送料率</div>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <input type="number" id="masterShipRate" step="0.1" value="15" style="width:80px; padding:5px 8px; border:1px solid #93c5fd; border-radius:5px; font-size:13px;" />
-        <span style="font-weight:600;">%</span>
-      </div>
-      <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
-        <strong>全レンジ行の送料 = 上限 × この%</strong> で自動計算されます。シッピングポリシーのデフォルト計算にも使われます。<br>
-        💡 利益計算側の <strong>DDP関税率(=calcXOptimal の25%しきい値)</strong> は別途設定可能です。シッピングポリシー構築中など、両者を意図的に違う値にしたい場合に対応しています。
-      </div>
-      <!-- マスター率と DDP関税率のズレ警告 -->
-      <div id="rateMismatchBanner" style="display:none; font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;"></div>
-      <div style="font-size:11px; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:8px 12px; flex:1 1 100%; margin-top:4px;">
-        💡 <strong>このボタンはレンジ表のみ更新します。</strong>シッピングポリシー127件の Domestic 送料も同時に更新したい場合は、「📦 シッピングポリシー」タブの<strong>「🌍 マスター率を全ポリシーに適用」</strong>ボタンを別途押してください。
-      </div>
-    </div>
-
+    <!-- 🌍 マスター送料率 は user タブ上部に移動しました -->
     <p style="margin: 0 0 12px; color:#666; font-size:13px;">
       販売価格X が「下限〜上限」の範囲に収まるとき、対応する「送料」が選ばれます。<br>
-      表のセルを直接編集できます（編集すると自動保存）。マスター率を変更すると全行の送料が再計算されます。
+      表のセルを直接編集できます（編集すると自動保存）。マスター率(⚙️ ユーザータブ上部)を変更すると全行の送料が再計算されます。
     </p>
 
     <table class="range-table" id="rangeTable">
