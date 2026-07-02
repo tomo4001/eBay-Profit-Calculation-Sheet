@@ -2578,7 +2578,7 @@
     <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:12px 14px; margin-bottom:14px; display:flex; flex-wrap:wrap; gap:14px; align-items:center;">
       <div style="font-weight:700; color:#1e3a8a; font-size:14px;">🌍 マスター送料率</div>
       <div style="display:flex; gap:6px; align-items:center;">
-        <input type="number" id="masterShipRate" step="0.1" value="25" style="width:80px; padding:5px 8px; border:1px solid #93c5fd; border-radius:5px; font-size:13px;" />
+        <input type="number" id="masterShipRate" step="0.1" value="15" style="width:80px; padding:5px 8px; border:1px solid #93c5fd; border-radius:5px; font-size:13px;" />
         <span style="font-weight:600;">%</span>
       </div>
       <div style="font-size:11px; color:#1e3a8a; flex:1 1 100%;">
@@ -7202,7 +7202,7 @@ const Shipping = {
     const selected = this.getSelectedPolicies();
     if (selected.length === 0) { alert('ポリシーを選択してください'); return; }
 
-    const masterRate = this.masterRate || 25;
+    const masterRate = this.masterRate || 15;
     const input = prompt(
       `📌 送料率の一括上書き\n\n` +
       `選択中: ${selected.length} 件\n` +
@@ -7862,7 +7862,7 @@ const Shipping = {
       // 期待 Domestic 送料(マスター率ベース)と差分表示
       let domCostCell;
       if (p.priceMax != null) {
-        const rate = (this.masterRate || 25) / 100;
+        const rate = (this.masterRate || 15) / 100;
         const expected = Math.round(p.priceMax * rate * 100) / 100;
         const diff = Math.round((expected - p.domesticCost) * 100) / 100;
         if (Math.abs(diff) < 0.01) {
@@ -7871,7 +7871,7 @@ const Shipping = {
           const diffColor = diff > 0 ? '#dc2626' : '#16a34a';
           domCostCell = `<div style="font-family:monospace; line-height:1.3;">
             <div>$${p.domesticCost.toFixed(2)}</div>
-            <div style="font-size:10px; color:${diffColor};" title="マスター率(${(this.masterRate||25)}%)で期待される送料: $${expected.toFixed(2)} (差分 ${diff>0?'+':''}$${diff.toFixed(2)})">⚠️ 期待 $${expected.toFixed(2)}</div>
+            <div style="font-size:10px; color:${diffColor};" title="マスター率(${(this.masterRate||15)}%)で期待される送料: $${expected.toFixed(2)} (差分 ${diff>0?'+':''}$${diff.toFixed(2)})">⚠️ 期待 $${expected.toFixed(2)}</div>
           </div>`;
         }
       } else {
@@ -8167,7 +8167,7 @@ const SHIP_DEFAULT_DESTINATIONS = ['Americas','Asia','Europe','AU','CA','CN','DE
 // デフォルト・特別設定をShippingオブジェクトに追加
 Object.assign(Shipping, {
   // ========== 共通設定(全サービス共通) ==========
-  masterRate: 25,  // % - 送料率(価格レンジ上限 × この%)
+  masterRate: 15,  // % - 送料率(価格レンジ上限 × この%)
 
   // ========== サービス種別ごとのデフォルト ==========
   defaults: {
@@ -8791,7 +8791,7 @@ Object.assign(Shipping, {
   // 各ポリシーに対し: 新 Domestic送料 = 価格上限 × マスター率%
   // priceMax が取れない / DOMESTIC オプションが無い ポリシーはスキップ
   computeMasterRatePlan() {
-    const rate = (this.masterRate || 25) / 100;
+    const rate = (this.masterRate || 15) / 100;
     const plan = [];
     this.policies.forEach(p => {
       const reasons = [];
@@ -8859,7 +8859,7 @@ Object.assign(Shipping, {
   renderMasterRateApplyPreview() {
     const plan = this.computeMasterRatePlan();
     const content = document.getElementById('shipMasterRateApplyContent');
-    const rate = this.masterRate || 25;
+    const rate = this.masterRate || 15;
     const eligible = plan.filter(x => !x.skippable);
     // 送料 or Each additional のどちらかがズレていれば "変更が必要" と判定
     let changed = eligible.filter(x => x.needsUpdate);
@@ -9065,7 +9065,7 @@ Object.assign(Shipping, {
     const ok = confirm(`${selectedIds.length}件のポリシーの Domestic 送料を マスター率(${this.masterRate}%) に合わせて更新します。\n\n※ 現段階では eBay には書き戻されず、ローカル状態(画面 + キャッシュ)のみが更新されます。\n\nよろしいですか？`);
     if (!ok) return;
 
-    const rate = (this.masterRate || 25) / 100;
+    const rate = (this.masterRate || 15) / 100;
     const total = selectedIds.length;
     const results = { success: [], failed: [] };
 
@@ -9582,11 +9582,11 @@ Object.assign(Shipping, {
         <div class="ship-field">
           <label>送料率(%)</label>
           <div style="flex:1; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <input type="number" id="shipEditCustomRate" step="0.1" min="0" max="100" placeholder="マスター率 ${this.masterRate||25}% を使用" value="${p.customShipRate!=null?p.customShipRate:''}" style="width:120px;" oninput="Shipping.updateTitlePreview()" />
+            <input type="number" id="shipEditCustomRate" step="0.1" min="0" max="100" placeholder="マスター率 ${this.masterRate||15}% を使用" value="${p.customShipRate!=null?p.customShipRate:''}" style="width:120px;" oninput="Shipping.updateTitlePreview()" />
             <span style="color:#888; font-size:11px;">%</span>
             <button type="button" onclick="document.getElementById('shipEditCustomRate').value=''; Shipping.updateTitlePreview();" style="background:#fff; color:#4b5563; border:1px solid #d1d5db; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">クリア(マスター率使用)</button>
             <span style="color:#6b7280; font-size:11px; flex:1 1 100%;">
-              💡 空欄 = マスター率(${this.masterRate||25}%)を使用 / 数値入力 = このポリシーだけ別の率で計算<br>
+              💡 空欄 = マスター率(${this.masterRate||15}%)を使用 / 数値入力 = このポリシーだけ別の率で計算<br>
               例: 関税 30% の商品なら 30 と入力 → このポリシーの送料 = 30% × 価格上限 ${p.priceMax||'?'}$
             </span>
           </div>
@@ -11335,7 +11335,7 @@ Object.assign(Shipping, {
     const newOnes = selected.filter(p => p.id.startsWith('local_new_'));
 
     const content = document.getElementById('shipBulkPushContent');
-    const rate = this.masterRate || 25;
+    const rate = this.masterRate || 15;
     const warnHeavy = eligible.length > 20;
 
     content.innerHTML = `
