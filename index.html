@@ -7697,10 +7697,12 @@ const Shipping = {
       compared++;
       const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
       // 🔧 Phase 2-H+++: アクティブな特別設定で、このポリシーの service が対象になっているルールの countries も期待値に含める
+      // 🔍 targetPriceMax があれば、priceMax がその値以下のポリシーだけ適用
       const specialAdds = [];
       (this.specialRules || []).forEach(rule => {
         if (!rule.active) return;
         if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+        if (rule.targetPriceMax != null && p.priceMax != null && p.priceMax > rule.targetPriceMax) return;
         (rule.countries || []).forEach(c => specialAdds.push(c));
       });
       // 🔧 VeRO の場合、baseExcluded から Europe 地域でカバーされる個別ヨーロッパ国を除外
@@ -8215,7 +8217,7 @@ Object.assign(Shipping, {
   specialRules: [
     { id: 'rule_me_expedited', name: '🕊️ 中東情勢(Expedited/Standard 向け)', description: 'FedEx/DHL/UPS の戦争による一時停止国(SyriaはeBay UIに無いため除外)', countries: ['AE','SA','QA','KW','BH','OM','JO','LB','IQ'], targetServices: ['Expedited','Standard'], active: true },
     { id: 'rule_me_economy',   name: '🕊️ 中東情勢(Economy 向け)',           description: '日本郵便の戦争による一時停止国(IranはeBay UIに無いため除外)', countries: ['AE','IL','IQ','EG','OM','QA','KW','SA','TR','BH','JO','LB'], targetServices: ['Economy'], active: true },
-    { id: 'rule_eu_ioss_economy', name: '🇪🇺 EU IOSS 返送リスク(Economy 向け)', description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。', countries: ['AT','DK','FI','FR','BE','PT','LU'], targetServices: ['Economy'], active: true },
+    { id: 'rule_eu_ioss_economy', name: '🇪🇺 EU IOSS 返送リスク(Economy 向け)', description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。$180 以下の価格レンジポリシーのみ対象(€150 相当)。', countries: ['AT','DK','FI','FR','BE','PT','LU'], targetServices: ['Economy'], targetPriceMax: 180, active: true },
   ],
   currentDefaultType: 'Expedited',
   editingRuleId: null,
@@ -8264,19 +8266,30 @@ Object.assign(Shipping, {
     // 🔧 マイグレーション: 既存ユーザーに新規ルール rule_eu_ioss_economy を自動追加
     // (2026年7月 EU€150未満免税撤廃対応)
     try {
-      const hasEuIoss = (this.specialRules || []).some(r => r && r.id === 'rule_eu_ioss_economy');
-      if (!hasEuIoss) {
+      let rulesChanged = false;
+      const existingEu = (this.specialRules || []).find(r => r && r.id === 'rule_eu_ioss_economy');
+      if (!existingEu) {
         this.specialRules = this.specialRules || [];
         this.specialRules.push({
           id: 'rule_eu_ioss_economy',
           name: '🇪🇺 EU IOSS 返送リスク(Economy 向け)',
-          description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。',
+          description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。$180 以下の価格レンジポリシーのみ対象(€150 相当)。',
           countries: ['AT','DK','FI','FR','BE','PT','LU'],
           targetServices: ['Economy'],
+          targetPriceMax: 180,
           active: true,
         });
-        localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules));
+        rulesChanged = true;
         console.log('[Shipping] マイグレーション: rule_eu_ioss_economy を追加しました');
+      } else if (existingEu.targetPriceMax == null) {
+        // 旧バージョン(targetPriceMax なし)を持っているユーザーに追加
+        existingEu.targetPriceMax = 180;
+        existingEu.description = '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。$180 以下の価格レンジポリシーのみ対象(€150 相当)。';
+        rulesChanged = true;
+        console.log('[Shipping] マイグレーション: rule_eu_ioss_economy に targetPriceMax:180 を追加しました');
+      }
+      if (rulesChanged) {
+        localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules));
       }
     } catch (e) {}
     try {
@@ -8703,9 +8716,13 @@ Object.assign(Shipping, {
     if (!r) return;
 
     const nextActive = !r.active;
-    const targetPolicies = this.policies.filter(p =>
-      (r.targetServices || []).includes(p.service)
-    );
+    // 🔍 targetPriceMax があれば、priceMax がその値以下のポリシーだけ対象にする
+    // (例: EU IOSS ルールは $180 以下の Economy ポリシーだけ適用 = €150 相当の免税対象)
+    const targetPolicies = this.policies.filter(p => {
+      if (!(r.targetServices || []).includes(p.service)) return false;
+      if (r.targetPriceMax != null && p.priceMax != null && p.priceMax > r.targetPriceMax) return false;
+      return true;
+    });
     const ruleCountries = r.countries || [];
 
     if (nextActive) {
@@ -9354,11 +9371,13 @@ Object.assign(Shipping, {
     };
 
     // 🕊️ 特別設定(active)で除外される国を集合化(このポリシーの service が対象になっているもののみ)
+    // 🔍 targetPriceMax があれば、priceMax がその値以下のポリシーだけ適用
     const ruleAppliedCountries = new Set();
     const matchingRules = [];
     (this.specialRules || []).forEach(rule => {
       if (!rule.active) return;
       if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+      if (rule.targetPriceMax != null && p.priceMax != null && p.priceMax > rule.targetPriceMax) return;
       matchingRules.push(rule);
       (rule.countries || []).forEach(c => ruleAppliedCountries.add(c));
     });
