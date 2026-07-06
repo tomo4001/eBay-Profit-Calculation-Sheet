@@ -7756,7 +7756,14 @@ const Shipping = {
 
     let list = this.policies.slice();
     if (svc) list = list.filter(p => p.service === svc);
-    if (q) list = list.filter(p => p.name.toLowerCase().includes(q));
+    if (q) {
+      // 🔍 スペース区切りで AND 検索(例: "Economy 180" で「Economy...180...」を含む名前にマッチ)
+      const terms = q.split(/\s+/).filter(t => t.length > 0);
+      list = list.filter(p => {
+        const n = p.name.toLowerCase();
+        return terms.every(t => n.includes(t));
+      });
+    }
     if (cls === 'standard')     list = list.filter(p => !p.vero && !p.special && !p.isLegacy);
     if (cls === 'vero')         list = list.filter(p => p.vero);
     if (cls === 'special')      list = list.filter(p => p.special);
@@ -8908,7 +8915,11 @@ Object.assign(Shipping, {
     const f = this._mrFilter || {};
     if (f.search) {
       const q = f.search.toLowerCase();
-      changed = changed.filter(x => x.name.toLowerCase().includes(q));
+      const terms = q.split(/\s+/).filter(t => t.length > 0);
+      changed = changed.filter(x => {
+        const n = x.name.toLowerCase();
+        return terms.every(t => n.includes(t));
+      });
     }
     if (Array.isArray(f.services) && f.services.length > 0) {
       changed = changed.filter(x => {
@@ -10126,7 +10137,8 @@ Object.assign(Shipping, {
 
   renderClonePicker() {
     const q = (document.getElementById('shipClonePickerSearch').value || '').toLowerCase();
-    const list = this.policies.filter(p => !p._isNew && (!q || p.name.toLowerCase().includes(q)));
+    const terms = q ? q.split(/\s+/).filter(t => t.length > 0) : [];
+    const list = this.policies.filter(p => !p._isNew && (terms.length === 0 || terms.every(t => p.name.toLowerCase().includes(t))));
     const el = document.getElementById('shipClonePickerList');
     if (list.length === 0) {
       el.innerHTML = '<div style="padding:30px; text-align:center; color:#888;">該当するポリシーがありません</div>';
