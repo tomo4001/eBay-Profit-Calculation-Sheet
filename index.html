@@ -8215,6 +8215,7 @@ Object.assign(Shipping, {
   specialRules: [
     { id: 'rule_me_expedited', name: '🕊️ 中東情勢(Expedited/Standard 向け)', description: 'FedEx/DHL/UPS の戦争による一時停止国(SyriaはeBay UIに無いため除外)', countries: ['AE','SA','QA','KW','BH','OM','JO','LB','IQ'], targetServices: ['Expedited','Standard'], active: true },
     { id: 'rule_me_economy',   name: '🕊️ 中東情勢(Economy 向け)',           description: '日本郵便の戦争による一時停止国(IranはeBay UIに無いため除外)', countries: ['AE','IL','IQ','EG','OM','QA','KW','SA','TR','BH','JO','LB'], targetServices: ['Economy'], active: true },
+    { id: 'rule_eu_ioss_economy', name: '🇪🇺 EU IOSS 返送リスク(Economy 向け)', description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。', countries: ['AT','DK','FI','FR','BE','PT','LU'], targetServices: ['Economy'], active: true },
   ],
   currentDefaultType: 'Expedited',
   editingRuleId: null,
@@ -8258,6 +8259,25 @@ Object.assign(Shipping, {
     try {
       const r = localStorage.getItem(SHIP_STORAGE_RULES);
       if (r) this.specialRules = JSON.parse(r);
+    } catch (e) {}
+
+    // 🔧 マイグレーション: 既存ユーザーに新規ルール rule_eu_ioss_economy を自動追加
+    // (2026年7月 EU€150未満免税撤廃対応)
+    try {
+      const hasEuIoss = (this.specialRules || []).some(r => r && r.id === 'rule_eu_ioss_economy');
+      if (!hasEuIoss) {
+        this.specialRules = this.specialRules || [];
+        this.specialRules.push({
+          id: 'rule_eu_ioss_economy',
+          name: '🇪🇺 EU IOSS 返送リスク(Economy 向け)',
+          description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。',
+          countries: ['AT','DK','FI','FR','BE','PT','LU'],
+          targetServices: ['Economy'],
+          active: true,
+        });
+        localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules));
+        console.log('[Shipping] マイグレーション: rule_eu_ioss_economy を追加しました');
+      }
     } catch (e) {}
     try {
       const mr = localStorage.getItem(SHIP_STORAGE_MASTER_RATE);
