@@ -10806,7 +10806,15 @@ Object.assign(Shipping, {
 
     // 除外国を defaults で上書き(VeRO の場合は Europe 地域でカバーされる国を除外)
     const filteredBase = shipFilterBaseExcludedForVero(freshDef.baseExcluded || [], p.vero);
-    this.editingPolicyExcluded = Array.from(new Set([...filteredBase, ...veroAdds]));
+    // 🔧 特別設定 (active + service マッチ + targetPriceMax チェック) の追加国も含める
+    const specialAdds = [];
+    (this.specialRules || []).forEach(rule => {
+      if (!rule.active) return;
+      if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+      if (rule.targetPriceMax != null && p.priceMax != null && p.priceMax > rule.targetPriceMax) return;
+      (rule.countries || []).forEach(c => specialAdds.push(c));
+    });
+    this.editingPolicyExcluded = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds]));
 
     // HT を defaults でセット(saveSnapshot 経由で復元)
     if (!this._editFormSnapshot) this._editFormSnapshot = {};
@@ -10863,7 +10871,15 @@ Object.assign(Shipping, {
     else if (field === 'excluded') {
       const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
       const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
-      this.editingPolicyExcluded = Array.from(new Set([...filteredBase, ...veroAdds]));
+      // 🔧 特別設定 (active + service マッチ + targetPriceMax チェック) の追加国も含める
+      const specialAdds = [];
+      (this.specialRules || []).forEach(rule => {
+        if (!rule.active) return;
+        if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+        if (rule.targetPriceMax != null && p.priceMax != null && p.priceMax > rule.targetPriceMax) return;
+        (rule.countries || []).forEach(c => specialAdds.push(c));
+      });
+      this.editingPolicyExcluded = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds]));
     }
     else {
       console.warn('[resetFieldToDefault] unknown field:', field);
