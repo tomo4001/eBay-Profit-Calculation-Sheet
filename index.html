@@ -5834,20 +5834,21 @@ function recalc() {
     shipEl.classList.remove('error');
   } else {
     // 分離モード(従来通り): calcX_optimal で送料を寄せる
+    let calcResult = null;
     if (!xIsManual) {
-      const result = calcXOptimal(targetPrice, ranges, tariffRate);
-      if (result.error) {
+      calcResult = calcXOptimal(targetPrice, ranges, tariffRate);
+      if (calcResult.error) {
         xEl.classList.add('error');
         shipEl.classList.add('error');
         xInput.value = '';
-        xSub.textContent = result.error + ' (関税率を下げる、またはレンジ表を確認)';
+        xSub.textContent = calcResult.error + ' (関税率を下げる、またはレンジ表を確認)';
         shipVal.textContent = '—';
         shipSub.textContent = '';
         myTotalEl.textContent = '—';
         diffEl.textContent = '—';
         return;
       }
-      X = result.X;
+      X = calcResult.X;
       xInput.value = X.toFixed(2);
     } else {
       X = parseFloat(xInput.value);
@@ -5857,8 +5858,16 @@ function recalc() {
       }
     }
 
-    // X に対する送料を引く
-    send = lookupShipping(X, ranges);
+    // 送料の決定:
+    //   - 自動計算モード: calcXOptimal が採用した送料をそのまま使う
+    //     (レンジ境界のギリギリで X が下位レンジに落ちても、
+    //      DDP しきい値を満たすために上位レンジの送料を維持する)
+    //   - 手動入力モード: 従来通り X からレンジ表で送料を引く
+    if (!xIsManual && calcResult) {
+      send = calcResult.add;
+    } else {
+      send = lookupShipping(X, ranges);
+    }
     xEl.classList.remove('error');
 
     if (send === null) {
