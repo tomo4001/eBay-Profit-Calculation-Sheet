@@ -27,6 +27,13 @@ function extractItemId(url) {
   return null;
 }
 
+// URL からバリエーションID(?var=xxx)を抽出。バリエーション出品でない場合は null。
+function extractVariationId(url) {
+  if (!url) return null;
+  const m = url.match(/[?&]var=(\d+)/);
+  return m ? m[1] : null;
+}
+
 // URL ドメインから eBay マーケットプレイスIDを判定
 function detectMarketplace(url) {
   if (!url) return 'EBAY_US';
@@ -560,8 +567,57 @@ function extractPriceFromHtml(html, url) {
 export default async function handler(req, res) {
   // CORS(同一オリジンだが念のため)
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  // 🆕 POST /api/ebay-item: 画像 URL 配列から ZIP を生成してダウンロード
+  if (req.method === 'POST') {
+    const { images, filename } = req.body || {};
+    if (!Array.isArray(images) || images.length === 0) {
+      res.status(400).json({ error: 'images 配列が必要です' });
+      return;
+    }
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      let ok = 0, total = 0;
+
+      for (const img of images) {
+        try {
+          const imgRes = await fetch(img.url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            },
+            redirect: 'follow',
+          });
+          if (!imgRes.ok) continue;
+          const buf = await imgRes.arrayBuffer();
+          if (buf.byteLength > 100) {
+            const ext = img.url.match(/\.([a-z]+)(?:\?|$)/i)?.[1] || 'jpg';
+            zip.file(`${img.name || ok}.${ext}`, buf);
+            ok++;
+            total += buf.byteLength;
+          }
+        } catch (e) {}
+      }
+
+      if (ok === 0) {
+        res.status(400).json({ error: '取得できた画像がありません' });
+        return;
+      }
+
+      const zipBuf = await zip.generateAsync({ type: 'arraybuffer' });
+      const fname = (filename || 'images').replace(/[^a-z0-9_-]/gi, '_');
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${fname}.zip"`);
+      res.status(200).send(Buffer.from(zipBuf));
+      return;
+    } catch (e) {
+      res.status(500).json({ error: 'ZIP 生成エラー: ' + (e.message || String(e)) });
+      return;
+    }
+  }
 
 
   // 🆕 画像プロキシモード: ?proxy=<imageUrl> で画像バイナリを CORS 付きで返す
@@ -925,6 +981,9 @@ export default async function handler(req, res) {
     return;
   }
 
+  // バリエーション ID(?var=xxx)。バリエーション出品は legacy_variation_id 指定が必要。
+  const variationId = extractVariationId(url);
+
   const appId = process.env.EBAY_APP_ID;
   const certId = process.env.EBAY_CERT_ID;
   if (!appId || !certId) {
@@ -938,7 +997,11 @@ export default async function handler(req, res) {
     const token = await getAppToken(appId, certId);
 
     // Browse API: legacy item ID で取得
-    const apiUrl = `https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id?legacy_item_id=${itemId}`;
+    // バリエーション出品の場合、legacy_variation_id を付ける(付けないと HTTP 400 になる)
+    let apiUrl = `https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id?legacy_item_id=${itemId}`;
+    if (variationId) {
+      apiUrl += `&legacy_variation_id=${variationId}`;
+    }
     const itemRes = await fetch(apiUrl, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -952,7 +1015,7 @@ export default async function handler(req, res) {
       res.status(itemRes.status).json({
         error: `eBay商品取得失敗 (HTTP ${itemRes.status})`,
         detail: text.slice(0, 300),
-        itemId, marketplace,
+        itemId, marketplace, variationId,
       });
       return;
     }
@@ -1001,6 +1064,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       ok: true,
       itemId,
+      variationId,           // バリエーション ID(non-variation の場合 null)
       marketplace,
       title: item.title || '',
       categoryId,
@@ -1014,6 +1078,6 @@ export default async function handler(req, res) {
     });
 
   } catch (e) {
-    res.status(500).json({ error: e.message || String(e), itemId, marketplace });
+    res.status(500).json({ error: e.message || String(e), itemId, marketplace, variationId });
   }
 }
