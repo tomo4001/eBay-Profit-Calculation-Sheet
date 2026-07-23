@@ -6628,6 +6628,16 @@ function attachEvents() {
     masterRateEl.addEventListener('input', () => syncMasterRateToShipping());
   }
 
+  // 🛡️ 全ての <input type="number"> でマウスホイールによる値変更を防止
+  // (Chrome/Firefox の仕様で、フォーカスされた number input はホイールで値が変わってしまう。
+  //  ページスクロール中に値がズレる事故を防ぐため、focus 中にホイールされたら blur する)
+  document.addEventListener('wheel', (e) => {
+    const el = document.activeElement;
+    if (el && el.tagName === 'INPUT' && el.type === 'number') {
+      el.blur();
+    }
+  }, { passive: true });
+
   // レンジ表編集 (上限を変えたら、そのセルの送料も即座にマスター率で再計算)
   document.getElementById('rangeBody').addEventListener('input', (e) => {
     if (e.target.matches('input[type="number"]')) {
