@@ -10633,7 +10633,7 @@ Object.assign(Shipping, {
             <td style="padding:8px;">
               ${veroCount > 0 ? `
                 <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:4px; padding:6px 10px; font-size:11px; color:#92400e; margin-bottom:6px;">
-                  ⚠️ 選択中の <strong>${veroCount}件の VeRO ポリシー</strong> には、適用時に <strong>Europe / GB / DE / FR が自動除外</strong>されます(表示上はチェックされていても、VeRO ポリシーには反映されません)
+                  ⚠️ 選択中の <strong>${veroCount}件の VeRO ポリシー</strong> には、適用時に <strong>${SHIP_VERO_EXCLUDED_DESTINATIONS.join(' / ')} が自動除外</strong>されます(表示上はチェックされていても、VeRO ポリシーには反映されません)
                 </div>
               ` : ''}
               <div style="display:flex; gap:6px; margin-bottom:6px;">
