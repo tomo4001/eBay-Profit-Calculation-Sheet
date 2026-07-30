@@ -8480,10 +8480,13 @@ Object.assign(Shipping, {
       'South America': '🌎 南米 (14)',
       'Central America and Caribbean': '🌎 中米・カリブ (30)',
     };
-    // ある国コードがどの地域に含まれるか判定
+    // 🔧 バグ修正: SHIP_REGION_COUNTRY_MAP を使う(eBay の実際の地域カバー範囲)
+    // SHIP_COUNTRY_GROUPS の items は UI 分類なので eBay の region カバーとは異なる。
     const isCoveredByRegion = (code) => {
-      for (const [region, groupName] of Object.entries(REGION_TO_GROUP_NAME)) {
-        if (excluded.has(region) && SHIP_COUNTRY_GROUPS[groupName]?.items.includes(code)) return true;
+      for (const region of Object.keys(REGION_TO_GROUP_NAME)) {
+        if (!excluded.has(region)) continue;
+        const covered = SHIP_REGION_COUNTRY_MAP[region];
+        if (Array.isArray(covered) && covered.includes(code)) return true;
       }
       return false;
     };
@@ -9573,9 +9576,15 @@ Object.assign(Shipping, {
       'South America': '🌎 南米 (14)',
       'Central America and Caribbean': '🌎 中米・カリブ (30)',
     };
+    // 🔧 バグ修正: 「地域指定で除外中」判定は eBay の実際の地域カバー範囲を反映した
+    // SHIP_REGION_COUNTRY_MAP を使う。SHIP_COUNTRY_GROUPS のグループ items は
+    // UI 上の分類なので eBay の region カバーとは異なる(例: ヨーロッパグループは 49国
+    // だが eBay の "Europe" region が実際にカバーするのは 29国だけ)。
     const isCoveredByRegion = (code) => {
-      for (const [region, groupName] of Object.entries(REGION_TO_GROUP_NAME)) {
-        if (excludedSet.has(region) && SHIP_COUNTRY_GROUPS[groupName]?.items.includes(code)) return true;
+      for (const region of Object.keys(REGION_TO_GROUP_NAME)) {
+        if (!excludedSet.has(region)) continue;
+        const covered = SHIP_REGION_COUNTRY_MAP[region];
+        if (Array.isArray(covered) && covered.includes(code)) return true;
       }
       return false;
     };
