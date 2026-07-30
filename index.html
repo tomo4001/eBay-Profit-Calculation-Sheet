@@ -7754,12 +7754,13 @@ const Shipping = {
       });
       // 🔧 VeRO の場合、baseExcluded から Europe 地域でカバーされる個別ヨーロッパ国を除外
       //    (Europe 地域単位で一括除外しているため、個別指定は不要)
-      const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
+      const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero, def.veroAddRegions);
       let expected = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds])).sort();
       const cur = (p.excluded || []).slice().sort();
-      // 🔧 ポリシーが地域単位(Middle East / Europe 等)で除外していれば、
-      //    期待値から該当する個別国を除外する(地域カバーで重複指定不要)
-      expected = shipNormalizeExpectedForRegions(expected, cur).sort();
+      // 🔧 個別国指定に統一する運用のため、normalize(地域→個別展開)は行わない。
+      //    cur に 'Europe' 地域があって expected に個別 EU 国がある場合、
+      //    diff で「Europe が余計 / 27 EU 国が不足」として表示され、
+      //    「デフォルトに戻す」で 個別国リストに置き換えられる。
       if (cur.join('|') !== expected.join('|')) {
         const onlyInCur = cur.filter(c => !expected.includes(c));
         const onlyInDef = expected.filter(c => !cur.includes(c));
@@ -8171,9 +8172,15 @@ const SHIP_VERO_EUROPE_COVERED_COUNTRIES = new Set([
   'ME','MK','MT','RO','RS','RU','SI','SJ','SM','UA','VA'
 ]);
 
-// VeRO ポリシー の場合、baseExcluded から「Europe 地域でカバーされる個別国」を除外
-function shipFilterBaseExcludedForVero(baseExcluded, isVero) {
+// VeRO ポリシー の場合、baseExcluded の重複を除去
+// 🔧 veroAddRegions が 'Europe' 地域を含む場合のみ、Europe カバー個別国を base から除去
+//    (重複回避のため)。veroAddRegions が個別国リストのみの場合は base をそのまま返す
+//    (個別国指定に統一する運用のため、base を維持する方がクリーン)
+function shipFilterBaseExcludedForVero(baseExcluded, isVero, veroAddRegions) {
   if (!isVero || !Array.isArray(baseExcluded)) return baseExcluded;
+  const veroList = Array.isArray(veroAddRegions) ? veroAddRegions : [];
+  // Europe 地域が明示的に指定されている時だけフィルタする
+  if (!veroList.includes('Europe')) return baseExcluded;
   return baseExcluded.filter(c => !SHIP_VERO_EUROPE_COVERED_COUNTRIES.has(c));
 }
 
@@ -10837,7 +10844,7 @@ Object.assign(Shipping, {
       if (s.excluded.enabled && def) {
         const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
         // VeRO の場合、baseExcluded から Europe 地域でカバーされる個別国を除外
-        const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
+        const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero, def.veroAddRegions);
         const expected = Array.from(new Set([...filteredBase, ...veroAdds]));
         p.excluded = expected;
         if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
@@ -11027,7 +11034,7 @@ Object.assign(Shipping, {
     }];
 
     // 除外国を defaults で上書き(VeRO の場合は Europe 地域でカバーされる国を除外)
-    const filteredBase = shipFilterBaseExcludedForVero(freshDef.baseExcluded || [], p.vero);
+    const filteredBase = shipFilterBaseExcludedForVero(freshDef.baseExcluded || [], p.vero, freshDef.veroAddRegions);
     // 🔧 特別設定 (active + service マッチ + targetPriceMax チェック) の追加国も含める
     const specialAdds = [];
     (this.specialRules || []).forEach(rule => {
@@ -11092,7 +11099,7 @@ Object.assign(Shipping, {
     }
     else if (field === 'excluded') {
       const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
-      const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero);
+      const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero, def.veroAddRegions);
       // 🔧 特別設定 (active + service マッチ + targetPriceMax チェック) の追加国も含める
       const specialAdds = [];
       (this.specialRules || []).forEach(rule => {
