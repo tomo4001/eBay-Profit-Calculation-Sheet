@@ -8324,6 +8324,7 @@ Object.assign(Shipping, {
     { id: 'rule_me_expedited', name: '🕊️ 中東情勢(Expedited/Standard 向け)', description: 'FedEx/DHL/UPS の戦争による一時停止国(SyriaはeBay UIに無いため除外)', countries: ['AE','SA','QA','KW','BH','OM','JO','LB','IQ'], targetServices: ['Expedited','Standard'], active: true },
     { id: 'rule_me_economy',   name: '🕊️ 中東情勢(Economy 向け)',           description: '日本郵便の戦争による一時停止国(IranはeBay UIに無いため除外)', countries: ['AE','IL','IQ','EG','OM','QA','KW','SA','TR','BH','JO','LB'], targetServices: ['Economy'], active: true },
     { id: 'rule_eu_ioss_economy', name: '🇪🇺 EU IOSS 返送リスク(Economy 向け)', description: '2026年7月〜 EU€150未満免税撤廃。IOSS利用+€150未満+BtoCで返送リスクのある7国。ドイツは別途CPaSS Economy(DDP)+追加送料で対応するため除外しない。$180 以下の価格レンジポリシーのみ対象(€150 相当)。', countries: ['AT','DK','FI','FR','BE','PT','LU'], targetServices: ['Economy'], targetPriceMax: 180, active: true },
+    { id: 'rule_eu_right_to_repair', name: '⚖️ EU 全除外 (Right to Repair 対応)', description: '2026年7月31日発効 EU Right to Repair Directive による修理/交換義務対応。中古/一点物の性質上、修理サービス提供が困難なため、eBay からの正式ガイダンス受領まで EU 27カ国を一時的に全除外する。UK は EU 離脱済のため対象外(別途デフォルト除外で管理)。【使い方】① 有効化 → 一括反映で除外反映 / ② eBay 回答受領後 → 無効化 → 一括反映で除外解除。', countries: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE'], targetServices: ['Expedited','Economy','Standard','Other'], active: false },
   ],
   currentDefaultType: 'Expedited',
   editingRuleId: null,
@@ -8394,6 +8395,24 @@ Object.assign(Shipping, {
         rulesChanged = true;
         console.log('[Shipping] マイグレーション: rule_eu_ioss_economy に targetPriceMax:180 を追加しました');
       }
+
+      // 🔧 マイグレーション: rule_eu_right_to_repair を自動追加
+      // (2026年7月31日発効 EU Right to Repair Directive 対応。デフォルトは無効。)
+      const existingR2R = (this.specialRules || []).find(r => r && r.id === 'rule_eu_right_to_repair');
+      if (!existingR2R) {
+        this.specialRules = this.specialRules || [];
+        this.specialRules.push({
+          id: 'rule_eu_right_to_repair',
+          name: '⚖️ EU 全除外 (Right to Repair 対応)',
+          description: '2026年7月31日発効 EU Right to Repair Directive による修理/交換義務対応。中古/一点物の性質上、修理サービス提供が困難なため、eBay からの正式ガイダンス受領まで EU 27カ国を一時的に全除外する。UK は EU 離脱済のため対象外(別途デフォルト除外で管理)。【使い方】① 有効化 → 一括反映で除外反映 / ② eBay 回答受領後 → 無効化 → 一括反映で除外解除。',
+          countries: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE'],
+          targetServices: ['Expedited','Economy','Standard','Other'],
+          active: false,
+        });
+        rulesChanged = true;
+        console.log('[Shipping] マイグレーション: rule_eu_right_to_repair を追加しました (デフォルトは無効)');
+      }
+
       if (rulesChanged) {
         localStorage.setItem(SHIP_STORAGE_RULES, JSON.stringify(this.specialRules));
       }
