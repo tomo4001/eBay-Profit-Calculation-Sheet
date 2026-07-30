@@ -8654,12 +8654,13 @@ Object.assign(Shipping, {
             <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
               <input type="text" id="shipDefVeroAddNew" list="shipCountryDatalist" placeholder="国コード / 地域名 (Europe, DE, FR 等)" style="flex:1; min-width:180px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addVeroAddRegion();}" />
               <button class="ship-btn-add-chip" onclick="Shipping.addVeroAddRegion()">+ 追加</button>
-              <button type="button" onclick="Shipping.addVeroEUPreset()" style="padding:6px 12px; background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; font-size:12px; cursor:pointer; color:#1e3a8a; font-weight:600;" title="主要 EU 国を一括追加(GB を除く)">🇪🇺 主要 EU 国 一括追加</button>
+              <button type="button" onclick="Shipping.addVeroEuropeMinusGBPreset()" style="padding:6px 12px; background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; font-size:12px; cursor:pointer; color:#1e3a8a; font-weight:600;" title="ヨーロッパ 48カ国を一括追加(GB を除く)">🇪🇺 ヨーロッパ 48カ国 (GB 除く) 一括追加</button>
             </div>
             <div style="font-size:11px; color:#6b7280; margin-top:6px;">
-              💡 VeRO ポリシーの除外国リストに <strong>追加</strong> される項目。「Europe」で地域一括、個別国コード(GB, DE, FR 等)も可。<br>
-              🇬🇧 GB を含めない = VeRO でも GB へ発送可能。<br>
-              🇪🇺 「主要 EU 国 一括追加」= DE / FR / IT / ES / NL / BE / PL / AT / SE / DK / FI / PT / IE / GR / CZ / HU / RO / BG / SK / SI / HR / LT / LV / EE / MT / CY / LU (GB 含まず)
+              💡 VeRO ポリシーの除外国リストに <strong>追加</strong> される項目。個別国コード(DE, FR 等)を直接指定。<br>
+              🇬🇧 GB (イギリス) を含めない = VeRO でも GB へ発送可能。<br>
+              🇪🇺 「ヨーロッパ 48カ国 (GB 除く) 一括追加」= ヨーロッパグループ (49カ国) から GB だけ除いた 48 カ国を一気に追加。<br>
+              ⚠️ 「Europe」地域指定は使わず個別国方式で統一。地域指定だと GB を除外リストから外せないため。
             </div>
           </div>
         </div>
@@ -9443,21 +9444,24 @@ Object.assign(Shipping, {
     this._persistDefaults();
     this.renderDefaultForm();
   },
-  // 🇪🇺 主要 EU 国 (GB を除く) を一括追加。既存の Europe チップがあれば削除して個別国に切替
-  addVeroEUPreset() {
-    const EU_MAJOR = ['DE','FR','IT','ES','NL','BE','PL','AT','SE','DK','FI','PT','IE','GR','CZ','HU','RO','BG','SK','SI','HR','LT','LV','EE','MT','CY','LU'];
+  // 🇪🇺 ヨーロッパ 48カ国 (GB を除く) を一括追加。
+  // ヨーロッパグループ (49国) から GB だけ除いた 48国を veroAddRegions に入れる。
+  // これで VeRO ポリシーが個別国指定で 48カ国を除外 = GB のみ発送可能。
+  addVeroEuropeMinusGBPreset() {
+    // SHIP_COUNTRY_GROUPS の ヨーロッパ (49) から GB を除外
+    const EUROPE_ALL = (SHIP_COUNTRY_GROUPS['🇪🇺 ヨーロッパ (49)']?.items || []).filter(c => c !== 'GB');
     const d = this.defaults[this.currentDefaultType];
     if (!Array.isArray(d.veroAddRegions)) d.veroAddRegions = [];
     // Europe 地域チップは個別国に置き換えるので削除
     d.veroAddRegions = d.veroAddRegions.filter(c => c !== 'Europe');
-    // 重複を避けて追加
-    EU_MAJOR.forEach(c => {
-      if (!d.veroAddRegions.includes(c)) d.veroAddRegions.push(c);
-    });
+    // 既存の個別国もクリアして、48 カ国だけの状態にする
+    d.veroAddRegions = EUROPE_ALL.slice();
     this._persistDefaults();
     this.renderDefaultForm();
-    console.log('[Shipping] VeRO 追加除外に主要 EU 国を一括追加:', EU_MAJOR.length + '件');
+    console.log('[Shipping] VeRO 追加除外を ヨーロッパ 48カ国 (GB を除く) に置換:', EUROPE_ALL.length + '件');
   },
+  // (旧関数は後方互換のため残す)
+  addVeroEUPreset() { return this.addVeroEuropeMinusGBPreset(); },
   removeRuleCountry(code) {
     this.editingRuleCountries = this.editingRuleCountries.filter(c => c !== code);
     this.renderRuleCountryChips();
