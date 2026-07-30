@@ -9843,12 +9843,32 @@ Object.assign(Shipping, {
       <div class="ship-modal-section">
         <div class="ship-modal-section-title">🌐 除外国 (チェックで除外)</div>
         ${matchingRulesBanner}
-        ${diffByField['excluded'] ? `
-          <div class="ship-section-diff-banner">
-            <span>⚠️ 除外国がデフォルトと異なります(default: <strong>${diffByField['excluded'].def}</strong> / 現在: <strong>${diffByField['excluded'].cur}</strong>)</span>
-            <button class="ship-field-reset" onclick="Shipping.resetFieldToDefault('excluded')">↩ デフォルトに戻す</button>
-          </div>
-        ` : `<div style="font-size:11px; color:#166534; background:#dcfce7; padding:5px 10px; border-radius:4px; margin-bottom:8px; display:inline-block;">✓ デフォルト通り</div>`}
+        ${diffByField['excluded'] ? (() => {
+          const ex = diffByField['excluded'].extra || {};
+          const onlyInDef = ex.onlyInDef || [];  // デフォルトにあるが現在に無い(不足)
+          const onlyInCur = ex.onlyInCur || [];  // 現在にあるがデフォルトに無い(余計)
+          const missingHtml = onlyInDef.length > 0
+            ? `<div style="margin-top:6px; font-size:12px;">
+                 <span style="color:#dc2626; font-weight:600;">➖ デフォルトにあるが除外していない (${onlyInDef.length}件):</span>
+                 <div style="margin-top:2px;">${onlyInDef.map(c => `<code style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:3px; margin:1px; display:inline-block; font-size:11px;">${c}</code>`).join(' ')}</div>
+               </div>`
+            : '';
+          const extraHtml = onlyInCur.length > 0
+            ? `<div style="margin-top:6px; font-size:12px;">
+                 <span style="color:#059669; font-weight:600;">➕ 現在除外しているがデフォルトに無い (${onlyInCur.length}件):</span>
+                 <div style="margin-top:2px;">${onlyInCur.map(c => `<code style="background:#d1fae5; color:#065f46; padding:1px 6px; border-radius:3px; margin:1px; display:inline-block; font-size:11px;">${c}</code>`).join(' ')}</div>
+               </div>`
+            : '';
+          return `<div class="ship-section-diff-banner" style="flex-direction:column; align-items:flex-start;">
+            <div style="display:flex; align-items:center; gap:8px; width:100%;">
+              <span>⚠️ 除外国がデフォルトと異なります(default: <strong>${diffByField['excluded'].def}</strong> / 現在: <strong>${diffByField['excluded'].cur}</strong>)</span>
+              <span style="flex:1;"></span>
+              <button class="ship-field-reset" onclick="Shipping.resetFieldToDefault('excluded')">↩ デフォルトに戻す</button>
+            </div>
+            ${missingHtml}
+            ${extraHtml}
+          </div>`;
+        })() : `<div style="font-size:11px; color:#166534; background:#dcfce7; padding:5px 10px; border-radius:4px; margin-bottom:8px; display:inline-block;">✓ デフォルト通り</div>`}
         <div style="font-size:11px; color:#888; margin-bottom:8px;">現在 <strong>${this.editingPolicyExcluded.length}</strong> 項目除外中 / デフォルト <strong>${def ? ((def.baseExcluded||[]).length + (p.vero && (def.veroAddRegions||[]).includes('Europe') ? 1 : 0)) : '-'}</strong> 項目想定</div>
         ${groupsHtml}
       </div>
