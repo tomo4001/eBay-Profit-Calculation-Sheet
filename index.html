@@ -10667,7 +10667,37 @@ Object.assign(Shipping, {
             <td style="padding:8px; text-align:center;">${ck('beField_excluded', s.excluded.enabled)}</td>
             <td style="padding:8px; font-weight:600;">除外国</td>
             <td style="padding:8px; font-size:12px;">
-              ${s.excluded.enabled ? '✓ <strong>各サービスのデフォルト除外国に上書き</strong>(VeRO の場合はヨーロッパも追加)' : '<span style="color:#888;">チェックを入れるとサービスデフォルトに上書きされます</span>'}
+              ${(() => {
+                // 選択中のポリシーが持つサービス種別に応じて、実際に適用される内訳を計算・表示
+                const presentSvcs = Array.from(new Set(selectedPolicies.map(p => p.service)));
+                const activeRules = (this.specialRules || []).filter(r => r.active);
+                const svcLines = presentSvcs.map(svc => {
+                  const def = this.defaults[svc];
+                  if (!def) return null;
+                  const baseCount = (def.baseExcluded || []).length;
+                  const veroCount = (def.veroAddRegions || []).length;
+                  const svcActiveRules = activeRules.filter(r => (r.targetServices || []).includes(svc));
+                  const ruleDesc = svcActiveRules.length > 0
+                    ? svcActiveRules.map(r => `${r.name} (+${r.countries.length}${r.targetPriceMax != null ? ` / $${r.targetPriceMax}以下のみ` : ''})`).join(', ')
+                    : '(該当なし)';
+                  return `
+                    <div style="margin-bottom:4px;">
+                      <strong>${svc}:</strong> デフォルト ${baseCount}カ国 ${veroCount>0 ? `+ VeRO時 ${veroCount}地域追加` : ''} + 有効な特別設定: <span style="color:#0f766e;">${ruleDesc}</span>
+                    </div>
+                  `;
+                }).filter(Boolean).join('');
+                const veroInfo = veroCount > 0 ? `<div style="color:#92400e; margin-top:4px;">⚠️ VeRO ${veroCount}件: 各サービスの <strong>veroAddRegions</strong> が追加で excluded に入ります</div>` : '';
+                return `
+                  <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:4px; padding:8px 10px; margin-bottom:8px; font-size:11px; color:#166534;">
+                    <div style="font-weight:700; margin-bottom:6px;">📌 適用時の内訳 (選択中ポリシーのサービス別):</div>
+                    ${svcLines || '<em>選択中のポリシーが判定不能</em>'}
+                    ${veroInfo}
+                  </div>
+                  ${s.excluded.enabled
+                    ? '<div style="color:#166534;">✓ <strong>適用対象:</strong> 上記内訳で計算された除外国リストに上書きされます</div>'
+                    : '<div style="color:#888;">チェックを入れると、上記内訳の除外国リストで上書きされます</div>'}
+                `;
+              })()}
               <div style="font-size:11px; color:#888; margin-top:4px;">※ 細かい追加/解除は別途「🚫 除外国(追加/解除)」モーダルから</div>
             </td>
           </tr>
@@ -10744,6 +10774,35 @@ Object.assign(Shipping, {
   bulkEditExitServiceDefaultsMode() {
     this.bulkEditState._useServiceDefaults = false;
     this.bulkEditState._dominantService = null;
+    this.renderBulkEditForm();
+  },
+
+  // 🕊️ 除外国だけをデフォルト(baseExcluded + VeRO + 特別設定)で再計算するプリセット
+  //    他項目 (送料/HT/Destinations 等) には一切触らない。
+  //    特別設定の ON/OFF 変更後の一括反映用途。
+  bulkEditApplyExcludedOnly() {
+    this.loadSettings();
+    const s = this.bulkEditState;
+
+    // 全項目 OFF にリセット (excluded 以外は触らない)
+    s.shippingMethod = { enabled: false, value: s.shippingMethod?.value || 'STANDARD' };
+    s.domCostType    = { enabled: false, value: s.domCostType?.value || 'FLAT_RATE' };
+    s.domServiceCode = { enabled: false, value: s.domServiceCode?.value || (SHIP_DOMESTIC_SERVICES[0]?.code || '') };
+    s.intlServiceCode= { enabled: false, value: s.intlServiceCode?.value || (SHIP_INTERNATIONAL_SERVICES[0]?.code || '') };
+    s.intlCost       = { enabled: false, value: s.intlCost?.value || 0, addtl: s.intlCost?.addtl || 0 };
+    s.handlingTime   = { enabled: false, value: s.handlingTime?.value || 10 };
+    s.destinations   = { enabled: false, value: s.destinations?.value || SHIP_INTL_DESTINATIONS.map(d => d.code) };
+    s.domesticCost   = { enabled: false, useMaster: false };
+    s.domesticAddtl  = { enabled: false, mode: s.domesticAddtl?.mode || 'serviceDefault', percent: s.domesticAddtl?.percent || 100, fixed: s.domesticAddtl?.fixed || 0 };
+
+    // 除外国だけ ON、デフォルト(baseExcluded + veroAdds + specialAdds)で再計算
+    s.excluded = { enabled: true, mode: 'default' };
+
+    // _useServiceDefaults は不要 (excluded は applyBulkEdit 内で常にサービス別 defaults を参照)
+    s._useServiceDefaults = false;
+    s._dominantService = null;
+
+    console.log('[BulkEdit] 除外国だけ更新プリセット適用: 除外国のみ有効化 / 他項目は OFF');
     this.renderBulkEditForm();
   },
   applyBulkEdit() {
@@ -10863,12 +10922,21 @@ Object.assign(Shipping, {
         p._raw.handlingTime = { value: ht, unit: 'DAY' };
       }
 
-      // Excluded countries (デフォルトに上書き、VeRO ならヨーロッパ追加)
+      // Excluded countries (デフォルトに上書き、VeRO ならヨーロッパ追加、特別設定も反映)
       if (s.excluded.enabled && def) {
         const veroAdds = (p.vero && def.veroAddRegions) ? def.veroAddRegions : [];
         // VeRO の場合、baseExcluded から Europe 地域でカバーされる個別国を除外
         const filteredBase = shipFilterBaseExcludedForVero(def.baseExcluded || [], p.vero, def.veroAddRegions);
-        const expected = Array.from(new Set([...filteredBase, ...veroAdds]));
+        // 🔧 特別設定 (active + service マッチ + targetPriceMax チェック) の追加国も含める
+        //    これが無いと EU Right to Repair 等の特別設定を有効化しても一括反映で除外国に入らない
+        const specialAdds = [];
+        (this.specialRules || []).forEach(rule => {
+          if (!rule.active) return;
+          if (!rule.targetServices || !rule.targetServices.includes(p.service)) return;
+          if (rule.targetPriceMax != null && p.priceMax != null && p.priceMax > rule.targetPriceMax) return;
+          (rule.countries || []).forEach(c => specialAdds.push(c));
+        });
+        const expected = Array.from(new Set([...filteredBase, ...veroAdds, ...specialAdds]));
         p.excluded = expected;
         if (!p._raw.shipToLocations) p._raw.shipToLocations = {};
         p._raw.shipToLocations.regionExcluded = expected.map(c => ({ regionName: c }));
@@ -12399,12 +12467,25 @@ Object.assign(Shipping, {
     </p>
 
     <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; padding:12px 14px; margin-bottom:14px;">
-      <div style="font-weight:700; color:#92400e; margin-bottom:6px;">📋 全項目をデフォルトに揃える</div>
-      <div style="font-size:12px; color:#92400e; margin-bottom:8px;">
-        各ポリシーのサービス種別(Expedited/Economy/Standard)に応じたデフォルト値を一括適用。
-        VeRO ポリシーはヨーロッパが除外に追加されます。Domestic 送料は <strong>価格上限 × マスター率%</strong> で再計算。
+      <div style="font-weight:700; color:#92400e; margin-bottom:6px;">⚡ プリセット (どちらかをクリック → 下部で確認 → 適用)</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:6px;">
+        <div style="background:#fff; border:1px solid #fcd34d; border-radius:6px; padding:10px;">
+          <div style="font-size:12px; color:#92400e; margin-bottom:8px; line-height:1.5;">
+            <strong>📋 全項目をデフォルトに揃える</strong><br>
+            全項目(送料/HT/Destinations/除外国等)を各サービスのデフォルトに一括リセット。<br>
+            Domestic 送料は <strong>価格上限 × マスター率%</strong> で再計算。
+          </div>
+          <button class="ship-btn-save" onclick="Shipping.bulkEditApplyAllDefaults()" style="background:#f59e0b; width:100%;">📋 全項目をデフォルトに揃える</button>
+        </div>
+        <div style="background:#fff; border:1px solid #86efac; border-radius:6px; padding:10px;">
+          <div style="font-size:12px; color:#166534; margin-bottom:8px; line-height:1.5;">
+            <strong>🕊️ 除外国だけ更新</strong> (デフォルト + VeRO + 特別設定 を再計算)<br>
+            送料/HT/Destinations 等は<strong>触らない</strong>。除外国だけ更新。<br>
+            特別設定 (EU Right to Repair 等) の ON/OFF 変更後の一括反映に最適。
+          </div>
+          <button class="ship-btn-save" onclick="Shipping.bulkEditApplyExcludedOnly()" style="background:#16a34a; width:100%;">🕊️ 除外国だけ更新</button>
+        </div>
       </div>
-      <button class="ship-btn-save" onclick="Shipping.bulkEditApplyAllDefaults()" style="background:#f59e0b;">📋 全項目をデフォルトに揃える</button>
     </div>
 
     <div id="shipBulkEditContent"></div>
