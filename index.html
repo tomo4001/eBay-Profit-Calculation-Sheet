@@ -9850,13 +9850,13 @@ Object.assign(Shipping, {
           const missingHtml = onlyInDef.length > 0
             ? `<div style="margin-top:6px; font-size:12px;">
                  <span style="color:#dc2626; font-weight:600;">➖ デフォルトにあるが除外していない (${onlyInDef.length}件):</span>
-                 <div style="margin-top:2px;">${onlyInDef.map(c => `<code style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:3px; margin:1px; display:inline-block; font-size:11px;">${c}</code>`).join(' ')}</div>
+                 <div style="margin-top:2px;">${onlyInDef.map(c => `<span style="background:#fee2e2; color:#991b1b; padding:2px 8px; border-radius:3px; margin:2px; display:inline-block; font-size:11px;">${shipDisplayCountry(c)}</span>`).join(' ')}</div>
                </div>`
             : '';
           const extraHtml = onlyInCur.length > 0
             ? `<div style="margin-top:6px; font-size:12px;">
                  <span style="color:#059669; font-weight:600;">➕ 現在除外しているがデフォルトに無い (${onlyInCur.length}件):</span>
-                 <div style="margin-top:2px;">${onlyInCur.map(c => `<code style="background:#d1fae5; color:#065f46; padding:1px 6px; border-radius:3px; margin:1px; display:inline-block; font-size:11px;">${c}</code>`).join(' ')}</div>
+                 <div style="margin-top:2px;">${onlyInCur.map(c => `<span style="background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:3px; margin:2px; display:inline-block; font-size:11px;">${shipDisplayCountry(c)}</span>`).join(' ')}</div>
                </div>`
             : '';
           return `<div class="ship-section-diff-banner" style="flex-direction:column; align-items:flex-start;">
