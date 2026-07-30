@@ -2633,6 +2633,7 @@
         <button class="ship-btn-refresh" style="background:#7c3aed;" onclick="Shipping.openSnapshotModal()">📸 スナップショット</button>
         <button class="ship-btn-refresh" style="background:#6b7280;" onclick="Shipping.openSettingsModal()">⚙️ 設定</button>
         <button class="ship-btn-refresh" id="shipRefreshBtn" onclick="Shipping.fetchPolicies()">🔄 最新を取得</button>
+        <button class="ship-btn-refresh" id="shipErrLogBtn" style="background:#7c2d12;" onclick="Shipping.openErrLogModal()" title="エラー履歴を表示(パターン分析用)">🔴 エラー履歴</button>
       </div>
     </div>
 
@@ -7104,8 +7105,35 @@ const Shipping = {
       }
     }
 
+    // 🔴 整合性チェック: 名前の (X$) と実際の domesticCost が一致するか
+    // 例: "Expedited 10 Days 20~40$ (7$)" なのに domesticCost=6 → 履歴に記録
+    if (typeof ShipErrLog !== 'undefined') {
+      const nameCostMatch = name.match(/\((\d+(?:\.\d+)?)\$\)/);
+      if (nameCostMatch) {
+        const nameCost = parseFloat(nameCostMatch[1]);
+        if (Math.abs(nameCost - domesticCost) > 0.001) {
+          ShipErrLog.add({
+            type: 'name_cost_mismatch_on_fetch',
+            severity: 'warn',
+            message: `eBay取得時: 名前 "$${nameCost}" ≠ 実料金 $${domesticCost}`,
+            context: { policyId: p.fulfillmentPolicyId, name, nameCost, actualCost: domesticCost },
+          });
+        }
+      }
+    }
+
     // 除外国
     const excluded = ((p.shipToLocations && p.shipToLocations.regionExcluded) || []).map(r => r.regionName);
+
+    // 🔴 除外国が空だが VeRO/service デフォルトでは除外があるべきポリシー(空リストは通常異常)
+    if (typeof ShipErrLog !== 'undefined' && excluded.length === 0 && (service === 'Expedited' || service === 'Economy' || service === 'Standard')) {
+      ShipErrLog.add({
+        type: 'empty_excluded_on_fetch',
+        severity: 'error',
+        message: `eBay取得時: 除外国リストが空です(${service} デフォルトでは通常63件以上)`,
+        context: { policyId: p.fulfillmentPolicyId, name, service },
+      });
+    }
 
     return {
       id: p.fulfillmentPolicyId,
@@ -7981,6 +8009,47 @@ const SHIP_STORAGE_DEFAULTS    = 'shipping_defaults_v1';
 const SHIP_STORAGE_RULES       = 'shipping_special_rules_v1';
 const SHIP_STORAGE_MASTER_RATE = 'shipping_master_rate_v1';
 const SHIP_STORAGE_SNAPSHOTS   = 'shipping_snapshots_v1';
+const SHIP_STORAGE_ERRLOG      = 'shipping_error_log_v1';   // 🔴 エラー履歴(パターン分析用)
+const SHIP_ERRLOG_MAX_ENTRIES  = 500;                        // ローテーション上限
+
+// 🔴 エラー履歴: 細かい不整合や失敗を積み上げてパターン分析するための仕組み
+// 使い方: ShipErrLog.add({ type: 'name_cost_mismatch', message: '...', context: {...} })
+const ShipErrLog = {
+  add(entry) {
+    try {
+      const list = this._read();
+      list.push({
+        ts: new Date().toISOString(),
+        type: entry.type || 'unknown',
+        message: entry.message || '',
+        severity: entry.severity || 'warn',   // 'error' | 'warn' | 'info'
+        context: entry.context || null,
+      });
+      // ローテーション: 古いものから削除
+      while (list.length > SHIP_ERRLOG_MAX_ENTRIES) list.shift();
+      localStorage.setItem(SHIP_STORAGE_ERRLOG, JSON.stringify(list));
+      console.warn('[ShipErrLog]', entry.type, entry.message, entry.context || '');
+    } catch (e) {
+      console.error('ShipErrLog.add failed:', e);
+    }
+  },
+  _read() {
+    try {
+      const raw = localStorage.getItem(SHIP_STORAGE_ERRLOG);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  },
+  all() { return this._read(); },
+  clear() {
+    localStorage.removeItem(SHIP_STORAGE_ERRLOG);
+    console.log('[ShipErrLog] cleared');
+  },
+  countByType() {
+    const map = {};
+    this._read().forEach(e => { map[e.type] = (map[e.type] || 0) + 1; });
+    return map;
+  },
+};
 
 // eBay「Europe」グループの26カ国(VeRO時に一括除外)
 const SHIP_EUROPE_CODES = [
@@ -8086,7 +8155,8 @@ const SHIP_INTL_DESTINATIONS = [
   { code: 'RU',       label: 'Russian Federation'      },
 ];
 // VeRO ポリシーで除外されるべき Destinations コード(Europe 関連)
-const SHIP_VERO_EXCLUDED_DESTINATIONS = ['Europe', 'GB', 'DE', 'FR'];
+// 🇬🇧 GB(イギリス)は 2026-06-XX ユーザー判断により VeRO でも発送可 → 除外リストから外した
+const SHIP_VERO_EXCLUDED_DESTINATIONS = ['Europe', 'DE', 'FR'];
 // VeRO ポリシー用に Destinations から Europe 関連を除外するヘルパー
 function shipFilterDestinationsForVero(destinations, isVero) {
   if (!isVero || !Array.isArray(destinations)) return destinations;
@@ -8563,10 +8633,24 @@ Object.assign(Shipping, {
           </select>
         </div>
 
-        <div class="ship-field">
-          <label>VeRO 時の追加</label>
-          <div style="display:flex; gap:14px;">
-            <label style="font-weight:normal; cursor:pointer;"><input type="checkbox" id="shipDefVeroAddEurope" ${(d.veroAddRegions||[]).includes('Europe')?'checked':''} onchange="Shipping.collectCurrentDefaultForm()" /> ヨーロッパ地域全部を追加除外</label>
+        <div class="ship-field" style="align-items:flex-start;">
+          <label style="padding-top:6px;">VeRO 時の追加除外</label>
+          <div style="flex:1;">
+            <div class="ship-country-chips" id="shipDefVeroAddChips">
+              ${(d.veroAddRegions||[]).map(c => `
+                <span class="ship-country-chip">${c}<button type="button" onclick="Shipping.removeVeroAddRegion('${c}')" title="削除">×</button></span>
+              `).join('')}
+            </div>
+            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+              <input type="text" id="shipDefVeroAddNew" list="shipCountryDatalist" placeholder="国コード / 地域名 (Europe, DE, FR 等)" style="flex:1; min-width:180px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addVeroAddRegion();}" />
+              <button class="ship-btn-add-chip" onclick="Shipping.addVeroAddRegion()">+ 追加</button>
+              <button type="button" onclick="Shipping.addVeroEUPreset()" style="padding:6px 12px; background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; font-size:12px; cursor:pointer; color:#1e3a8a; font-weight:600;" title="主要 EU 国を一括追加(GB を除く)">🇪🇺 主要 EU 国 一括追加</button>
+            </div>
+            <div style="font-size:11px; color:#6b7280; margin-top:6px;">
+              💡 VeRO ポリシーの除外国リストに <strong>追加</strong> される項目。「Europe」で地域一括、個別国コード(GB, DE, FR 等)も可。<br>
+              🇬🇧 GB を含めない = VeRO でも GB へ発送可能。<br>
+              🇪🇺 「主要 EU 国 一括追加」= DE / FR / IT / ES / NL / BE / PL / AT / SE / DK / FI / PT / IE / GR / CZ / HU / RO / BG / SK / SI / HR / LT / LV / EE / MT / CY / LU (GB 含まず)
+            </div>
           </div>
         </div>
 
@@ -8697,13 +8781,8 @@ Object.assign(Shipping, {
     const ht = v('shipDefHT');
     if (ht) d.handlingTime = parseInt(ht);
 
-    // VeRO 時 Europe 追加除外
-    const veroEU = checked('shipDefVeroAddEurope');
-    if (veroEU != null) {
-      const set = new Set(d.veroAddRegions || []);
-      if (veroEU) set.add('Europe'); else set.delete('Europe');
-      d.veroAddRegions = Array.from(set);
-    }
+    // VeRO 時 追加除外 は チップ UI で addVeroAddRegion/removeVeroAddRegion により
+    // 直接 d.veroAddRegions に反映されるので、ここでは何もしない
 
     // 🔄 変更を localStorage に自動保存(オートセーブ。保存ボタンを押さなくても永続化)
     try {
@@ -8904,6 +8983,63 @@ Object.assign(Shipping, {
     }
     this.renderMasterRateApplyPreview();
     document.getElementById('shipMasterRateApplyModal').classList.add('active');
+  },
+
+  // 🔴 エラー履歴 モーダル
+  openErrLogModal() {
+    this.renderErrLog();
+    document.getElementById('shipErrLogModal').classList.add('active');
+  },
+  renderErrLog() {
+    const entries = ShipErrLog.all().slice().reverse();  // 新しい順
+    const summaryEl = document.getElementById('shipErrLogSummary');
+    const contentEl = document.getElementById('shipErrLogContent');
+    if (!summaryEl || !contentEl) return;
+
+    // サマリー: type ごとの件数
+    const byType = ShipErrLog.countByType();
+    const summaryLine = Object.entries(byType)
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, c]) => `<span style="display:inline-block; margin:2px 4px; padding:3px 10px; background:#fee2e2; color:#7f1d1d; border-radius:4px; font-size:11px;">${t}: <strong>${c}</strong></span>`)
+      .join('');
+    summaryEl.innerHTML = entries.length === 0
+      ? '<div style="color:#888; padding:8px;">エラー履歴なし ✓</div>'
+      : `<div style="font-size:12px; margin-bottom:6px;">合計 <strong>${entries.length}</strong> 件 (${SHIP_ERRLOG_MAX_ENTRIES}件まで保持)</div>${summaryLine}`;
+
+    if (entries.length === 0) { contentEl.innerHTML = ''; return; }
+
+    contentEl.innerHTML = entries.map(e => {
+      const color = e.severity === 'error' ? '#dc2626' : (e.severity === 'warn' ? '#d97706' : '#0369a1');
+      const ts = new Date(e.ts).toLocaleString('ja-JP');
+      const ctx = e.context ? `<pre style="font-size:10px; color:#6b7280; margin:4px 0 0; white-space:pre-wrap;">${JSON.stringify(e.context, null, 2).replace(/</g,'&lt;').slice(0, 500)}</pre>` : '';
+      return `<div style="border-left:3px solid ${color}; padding:6px 10px; margin-bottom:6px; background:#fff; border-radius:4px;">
+        <div style="font-size:11px; color:#6b7280;">${ts}</div>
+        <div style="font-size:12px; font-weight:600; color:${color};">[${e.type}]</div>
+        <div style="font-size:12px; margin-top:2px;">${(e.message||'').replace(/</g,'&lt;')}</div>
+        ${ctx}
+      </div>`;
+    }).join('');
+  },
+  clearErrLog() {
+    if (!confirm('エラー履歴を全て削除しますか?(パターン分析の材料が失われます)')) return;
+    ShipErrLog.clear();
+    this.renderErrLog();
+  },
+  exportErrLog() {
+    const json = JSON.stringify(ShipErrLog.all(), null, 2);
+    try {
+      navigator.clipboard.writeText(json);
+      alert(`✓ ${ShipErrLog.all().length} 件のエラー履歴をクリップボードにコピーしました`);
+    } catch (e) {
+      // フォールバック: textarea
+      const ta = document.createElement('textarea');
+      ta.value = json;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      alert(`✓ コピー完了 (${ShipErrLog.all().length} 件)`);
+    }
   },
 
   _mrSortKey: 'diffDesc',
@@ -9267,6 +9403,50 @@ Object.assign(Shipping, {
     this.renderRuleCountryChips();
     input.value = '';
     input.focus();
+  },
+
+  // 🇬🇧 VeRO 追加除外 チップ管理
+  addVeroAddRegion() {
+    const input = document.getElementById('shipDefVeroAddNew');
+    if (!input) return;
+    const v = input.value.trim();
+    if (!v) return;
+    // 入力を正規化(地域名はそのまま、2文字コードは大文字化、国名なら code に変換)
+    let code = v;
+    if (['Europe','Africa','Asia','Americas','South America','Central America and Caribbean','Middle East','Oceania'].includes(v)) {
+      code = v;
+    } else if (v.length === 2 && SHIP_COUNTRY_NAME[v.toUpperCase()]) {
+      code = v.toUpperCase();
+    } else {
+      const found = Object.entries(SHIP_COUNTRY_NAME).find(([c, n]) => n.toLowerCase() === v.toLowerCase());
+      if (found) code = found[0];
+    }
+    const d = this.defaults[this.currentDefaultType];
+    if (!Array.isArray(d.veroAddRegions)) d.veroAddRegions = [];
+    if (!d.veroAddRegions.includes(code)) d.veroAddRegions.push(code);
+    this._persistDefaults();
+    this.renderDefaultForm();
+  },
+  removeVeroAddRegion(code) {
+    const d = this.defaults[this.currentDefaultType];
+    d.veroAddRegions = (d.veroAddRegions || []).filter(c => c !== code);
+    this._persistDefaults();
+    this.renderDefaultForm();
+  },
+  // 🇪🇺 主要 EU 国 (GB を除く) を一括追加。既存の Europe チップがあれば削除して個別国に切替
+  addVeroEUPreset() {
+    const EU_MAJOR = ['DE','FR','IT','ES','NL','BE','PL','AT','SE','DK','FI','PT','IE','GR','CZ','HU','RO','BG','SK','SI','HR','LT','LV','EE','MT','CY','LU'];
+    const d = this.defaults[this.currentDefaultType];
+    if (!Array.isArray(d.veroAddRegions)) d.veroAddRegions = [];
+    // Europe 地域チップは個別国に置き換えるので削除
+    d.veroAddRegions = d.veroAddRegions.filter(c => c !== 'Europe');
+    // 重複を避けて追加
+    EU_MAJOR.forEach(c => {
+      if (!d.veroAddRegions.includes(c)) d.veroAddRegions.push(c);
+    });
+    this._persistDefaults();
+    this.renderDefaultForm();
+    console.log('[Shipping] VeRO 追加除外に主要 EU 国を一括追加:', EU_MAJOR.length + '件');
   },
   removeRuleCountry(code) {
     this.editingRuleCountries = this.editingRuleCountries.filter(c => c !== code);
@@ -11556,9 +11736,36 @@ Object.assign(Shipping, {
             detail: data.detail,
             isNew,
           });
+          // 🔴 エラー履歴に記録
+          try {
+            const ebayErr = data.detail?.errors?.[0];
+            ShipErrLog.add({
+              type: 'push_failed_bulk',
+              severity: 'error',
+              message: `一括PUT失敗 (HTTP ${data.status || res.status}): ${ebayErr?.longMessage || ebayErr?.message || data.error || '不明'}`,
+              context: {
+                policyId: p.id,
+                policyName: p.name,
+                domesticCost: p.domesticCost,
+                isNew,
+                httpStatus: data.status || res.status,
+                errorId: ebayErr?.errorId,
+                longMessage: ebayErr?.longMessage,
+                parameters: ebayErr?.parameters,
+              },
+            });
+          } catch (_) {}
         }
       } catch (e) {
         results.failed.push({ id: p.id, name: p.name, error: e.message });
+        try {
+          ShipErrLog.add({
+            type: 'push_bulk_network_error',
+            severity: 'error',
+            message: 'ネットワークエラー: ' + e.message,
+            context: { policyId: p.id, policyName: p.name },
+          });
+        } catch (_) {}
       }
 
       // 進捗 + レート制限対策の delay
@@ -11729,10 +11936,37 @@ Object.assign(Shipping, {
         // 失敗時はボタンを元に戻して再試行を可能にする
         if (btn) { btn.disabled = false; btn.textContent = origText; btn.style.background = origBg; }
         const detail = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail, null, 2)) : '(不明)';
+        // 🔴 エラー履歴に記録
+        try {
+          const ebayErr = data.detail?.errors?.[0];
+          ShipErrLog.add({
+            type: 'push_failed_single',
+            severity: 'error',
+            message: `PUT 失敗 (HTTP ${data.status || res.status}): ${ebayErr?.longMessage || ebayErr?.message || data.error || '不明'}`,
+            context: {
+              policyId: pUpdated.id,
+              policyName: pUpdated.name,
+              domesticCost: pUpdated.domesticCost,
+              httpStatus: data.status || res.status,
+              errorId: ebayErr?.errorId,
+              longMessage: ebayErr?.longMessage,
+              parameters: ebayErr?.parameters,
+            },
+          });
+        } catch (e) {}
         alert(`❌ eBay PUT 失敗\n\nHTTP: ${data.status || res.status}\nメッセージ: ${data.error || data.message || '(不明)'}\n\n詳細:\n${detail.slice(0, 1000)}\n\nローカル変更はそのまま保持されています。`);
         console.error('[Shipping] eBay PUT 失敗:', data);
       }
     } catch (e) {
+      // 🔴 ネットワークエラーも履歴に
+      try {
+        ShipErrLog.add({
+          type: 'push_network_error',
+          severity: 'error',
+          message: 'ネットワークエラー: ' + e.message,
+          context: { policyId: pUpdated?.id, policyName: pUpdated?.name },
+        });
+      } catch (_) {}
       if (btn) { btn.disabled = false; btn.textContent = origText; btn.style.background = origBg; }
       alert(`❌ ネットワークエラー: ${e.message}\nVercel 関数が応答していない可能性があります。`);
     }
@@ -12190,6 +12424,24 @@ Object.assign(Shipping, {
     <div id="shipClonePickerList" style="max-height:440px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px;"></div>
     <div class="ship-modal-footer">
       <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipCloneSourcePickerModal')">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 🔴 エラー履歴 モーダル ===== -->
+<div class="ship-modal-overlay" id="shipErrLogModal">
+  <div class="ship-modal" style="max-width: 900px;">
+    <h2>🔴 エラー履歴 <span style="font-size:12px; color:#6b7280; font-weight:normal;">(直近500件 / パターン分析用)</span></h2>
+    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:8px 12px; margin-bottom:12px; font-size:11px; color:#7f1d1d;">
+      💡 名前と料金の不一致・push 失敗・除外国空 などの細かい異常を localStorage に蓄積しています。原因不明のエラーもここに残るので、後日パターン分析に使えます。
+    </div>
+    <div id="shipErrLogSummary" style="margin-bottom:12px;"></div>
+    <div id="shipErrLogContent" style="max-height:500px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:10px; background:#f9fafb;"></div>
+    <div class="ship-modal-footer">
+      <button class="ship-btn-cancel" style="color:#dc2626;" onclick="Shipping.clearErrLog()">🗑 全消去</button>
+      <button class="ship-btn-cancel" onclick="Shipping.exportErrLog()">📋 コピー(JSON)</button>
+      <span style="flex:1;"></span>
+      <button class="ship-btn-cancel" onclick="Shipping.closeModal('shipErrLogModal')">閉じる</button>
     </div>
   </div>
 </div>
