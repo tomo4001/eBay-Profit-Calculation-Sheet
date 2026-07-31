@@ -8673,13 +8673,14 @@ Object.assign(Shipping, {
             <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
               <input type="text" id="shipDefVeroAddNew" list="shipCountryDatalist" placeholder="国コード / 地域名 (Europe, DE, FR 等)" style="flex:1; min-width:180px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); Shipping.addVeroAddRegion();}" />
               <button class="ship-btn-add-chip" onclick="Shipping.addVeroAddRegion()">+ 追加</button>
+              <button type="button" onclick="Shipping.resetVeroToEuropeRegion()" style="padding:6px 12px; background:#dcfce7; border:1px solid #86efac; border-radius:6px; font-size:12px; cursor:pointer; color:#166534; font-weight:600;" title="Europe 地域指定 (49カ国, UK含む) に戻す">🇪🇺 Europe 地域除外に戻す (49カ国, UK含む)</button>
               <button type="button" onclick="Shipping.addVeroEuropeMinusGBPreset()" style="padding:6px 12px; background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; font-size:12px; cursor:pointer; color:#1e3a8a; font-weight:600;" title="ヨーロッパ 48カ国を一括追加(GB を除く)">🇪🇺 ヨーロッパ 48カ国 (GB 除く) 一括追加</button>
             </div>
             <div style="font-size:11px; color:#6b7280; margin-top:6px;">
-              💡 VeRO ポリシーの除外国リストに <strong>追加</strong> される項目。個別国コード(DE, FR 等)を直接指定。<br>
-              🇬🇧 GB (イギリス) を含めない = VeRO でも GB へ発送可能。<br>
-              🇪🇺 「ヨーロッパ 48カ国 (GB 除く) 一括追加」= ヨーロッパグループ (49カ国) から GB だけ除いた 48 カ国を一気に追加。<br>
-              ⚠️ 「Europe」地域指定は使わず個別国方式で統一。地域指定だと GB を除外リストから外せないため。
+              💡 VeRO ポリシーの除外国リストに <strong>追加</strong> される項目。個別国コードまたは「Europe」地域指定。<br>
+              ✅ <strong>推奨: Europe 地域除外 (49カ国, UK含む)</strong> — UK も商標権 enforcement が強いため VeRO では除外すべき (2026年更新)。<br>
+              🇬🇧 GB (UK) を除いた 48カ国運用は Brexit 直後の一時期の設定。UK IPO・税関の enforcement 実態を踏まえ、Europe 地域除外への回帰を推奨。<br>
+              🇪🇺 「Europe」地域指定 = eBay の Europe 地域グループ (49カ国, UK含む) で一括除外。個別国方式より簡潔。
             </div>
           </div>
         </div>
@@ -9462,6 +9463,16 @@ Object.assign(Shipping, {
     d.veroAddRegions = (d.veroAddRegions || []).filter(c => c !== code);
     this._persistDefaults();
     this.renderDefaultForm();
+  },
+  // 🇪🇺 Europe 地域除外 (49カ国, UK含む) に戻す。
+  // veroAddRegions を ['Europe'] にリセット = eBay の Europe 地域グループ (49カ国) で一括除外。
+  // 2026年更新: UK も商標権 enforcement が強いため VeRO では除外するのが妥当という判断。
+  resetVeroToEuropeRegion() {
+    const d = this.defaults[this.currentDefaultType];
+    d.veroAddRegions = ['Europe'];
+    this._persistDefaults();
+    this.renderDefaultForm();
+    console.log('[Shipping] VeRO 追加除外を Europe 地域指定 (49カ国, UK含む) にリセット');
   },
   // 🇪🇺 ヨーロッパ 48カ国 (GB を除く) を一括追加。
   // ヨーロッパグループ (49国) から GB だけ除いた 48国を veroAddRegions に入れる。
