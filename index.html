@@ -2747,25 +2747,37 @@
       </div>
     </div>
 
-    <!-- 📝 テンプレエディタ -->
+    <!-- 📝 テンプレエディタ (複数テンプレ対応) -->
     <div style="background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div style="font-weight:700; color:#374151;">📄 新テンプレート HTML</div>
-        <div style="display:flex; gap:6px;">
-          <button onclick="DescMgr.saveTemplate()" style="background:#16a34a; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">💾 テンプレ保存</button>
-          <button onclick="DescMgr.previewTemplate()" style="background:#2563eb; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">👁️ プレビュー</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+        <div style="font-weight:700; color:#374151;">📄 テンプレート管理</div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <label style="font-size:12px; color:#374151;">選択:</label>
+          <select id="descTemplateSelect" onchange="DescMgr.switchTemplate(this.value)" style="padding:5px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; min-width:180px;"></select>
+          <button onclick="DescMgr.newTemplate()" style="background:#0891b2; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">＋ 新規</button>
+          <button onclick="DescMgr.renameTemplate()" style="background:#6b7280; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ 名前変更</button>
+          <button onclick="DescMgr.deleteTemplate()" style="background:#dc2626; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ 削除</button>
         </div>
       </div>
       <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">
-        マーカー (START/END) を1組必ず含めてください。個別商品説明の挿入位置になります。
+        テンプレ切替後は「💾 保存」で確定。商品タイプ別に使い分け(例: Regular / Brand Bags)。マーカー (START/END) を必ず含めてください。
       </div>
-      <textarea id="descTemplate" rows="12" style="width:100%; font-family:monospace; font-size:11px; padding:8px; border:1px solid #d1d5db; border-radius:4px; box-sizing:border-box;" placeholder="ここに v2 テンプレの HTML を貼り付け(マーカーの位置に注意)"></textarea>
-      <div id="descTemplateInfo" style="font-size:11px; color:#6b7280; margin-top:4px;"></div>
+      <textarea id="descTemplate" rows="12" style="width:100%; font-family:monospace; font-size:11px; padding:8px; border:1px solid #d1d5db; border-radius:4px; box-sizing:border-box;" placeholder="ここに テンプレの HTML を貼り付け(マーカーの位置に注意)"></textarea>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+        <div id="descTemplateInfo" style="font-size:11px; color:#6b7280;"></div>
+        <div style="display:flex; gap:6px;">
+          <button onclick="DescMgr.saveTemplate()" style="background:#16a34a; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">💾 保存</button>
+          <button onclick="DescMgr.previewTemplate()" style="background:#2563eb; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">👁️ プレビュー</button>
+        </div>
+      </div>
     </div>
 
     <!-- 🧪 1件テスト -->
     <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
-      <div style="font-weight:700; color:#1e3a8a; margin-bottom:8px;">🧪 1 件テスト (安全確認)</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+        <div style="font-weight:700; color:#1e3a8a;">🧪 1 件テスト (安全確認)</div>
+        <div style="font-size:11px; color:#1e3a8a;">使用テンプレ: <strong id="descCurTemplateName1">-</strong></div>
+      </div>
       <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
         <label style="font-size:12px;">Item ID:</label>
         <input id="descTestItemId" placeholder="例: 800436576959" style="width:220px; padding:6px 8px; font-family:monospace; font-size:13px; border:1px solid #93c5fd; border-radius:4px;" />
@@ -2780,7 +2792,10 @@
 
     <!-- 🚀 一括処理 -->
     <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
-      <div style="font-weight:700; color:#166534; margin-bottom:8px;">🚀 一括処理 (複数 listing 対象)</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+        <div style="font-weight:700; color:#166534;">🚀 一括処理 (複数 listing 対象)</div>
+        <div style="font-size:11px; color:#166534;">使用テンプレ: <strong id="descCurTemplateName2">-</strong></div>
+      </div>
       <div style="font-size:11px; color:#166534; margin-bottom:6px;">
         Item ID を 1 行に 1 件ずつ入力。「取得+プレビュー」で全件の内容をチェックしてから「一括実行」してください。
       </div>
@@ -12445,24 +12460,21 @@ Object.assign(Shipping, {
 const DescMgr = {
   markerStart: '<!-- CUSTOM_DESCRIPTION_START -->',
   markerEnd: '<!-- CUSTOM_DESCRIPTION_END -->',
-  template: '',
+  templates: {},           // { id: { name, html } }
+  currentTemplateId: null,
   _testGet: null,
   _testMerged: null,
-  _bulkData: null,  // { itemId: {title, description, customContent, mergedDescription} }
+  _bulkData: null,
 
-  STORAGE_TEMPLATE: 'descMgr_template',
+  STORAGE_TEMPLATES: 'descMgr_templates_v2',        // 複数テンプレ (object)
+  STORAGE_CURRENT_ID: 'descMgr_currentTemplateId',
   STORAGE_MARKER_START: 'descMgr_markerStart',
   STORAGE_MARKER_END: 'descMgr_markerEnd',
+  STORAGE_LEGACY_TEMPLATE: 'descMgr_template',       // 旧単一テンプレ (v1 マイグレ用)
 
   init() {
-    // localStorage から復元
     try {
-      const t = localStorage.getItem(this.STORAGE_TEMPLATE);
-      if (t != null) {
-        this.template = t;
-        const el = document.getElementById('descTemplate');
-        if (el) el.value = t;
-      }
+      // マーカー復元
       const s = localStorage.getItem(this.STORAGE_MARKER_START);
       if (s) {
         this.markerStart = s;
@@ -12475,10 +12487,117 @@ const DescMgr = {
         const el = document.getElementById('descMarkerEnd');
         if (el) el.value = e;
       }
+      // 複数テンプレ復元
+      const raw = localStorage.getItem(this.STORAGE_TEMPLATES);
+      if (raw) {
+        this.templates = JSON.parse(raw);
+      } else {
+        // v1 マイグレーション: 旧単一テンプレを "Regular" として取り込む
+        const legacy = localStorage.getItem(this.STORAGE_LEGACY_TEMPLATE);
+        if (legacy) {
+          this.templates = { 'tpl_regular': { name: 'Regular', html: legacy } };
+          this.persistTemplates();
+          console.log('[DescMgr] v1 テンプレを "Regular" として移行');
+        }
+      }
+      // テンプレ 0 件なら初期作成
+      if (Object.keys(this.templates).length === 0) {
+        this.templates = {
+          'tpl_regular':   { name: 'Regular',    html: '' },
+          'tpl_brandbags': { name: 'Brand Bags', html: '' },
+        };
+        this.persistTemplates();
+      }
+      // 現在選択中を復元 (無効なら先頭)
+      const curId = localStorage.getItem(this.STORAGE_CURRENT_ID);
+      this.currentTemplateId = (curId && this.templates[curId]) ? curId : Object.keys(this.templates)[0];
     } catch (err) {
       console.warn('[DescMgr] localStorage 読込失敗:', err);
     }
+    this.renderTemplateSelect();
+    this.loadCurrentTemplate();
+  },
+
+  persistTemplates() {
+    localStorage.setItem(this.STORAGE_TEMPLATES, JSON.stringify(this.templates));
+  },
+
+  renderTemplateSelect() {
+    const sel = document.getElementById('descTemplateSelect');
+    if (!sel) return;
+    sel.innerHTML = Object.entries(this.templates).map(([id, t]) =>
+      `<option value="${id}" ${id === this.currentTemplateId ? 'selected' : ''}>${t.name} (${(t.html||'').length}文字)</option>`
+    ).join('');
+    // 使用中テンプレ名を各所に反映
+    const curName = this.templates[this.currentTemplateId]?.name || '-';
+    ['descCurTemplateName1', 'descCurTemplateName2'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = curName;
+    });
+  },
+
+  loadCurrentTemplate() {
+    const el = document.getElementById('descTemplate');
+    if (!el) return;
+    const t = this.templates[this.currentTemplateId];
+    el.value = t ? (t.html || '') : '';
     this.updateTemplateInfo();
+  },
+
+  switchTemplate(id) {
+    if (!this.templates[id]) return;
+    // 未保存の変更があれば警告
+    const el = document.getElementById('descTemplate');
+    const current = this.templates[this.currentTemplateId];
+    if (current && el && el.value !== (current.html || '')) {
+      if (!confirm(`⚠️ "${current.name}" に未保存の変更があります。破棄して切替しますか?`)) {
+        // 元に戻す
+        document.getElementById('descTemplateSelect').value = this.currentTemplateId;
+        return;
+      }
+    }
+    this.currentTemplateId = id;
+    localStorage.setItem(this.STORAGE_CURRENT_ID, id);
+    this.renderTemplateSelect();
+    this.loadCurrentTemplate();
+  },
+
+  newTemplate() {
+    const name = prompt('新規テンプレの名前を入力してください:\n(例: Watches / Jewelry / Electronics)');
+    if (!name || !name.trim()) return;
+    const id = 'tpl_' + Date.now();
+    this.templates[id] = { name: name.trim(), html: '' };
+    this.currentTemplateId = id;
+    this.persistTemplates();
+    localStorage.setItem(this.STORAGE_CURRENT_ID, id);
+    this.renderTemplateSelect();
+    this.loadCurrentTemplate();
+  },
+
+  renameTemplate() {
+    const t = this.templates[this.currentTemplateId];
+    if (!t) return;
+    const newName = prompt('新しい名前:', t.name);
+    if (!newName || !newName.trim()) return;
+    t.name = newName.trim();
+    this.persistTemplates();
+    this.renderTemplateSelect();
+  },
+
+  deleteTemplate() {
+    const t = this.templates[this.currentTemplateId];
+    if (!t) return;
+    if (Object.keys(this.templates).length <= 1) {
+      alert('最後の 1 件は削除できません');
+      return;
+    }
+    if (!confirm(`テンプレ "${t.name}" を削除しますか?この操作は取り消せません。`)) return;
+    delete this.templates[this.currentTemplateId];
+    this.currentTemplateId = Object.keys(this.templates)[0];
+    this.persistTemplates();
+    localStorage.setItem(this.STORAGE_CURRENT_ID, this.currentTemplateId);
+    this.renderTemplateSelect();
+    this.loadCurrentTemplate();
   },
 
   saveMarkers() {
@@ -12496,27 +12615,36 @@ const DescMgr = {
   saveTemplate() {
     const t = document.getElementById('descTemplate').value;
     if (!t.trim()) { alert('テンプレが空です'); return; }
-    // マーカー確認
     if (!t.includes(this.markerStart) || !t.includes(this.markerEnd)) {
       if (!confirm('⚠️ テンプレにマーカーが含まれていません。個別商品説明の保持ができなくなります。それでも保存しますか?')) return;
     }
-    this.template = t;
-    localStorage.setItem(this.STORAGE_TEMPLATE, t);
-    alert('テンプレ保存しました (' + t.length + '文字)');
+    if (!this.templates[this.currentTemplateId]) return;
+    this.templates[this.currentTemplateId].html = t;
+    this.persistTemplates();
+    alert(`✓ "${this.templates[this.currentTemplateId].name}" を保存しました (${t.length}文字)`);
+    this.renderTemplateSelect();
     this.updateTemplateInfo();
+  },
+
+  // 現在選択中のテンプレ HTML を返す
+  get template() {
+    const t = this.templates[this.currentTemplateId];
+    return t ? (t.html || '') : '';
   },
 
   updateTemplateInfo() {
     const info = document.getElementById('descTemplateInfo');
     if (!info) return;
-    if (!this.template) {
-      info.innerHTML = '<span style="color:#dc2626;">⚠️ テンプレ未設定</span>';
+    const t = this.templates[this.currentTemplateId];
+    if (!t || !t.html) {
+      info.innerHTML = '<span style="color:#dc2626;">⚠️ このテンプレは空です</span>';
       return;
     }
-    const hasStart = this.template.includes(this.markerStart);
-    const hasEnd = this.template.includes(this.markerEnd);
+    const html = t.html;
+    const hasStart = html.includes(this.markerStart);
+    const hasEnd = html.includes(this.markerEnd);
     const markerOk = hasStart && hasEnd;
-    info.innerHTML = `文字数: ${this.template.length} / マーカー: ${markerOk ? '✅ 両方あり' : '<span style="color:#dc2626;">❌ ' + (!hasStart ? 'START' : 'END') + ' が見つからず</span>'}`;
+    info.innerHTML = `<strong>${t.name}</strong>: ${html.length}文字 / マーカー: ${markerOk ? '✅ 両方あり' : '<span style="color:#dc2626;">❌ ' + (!hasStart ? 'START' : 'END') + ' が見つからず</span>'}`;
   },
 
   previewTemplate() {
