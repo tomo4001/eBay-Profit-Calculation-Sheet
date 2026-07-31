@@ -1619,6 +1619,7 @@
   <nav class="tab-nav">
     <button class="tab-btn active" data-tab="user">📋 利益計算</button>
     <button class="tab-btn admin locked" data-tab="shipping">📦 シッピングポリシー</button>
+    <button class="tab-btn admin locked" data-tab="description">📝 商品説明</button>
     <button class="tab-btn admin locked" data-tab="admin">⚙️ 管理者設定</button>
   </nav>
 
@@ -2720,6 +2721,91 @@
       <div class="ship-loading">📦 「🔄 最新を取得」を押して、eBay からポリシー一覧を読み込んでください。</div>
     </div>
   </div><!-- /tabShipping -->
+
+  <!-- ===== 📝 商品説明管理タブ (Phase 2 UI) ===== -->
+  <div id="tabDescription" class="tab-content">
+    <div class="ship-header">
+      <div>
+        <h2>📝 商品説明 一括管理</h2>
+        <div class="ship-header-info">Trading API 経由で listing の description を GET/UPDATE します</div>
+      </div>
+    </div>
+
+    <!-- 📌 マーカー設定 -->
+    <div style="background:#fef3c7; border:1px solid #fcd34d; border-radius:6px; padding:10px 14px; margin-bottom:12px; font-size:12px;">
+      <div style="font-weight:700; color:#92400e; margin-bottom:6px;">📌 マーカー設定 (個別商品説明を囲む HTML コメント)</div>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
+        <label style="min-width:60px;">START:</label>
+        <input id="descMarkerStart" style="flex:1; padding:4px 6px; font-family:monospace; font-size:12px; border:1px solid #d1d5db; border-radius:4px;" value="<!-- CUSTOM_DESCRIPTION_START -->" />
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+        <label style="min-width:60px;">END:</label>
+        <input id="descMarkerEnd" style="flex:1; padding:4px 6px; font-family:monospace; font-size:12px; border:1px solid #d1d5db; border-radius:4px;" value="<!-- CUSTOM_DESCRIPTION_END -->" />
+      </div>
+      <div style="text-align:right;">
+        <button onclick="DescMgr.saveMarkers()" style="background:#f59e0b; color:#fff; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px;">💾 マーカー保存</button>
+      </div>
+    </div>
+
+    <!-- 📝 テンプレエディタ -->
+    <div style="background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="font-weight:700; color:#374151;">📄 新テンプレート HTML</div>
+        <div style="display:flex; gap:6px;">
+          <button onclick="DescMgr.saveTemplate()" style="background:#16a34a; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">💾 テンプレ保存</button>
+          <button onclick="DescMgr.previewTemplate()" style="background:#2563eb; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">👁️ プレビュー</button>
+        </div>
+      </div>
+      <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">
+        マーカー (START/END) を1組必ず含めてください。個別商品説明の挿入位置になります。
+      </div>
+      <textarea id="descTemplate" rows="12" style="width:100%; font-family:monospace; font-size:11px; padding:8px; border:1px solid #d1d5db; border-radius:4px; box-sizing:border-box;" placeholder="ここに v2 テンプレの HTML を貼り付け(マーカーの位置に注意)"></textarea>
+      <div id="descTemplateInfo" style="font-size:11px; color:#6b7280; margin-top:4px;"></div>
+    </div>
+
+    <!-- 🧪 1件テスト -->
+    <div style="background:#eff6ff; border:1px solid #93c5fd; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
+      <div style="font-weight:700; color:#1e3a8a; margin-bottom:8px;">🧪 1 件テスト (安全確認)</div>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+        <label style="font-size:12px;">Item ID:</label>
+        <input id="descTestItemId" placeholder="例: 800436576959" style="width:220px; padding:6px 8px; font-family:monospace; font-size:13px; border:1px solid #93c5fd; border-radius:4px;" />
+        <button onclick="DescMgr.testGet()" style="background:#0891b2; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">🔍 現在取得 + マージプレビュー</button>
+      </div>
+      <div id="descTestResult" style="font-size:12px; color:#374151;"></div>
+      <div id="descTestActions" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #93c5fd;">
+        <button onclick="DescMgr.testUpdate(true)" style="background:#f59e0b; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px; margin-right:6px;">🔬 Dry-run (送信しない)</button>
+        <button onclick="DescMgr.testUpdate(false)" style="background:#dc2626; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">🚀 本番実行 (eBay に反映)</button>
+      </div>
+    </div>
+
+    <!-- 🚀 一括処理 -->
+    <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
+      <div style="font-weight:700; color:#166534; margin-bottom:8px;">🚀 一括処理 (複数 listing 対象)</div>
+      <div style="font-size:11px; color:#166534; margin-bottom:6px;">
+        Item ID を 1 行に 1 件ずつ入力。「取得+プレビュー」で全件の内容をチェックしてから「一括実行」してください。
+      </div>
+      <textarea id="descBulkItemIds" rows="6" style="width:100%; font-family:monospace; font-size:12px; padding:8px; border:1px solid #86efac; border-radius:4px; box-sizing:border-box; margin-bottom:8px;" placeholder="800436576959&#10;800393518870&#10;800xxxxxxxxx"></textarea>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button onclick="DescMgr.bulkPreview()" style="background:#0891b2; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">🔍 全件取得+プレビュー</button>
+        <button onclick="DescMgr.bulkExecute(true)" style="background:#f59e0b; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">🔬 一括 Dry-run</button>
+        <button onclick="DescMgr.bulkExecute(false)" style="background:#dc2626; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">🚀 一括本番実行</button>
+      </div>
+      <div id="descBulkProgress" style="margin-top:10px; font-size:12px;"></div>
+      <div id="descBulkLog" style="margin-top:8px; max-height:300px; overflow-y:auto; font-family:monospace; font-size:11px; background:#fff; border:1px solid #86efac; border-radius:4px; padding:8px; display:none;"></div>
+    </div>
+
+    <!-- 👁️ プレビュー モーダル -->
+    <div id="descPreviewModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; padding:20px; overflow-y:auto;" onclick="if(event.target===this)this.style.display='none';">
+      <div style="max-width:900px; margin:0 auto; background:#fff; border-radius:8px; padding:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h3 style="margin:0;">👁️ プレビュー</h3>
+          <button onclick="document.getElementById('descPreviewModal').style.display='none'" style="background:#6b7280; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">閉じる</button>
+        </div>
+        <div id="descPreviewContent" style="border:1px solid #e5e7eb; border-radius:4px; padding:10px; max-height:70vh; overflow-y:auto;"></div>
+      </div>
+    </div>
+
+  </div><!-- /tabDescription -->
 
 </main>
 
@@ -12348,6 +12434,346 @@ Object.assign(Shipping, {
     this.renderList();
   },
 });
+</script>
+
+<!-- ===== 📝 商品説明 一括管理モジュール (DescMgr) ===== -->
+<script>
+const DescMgr = {
+  markerStart: '<!-- CUSTOM_DESCRIPTION_START -->',
+  markerEnd: '<!-- CUSTOM_DESCRIPTION_END -->',
+  template: '',
+  _testGet: null,
+  _testMerged: null,
+  _bulkData: null,  // { itemId: {title, description, customContent, mergedDescription} }
+
+  STORAGE_TEMPLATE: 'descMgr_template',
+  STORAGE_MARKER_START: 'descMgr_markerStart',
+  STORAGE_MARKER_END: 'descMgr_markerEnd',
+
+  init() {
+    // localStorage から復元
+    try {
+      const t = localStorage.getItem(this.STORAGE_TEMPLATE);
+      if (t != null) {
+        this.template = t;
+        const el = document.getElementById('descTemplate');
+        if (el) el.value = t;
+      }
+      const s = localStorage.getItem(this.STORAGE_MARKER_START);
+      if (s) {
+        this.markerStart = s;
+        const el = document.getElementById('descMarkerStart');
+        if (el) el.value = s;
+      }
+      const e = localStorage.getItem(this.STORAGE_MARKER_END);
+      if (e) {
+        this.markerEnd = e;
+        const el = document.getElementById('descMarkerEnd');
+        if (el) el.value = e;
+      }
+    } catch (err) {
+      console.warn('[DescMgr] localStorage 読込失敗:', err);
+    }
+    this.updateTemplateInfo();
+  },
+
+  saveMarkers() {
+    const s = document.getElementById('descMarkerStart').value.trim();
+    const e = document.getElementById('descMarkerEnd').value.trim();
+    if (!s || !e) { alert('マーカーは両方必須'); return; }
+    this.markerStart = s;
+    this.markerEnd = e;
+    localStorage.setItem(this.STORAGE_MARKER_START, s);
+    localStorage.setItem(this.STORAGE_MARKER_END, e);
+    alert('マーカー保存しました');
+    this.updateTemplateInfo();
+  },
+
+  saveTemplate() {
+    const t = document.getElementById('descTemplate').value;
+    if (!t.trim()) { alert('テンプレが空です'); return; }
+    // マーカー確認
+    if (!t.includes(this.markerStart) || !t.includes(this.markerEnd)) {
+      if (!confirm('⚠️ テンプレにマーカーが含まれていません。個別商品説明の保持ができなくなります。それでも保存しますか?')) return;
+    }
+    this.template = t;
+    localStorage.setItem(this.STORAGE_TEMPLATE, t);
+    alert('テンプレ保存しました (' + t.length + '文字)');
+    this.updateTemplateInfo();
+  },
+
+  updateTemplateInfo() {
+    const info = document.getElementById('descTemplateInfo');
+    if (!info) return;
+    if (!this.template) {
+      info.innerHTML = '<span style="color:#dc2626;">⚠️ テンプレ未設定</span>';
+      return;
+    }
+    const hasStart = this.template.includes(this.markerStart);
+    const hasEnd = this.template.includes(this.markerEnd);
+    const markerOk = hasStart && hasEnd;
+    info.innerHTML = `文字数: ${this.template.length} / マーカー: ${markerOk ? '✅ 両方あり' : '<span style="color:#dc2626;">❌ ' + (!hasStart ? 'START' : 'END') + ' が見つからず</span>'}`;
+  },
+
+  previewTemplate() {
+    const t = document.getElementById('descTemplate').value;
+    if (!t) { alert('テンプレが空'); return; }
+    document.getElementById('descPreviewContent').innerHTML = t;
+    document.getElementById('descPreviewModal').style.display = 'block';
+  },
+
+  // マーカー間の内容を抽出 (見つからなければ null)
+  extractCustom(html) {
+    if (!html) return null;
+    const escS = this.markerStart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escE = this.markerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escS + '([\\s\\S]*?)' + escE);
+    const m = html.match(re);
+    return m ? m[1] : null;
+  },
+
+  // テンプレの ${markerStart}...${markerEnd} を customContent で置換
+  mergeTemplate(customContent) {
+    if (!this.template) return null;
+    const cc = customContent || '';
+    const escS = this.markerStart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escE = this.markerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escS + '[\\s\\S]*?' + escE);
+    if (!re.test(this.template)) {
+      console.warn('[DescMgr] テンプレにマーカーがない');
+      return this.template;  // マーカーなし → テンプレそのまま
+    }
+    return this.template.replace(re, this.markerStart + '\n' + cc + '\n' + this.markerEnd);
+  },
+
+  async apiCall(action, params) {
+    const res = await fetch('/api/ebay-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...params }),
+    });
+    const data = await res.json();
+    return data;
+  },
+
+  // 1件テスト: 取得+マージプレビュー
+  async testGet() {
+    const itemId = document.getElementById('descTestItemId').value.trim();
+    if (!itemId) { alert('Item ID を入力'); return; }
+    if (!this.template) { alert('先にテンプレを保存してください'); return; }
+
+    const result = document.getElementById('descTestResult');
+    result.innerHTML = '<span style="color:#0891b2;">🔍 取得中...</span>';
+
+    try {
+      const data = await this.apiCall('description-get', { itemId });
+      if (!data.ok) {
+        result.innerHTML = '<span style="color:#dc2626;">❌ 取得失敗: ' + JSON.stringify(data.errors || data.error) + '</span>';
+        return;
+      }
+
+      this._testGet = data;
+      const customContent = this.extractCustom(data.description);
+      const merged = this.mergeTemplate(customContent);
+      this._testMerged = merged;
+
+      const customStatus = customContent
+        ? `<span style="color:#16a34a;">✅ 抽出 ${customContent.length}文字</span>`
+        : `<span style="color:#f59e0b;">⚠️ マーカーなし (個別説明を保持できません、テンプレのみ適用されます)</span>`;
+
+      result.innerHTML = `
+        <div style="background:#fff; padding:8px 10px; border-radius:4px; border:1px solid #93c5fd;">
+          <div>📌 <strong>${data.title || '(タイトル取得失敗)'}</strong></div>
+          <div>現在 description: ${data.descriptionLength} 文字</div>
+          <div>個別説明部分: ${customStatus}</div>
+          <div>マージ後 description: ${merged.length} 文字</div>
+          <div style="margin-top:6px;">
+            <button onclick="DescMgr.showTestPreview('current')" style="background:#e5e7eb; border:1px solid #9ca3af; padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;">現在の内容を見る</button>
+            <button onclick="DescMgr.showTestPreview('custom')" style="background:#e5e7eb; border:1px solid #9ca3af; padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;">個別説明部分を見る</button>
+            <button onclick="DescMgr.showTestPreview('merged')" style="background:#e5e7eb; border:1px solid #9ca3af; padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;">マージ後を見る</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('descTestActions').style.display = 'block';
+    } catch (e) {
+      result.innerHTML = '<span style="color:#dc2626;">❌ エラー: ' + (e.message || String(e)) + '</span>';
+    }
+  },
+
+  showTestPreview(type) {
+    let content = '';
+    if (type === 'current') content = this._testGet ? this._testGet.description : '';
+    else if (type === 'custom') {
+      const cc = this._testGet ? this.extractCustom(this._testGet.description) : null;
+      content = cc || '(マーカー間の内容なし)';
+    } else if (type === 'merged') content = this._testMerged || '';
+    document.getElementById('descPreviewContent').innerHTML = content;
+    document.getElementById('descPreviewModal').style.display = 'block';
+  },
+
+  async testUpdate(dryRun) {
+    if (!this._testMerged) { alert('先に 🔍 現在取得 を実行してください'); return; }
+    const itemId = document.getElementById('descTestItemId').value.trim();
+    if (!dryRun) {
+      if (!confirm(`🚨 本番実行しますか?\nItem ID: ${itemId}\n文字数: ${this._testMerged.length}\n\neBay に実際に反映されます。`)) return;
+    }
+    const btn = event.target;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = '実行中...';
+    try {
+      const data = await this.apiCall('description-update', {
+        itemId,
+        description: this._testMerged,
+        dryRun,
+      });
+      if (data.ok) {
+        alert('✓ ' + (dryRun ? 'Dry-run' : '本番') + ' 成功\nack: ' + (data.ack || 'OK') + '\n\n' + (data.message || ''));
+      } else {
+        alert('❌ 失敗:\n' + JSON.stringify(data.errors || data.error, null, 2));
+      }
+      console.log('[DescMgr] testUpdate 結果:', data);
+    } catch (e) {
+      alert('❌ エラー: ' + (e.message || String(e)));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  },
+
+  // ==================================================
+  // 🚀 一括処理
+  // ==================================================
+  parseBulkItemIds() {
+    const raw = document.getElementById('descBulkItemIds').value;
+    return raw.split(/\r?\n/).map(s => s.trim()).filter(s => /^\d{9,15}$/.test(s));
+  },
+
+  log(msg, type) {
+    const box = document.getElementById('descBulkLog');
+    if (!box) return;
+    box.style.display = 'block';
+    const color = type === 'err' ? '#dc2626' : type === 'ok' ? '#16a34a' : type === 'warn' ? '#f59e0b' : '#374151';
+    const div = document.createElement('div');
+    div.style.color = color;
+    div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  },
+
+  updateProgress(msg) {
+    const p = document.getElementById('descBulkProgress');
+    if (p) p.innerHTML = msg;
+  },
+
+  async bulkPreview() {
+    const ids = this.parseBulkItemIds();
+    if (ids.length === 0) { alert('Item ID を入力(1行1件、9-15桁の数字)'); return; }
+    if (!this.template) { alert('先にテンプレを保存してください'); return; }
+
+    if (!confirm(`${ids.length}件の description を取得しますか?`)) return;
+
+    document.getElementById('descBulkLog').innerHTML = '';
+    this._bulkData = {};
+    this.updateProgress(`🔍 ${ids.length}件を取得中...`);
+
+    let ok = 0, ng = 0, noMarker = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const itemId = ids[i];
+      this.updateProgress(`🔍 ${i + 1}/${ids.length}: ${itemId}`);
+      try {
+        const data = await this.apiCall('description-get', { itemId });
+        if (data.ok) {
+          const customContent = this.extractCustom(data.description);
+          const merged = this.mergeTemplate(customContent);
+          this._bulkData[itemId] = {
+            title: data.title,
+            currentLength: data.descriptionLength,
+            customContent,
+            hasMarker: customContent !== null,
+            mergedDescription: merged,
+            mergedLength: merged ? merged.length : 0,
+          };
+          if (customContent === null) {
+            this.log(`⚠️ ${itemId} マーカーなし (${data.title || 'no title'})`, 'warn');
+            noMarker++;
+          } else {
+            this.log(`✅ ${itemId} ${data.descriptionLength}→${merged.length} (custom ${customContent.length})`, 'ok');
+          }
+          ok++;
+        } else {
+          this.log(`❌ ${itemId} 取得失敗: ${JSON.stringify(data.errors || data.error).slice(0, 200)}`, 'err');
+          ng++;
+        }
+      } catch (e) {
+        this.log(`❌ ${itemId} エラー: ${e.message || e}`, 'err');
+        ng++;
+      }
+    }
+    this.updateProgress(`完了: 成功 ${ok} / 失敗 ${ng} / マーカーなし ${noMarker}`);
+  },
+
+  async bulkExecute(dryRun) {
+    if (!this._bulkData || Object.keys(this._bulkData).length === 0) {
+      alert('先に 🔍 全件取得+プレビュー を実行してください');
+      return;
+    }
+    const items = Object.entries(this._bulkData);
+    if (!dryRun) {
+      if (!confirm(`🚨 本番実行\n\n${items.length}件の description を eBay に UPDATE します。\nよろしいですか?`)) return;
+      if (!confirm('もう一度確認: 本当に本番実行しますか?')) return;
+    }
+
+    document.getElementById('descBulkLog').innerHTML = '';
+    let ok = 0, ng = 0;
+    for (let i = 0; i < items.length; i++) {
+      const [itemId, info] = items[i];
+      if (!info.mergedDescription) {
+        this.log(`⏭️ ${itemId} スキップ(mergedDescription 無し)`, 'warn');
+        continue;
+      }
+      this.updateProgress(`${dryRun ? '🔬 Dry-run' : '🚀 本番'} ${i + 1}/${items.length}: ${itemId}`);
+      try {
+        const data = await this.apiCall('description-update', {
+          itemId,
+          description: info.mergedDescription,
+          dryRun,
+        });
+        if (data.ok) {
+          this.log(`✅ ${itemId} ${data.ack || 'OK'}`, 'ok');
+          ok++;
+        } else {
+          this.log(`❌ ${itemId} 失敗: ${JSON.stringify(data.errors || data.error).slice(0, 200)}`, 'err');
+          ng++;
+        }
+      } catch (e) {
+        this.log(`❌ ${itemId} エラー: ${e.message || e}`, 'err');
+        ng++;
+      }
+    }
+    this.updateProgress(`${dryRun ? 'Dry-run' : '本番'} 完了: 成功 ${ok} / 失敗 ${ng}`);
+  },
+};
+
+// タブ切替時に init を呼ぶための hook
+(function() {
+  const _origSwitchTab = window.switchTab;
+  if (typeof _origSwitchTab === 'function') {
+    window.switchTab = function(tab) {
+      _origSwitchTab(tab);
+      if (tab === 'description') {
+        try { DescMgr.init(); } catch (e) { console.warn('[DescMgr] init 失敗:', e); }
+      }
+    };
+  }
+  // タブボタンの直接クリック時にも init
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.querySelector('[data-tab="description"]');
+    if (btn) btn.addEventListener('click', () => setTimeout(() => DescMgr.init(), 50));
+  });
+  // グローバル公開
+  window.DescMgr = DescMgr;
+})();
 </script>
 
 <!-- ===== 📦 シッピング: ⚙️ 設定モーダル ===== -->
