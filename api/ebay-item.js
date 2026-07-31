@@ -564,12 +564,183 @@ function extractPriceFromHtml(html, url) {
 }
 
 
+// =============================================================================
+// 📝 description (商品説明) の GET / UPDATE 用ヘルパー (Trading API)
+// =============================================================================
+async function getDescUserAccessToken(appId, certId, refreshToken) {
+  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64');
+  // Trading API GetItem/ReviseItem は sell.inventory スコープを含む
+  const scopes = 'https://api.ebay.com/oauth/api_scope/sell.inventory';
+  const r = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: scopes,
+    }).toString(),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Access Token取得失敗 (HTTP ${r.status}): ${t.slice(0, 300)}`);
+  }
+  const j = await r.json();
+  return j.access_token;
+}
+function descExtractDescription(xml) {
+  const cdataMatch = xml.match(/<Description><!\[CDATA\[([\s\S]*?)\]\]><\/Description>/i);
+  if (cdataMatch) return cdataMatch[1];
+  const plainMatch = xml.match(/<Description>([\s\S]*?)<\/Description>/i);
+  if (plainMatch) {
+    return plainMatch[1]
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+  return '';
+}
+function descExtractTitle(xml) {
+  const m = xml.match(/<Title>([\s\S]*?)<\/Title>/i);
+  return m ? m[1].trim() : '';
+}
+function descExtractErrors(xml) {
+  const errs = [];
+  const re = /<Errors>([\s\S]*?)<\/Errors>/gi;
+  let block;
+  while ((block = re.exec(xml)) !== null) {
+    const b = block[1];
+    errs.push({
+      short: (b.match(/<ShortMessage>([\s\S]*?)<\/ShortMessage>/i) || [,''])[1].trim(),
+      long: (b.match(/<LongMessage>([\s\S]*?)<\/LongMessage>/i) || [,''])[1].trim(),
+      code: (b.match(/<ErrorCode>([\s\S]*?)<\/ErrorCode>/i) || [,''])[1].trim(),
+      severity: (b.match(/<SeverityCode>([\s\S]*?)<\/SeverityCode>/i) || [,''])[1].trim(),
+    });
+  }
+  return errs;
+}
+function descExtractAck(xml) {
+  const m = xml.match(/<Ack>([\s\S]*?)<\/Ack>/i);
+  return m ? m[1].trim() : '';
+}
+
 export default async function handler(req, res) {
   // CORS(同一オリジンだが念のため)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
+  //    Trading API 経由で listing の description を取得・更新
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update')) {
+    const appId = process.env.EBAY_APP_ID;
+    const certId = process.env.EBAY_CERT_ID;
+    const refreshToken = process.env.EBAY_REFRESH_TOKEN;
+    if (!appId || !certId || !refreshToken) {
+      res.status(500).json({ error: '環境変数(EBAY_APP_ID/CERT_ID/REFRESH_TOKEN)が未設定' });
+      return;
+    }
+    const { action, itemId, description: newDesc, dryRun } = req.body;
+    if (!itemId) { res.status(400).json({ error: 'itemId が必要' }); return; }
+
+    if (action === 'description-get') {
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itemId}</ItemID>
+  <DetailLevel>ItemReturnDescription</DetailLevel>
+</GetItemRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'GetItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        const ack = descExtractAck(xml);
+        const errors = descExtractErrors(xml);
+        if (ack === 'Failure') {
+          res.status(400).json({ ok: false, action, itemId, ack, errors, rawXml: xml.slice(0, 2000) });
+          return;
+        }
+        const title = descExtractTitle(xml);
+        const description = descExtractDescription(xml);
+        res.status(200).json({
+          ok: true, action, itemId, ack, title, description,
+          descriptionLength: description.length,
+          warnings: errors.filter(e => e.severity === 'Warning'),
+        });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e), itemId });
+        return;
+      }
+    }
+
+    if (action === 'description-update') {
+      if (!newDesc || typeof newDesc !== 'string') {
+        res.status(400).json({ error: 'description (HTML 文字列) が必要' });
+        return;
+      }
+      if (dryRun === true) {
+        res.status(200).json({
+          ok: true, action, dryRun: true, itemId,
+          descriptionLength: newDesc.length,
+          descriptionPreview: newDesc.slice(0, 500) + (newDesc.length > 500 ? '...' : ''),
+          message: '✓ dry-run: eBay にはまだ送信していません',
+        });
+        return;
+      }
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const safeDesc = newDesc.replace(/\]\]>/g, ']]]]><![CDATA[>');
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>${itemId}</ItemID>
+    <Description><![CDATA[${safeDesc}]]></Description>
+  </Item>
+</ReviseItemRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'ReviseItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        const ack = descExtractAck(xml);
+        const errors = descExtractErrors(xml);
+        if (ack === 'Failure') {
+          res.status(400).json({ ok: false, action, itemId, ack, errors, rawXml: xml.slice(0, 2000) });
+          return;
+        }
+        res.status(200).json({
+          ok: true, action, itemId, ack,
+          warnings: errors.filter(e => e.severity === 'Warning'),
+          descriptionLength: newDesc.length,
+          message: '✓ ReviseItem 成功',
+        });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e), itemId });
+        return;
+      }
+    }
+  }
 
   // 🆕 POST /api/ebay-item: 画像 URL 配列から ZIP を生成してダウンロード
   if (req.method === 'POST') {
