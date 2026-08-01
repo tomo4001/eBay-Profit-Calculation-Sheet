@@ -695,7 +695,14 @@ export default async function handler(req, res) {
             const priceMatch = block.match(/<CurrentPrice[^>]*>([\s\S]*?)<\/CurrentPrice>/i);
             const price = priceMatch ? parseFloat(priceMatch[1]) : null;
             const sku = (block.match(/<SKU>([\s\S]*?)<\/SKU>/i) || [,''])[1].trim();
-            if (itmId) items.push({ itemId: itmId, title, price, sku });
+            // 🔍 PrimaryCategory (カテゴリID + 名前)
+            const catBlock = block.match(/<PrimaryCategory>([\s\S]*?)<\/PrimaryCategory>/i);
+            let categoryId = '', categoryName = '';
+            if (catBlock) {
+              categoryId = (catBlock[1].match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i) || [,''])[1].trim();
+              categoryName = (catBlock[1].match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i) || [,''])[1].trim();
+            }
+            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName });
           }
           const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
           totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
