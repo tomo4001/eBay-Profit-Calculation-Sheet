@@ -12685,11 +12685,27 @@ const DescMgr = {
     info.innerHTML = `<strong>${t.name}</strong>: ${html.length}文字 / マーカー: ${markerOk ? '✅ 両方あり' : '<span style="color:#dc2626;">❌ ' + (!hasStart ? 'START' : 'END') + ' が見つからず</span>'}`;
   },
 
+  // 🔒 プレビューは iframe に隔離して CSS が親ページに漏れないようにする
+  _showPreviewInIframe(html) {
+    const container = document.getElementById('descPreviewContent');
+    if (!container) return;
+    // 既存の iframe があれば削除
+    container.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width:100%; height:65vh; border:1px solid #e5e7eb; border-radius:4px; background:#fff;';
+    iframe.setAttribute('sandbox', 'allow-same-origin');  // JS 実行はブロック (安全)
+    container.appendChild(iframe);
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' + html + '</body></html>');
+    doc.close();
+    document.getElementById('descPreviewModal').style.display = 'block';
+  },
+
   previewTemplate() {
     const t = document.getElementById('descTemplate').value;
     if (!t) { alert('テンプレが空'); return; }
-    document.getElementById('descPreviewContent').innerHTML = t;
-    document.getElementById('descPreviewModal').style.display = 'block';
+    this._showPreviewInIframe(t);
   },
 
   // マーカー間の内容を抽出。マーカーなければ旧テンプレのパターンで抽出試行。
@@ -12848,8 +12864,7 @@ const DescMgr = {
       const cc = this._testGet ? this.extractCustom(this._testGet.description) : null;
       content = cc || '(マーカー間の内容なし)';
     } else if (type === 'merged') content = this._testMerged || '';
-    document.getElementById('descPreviewContent').innerHTML = content;
-    document.getElementById('descPreviewModal').style.display = 'block';
+    this._showPreviewInIframe(content);
   },
 
   async testUpdate(dryRun) {
