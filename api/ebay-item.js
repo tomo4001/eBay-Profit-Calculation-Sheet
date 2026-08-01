@@ -635,7 +635,7 @@ export default async function handler(req, res) {
 
   // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
   //    Trading API 経由で listing の description を取得・更新
-  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update')) {
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active')) {
     const appId = process.env.EBAY_APP_ID;
     const certId = process.env.EBAY_CERT_ID;
     const refreshToken = process.env.EBAY_REFRESH_TOKEN;
@@ -644,6 +644,72 @@ export default async function handler(req, res) {
       return;
     }
     const { action, itemId, description: newDesc, dryRun } = req.body;
+
+    // === 📋 listings-active: 全 active listing 一覧を取得 (paginated) ===
+    if (action === 'listings-active') {
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const items = [];
+        let page = 1;
+        const perPage = 200;  // eBay 最大
+        const maxPages = 20;  // 安全側の上限 (=最大 4000 件)
+        let totalPages = 1;
+
+        while (page <= maxPages) {
+          const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ActiveList>
+    <Pagination>
+      <EntriesPerPage>${perPage}</EntriesPerPage>
+      <PageNumber>${page}</PageNumber>
+    </Pagination>
+    <Include>true</Include>
+  </ActiveList>
+</GetMyeBaySellingRequest>`;
+          const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+            method: 'POST',
+            headers: {
+              'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+              'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
+              'X-EBAY-API-SITEID': '0',
+              'X-EBAY-API-IAF-TOKEN': token,
+              'Content-Type': 'text/xml',
+            },
+            body: xmlReq,
+          });
+          const xml = await apiRes.text();
+          const ack = descExtractAck(xml);
+          if (ack === 'Failure') {
+            const errors = descExtractErrors(xml);
+            res.status(400).json({ ok: false, action, errors, page });
+            return;
+          }
+          const activeMatch = xml.match(/<ActiveList>([\s\S]*?)<\/ActiveList>/i);
+          if (!activeMatch) break;
+          const activeXml = activeMatch[1];
+          const itemBlocks = activeXml.match(/<Item>([\s\S]*?)<\/Item>/g) || [];
+          if (itemBlocks.length === 0 && page === 1) break;
+          for (const block of itemBlocks) {
+            const itmId = (block.match(/<ItemID>([\s\S]*?)<\/ItemID>/i) || [,''])[1].trim();
+            const title = (block.match(/<Title>([\s\S]*?)<\/Title>/i) || [,''])[1].trim();
+            const priceMatch = block.match(/<CurrentPrice[^>]*>([\s\S]*?)<\/CurrentPrice>/i);
+            const price = priceMatch ? parseFloat(priceMatch[1]) : null;
+            const sku = (block.match(/<SKU>([\s\S]*?)<\/SKU>/i) || [,''])[1].trim();
+            if (itmId) items.push({ itemId: itmId, title, price, sku });
+          }
+          const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
+          totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
+          if (page >= totalPages) break;
+          page++;
+        }
+        res.status(200).json({ ok: true, action, itemCount: items.length, totalPages, items });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
     if (!itemId) { res.status(400).json({ error: 'itemId が必要' }); return; }
 
     if (action === 'description-get') {
