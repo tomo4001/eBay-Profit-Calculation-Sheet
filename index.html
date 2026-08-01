@@ -2790,6 +2790,35 @@
       </div>
     </div>
 
+    <!-- 📋 全 listing 一覧 (選択で Item ID 欄に転記) -->
+    <div style="background:#fefce8; border:1px solid #fde047; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+        <div style="font-weight:700; color:#713f12;">📋 全 active listing 一覧 (選択支援)</div>
+        <div style="display:flex; gap:6px;">
+          <button onclick="DescMgr.fetchActiveListings()" style="background:#ca8a04; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">📥 全 listing 取得</button>
+          <button onclick="DescMgr.toggleListingsAll()" style="background:#eab308; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✓ 表示中を全選択</button>
+          <button onclick="DescMgr.copySelectedToBulk()" style="background:#16a34a; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">↓ 選択分を下の Item ID 欄に転記</button>
+        </div>
+      </div>
+      <div id="descListingsInfo" style="font-size:11px; color:#713f12; margin-bottom:6px;">未取得</div>
+      <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+        <input id="descListingsFilter" placeholder="🔍 タイトル / Item ID で絞込み..." style="flex:1; padding:5px 8px; border:1px solid #fde047; border-radius:4px; font-size:12px;" oninput="DescMgr.renderListingsTable()" />
+      </div>
+      <div id="descListingsTableWrap" style="max-height:280px; overflow-y:auto; border:1px solid #fde047; border-radius:4px; background:#fff; display:none;">
+        <table id="descListingsTable" style="width:100%; border-collapse:collapse; font-size:11px;">
+          <thead style="position:sticky; top:0; background:#fef9c3; z-index:1;">
+            <tr>
+              <th style="padding:5px 8px; text-align:center; width:36px; border-bottom:1px solid #fde047;"><input type="checkbox" onchange="DescMgr.toggleListingsAllFromHeader(this.checked)" /></th>
+              <th style="padding:5px 8px; text-align:left; width:140px; border-bottom:1px solid #fde047;">Item ID</th>
+              <th style="padding:5px 8px; text-align:left; border-bottom:1px solid #fde047;">Title</th>
+              <th style="padding:5px 8px; text-align:right; width:80px; border-bottom:1px solid #fde047;">Price</th>
+            </tr>
+          </thead>
+          <tbody id="descListingsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 🚀 一括処理 -->
     <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
@@ -12934,6 +12963,106 @@ const DescMgr = {
       }
     }
     this.updateProgress(`${dryRun ? 'Dry-run' : '本番'} 完了: 成功 ${ok} / 失敗 ${ng}`);
+  },
+
+  // ==================================================
+  // 📋 全 active listing 一覧
+  // ==================================================
+  _listings: [],           // 取得済み listing 全件
+  _listingsSelected: new Set(),  // Item ID の Set
+
+  async fetchActiveListings() {
+    const info = document.getElementById('descListingsInfo');
+    info.textContent = '📥 取得中... (件数によっては数十秒かかります)';
+    try {
+      const data = await this.apiCall('listings-active', {});
+      if (!data.ok) {
+        info.textContent = '❌ 取得失敗: ' + JSON.stringify(data.errors || data.error).slice(0, 200);
+        return;
+      }
+      this._listings = data.items || [];
+      this._listingsSelected = new Set();
+      info.textContent = `✅ ${this._listings.length} 件取得完了 (全 ${data.totalPages}ページ)`;
+      document.getElementById('descListingsTableWrap').style.display = 'block';
+      this.renderListingsTable();
+    } catch (e) {
+      info.textContent = '❌ エラー: ' + (e.message || e);
+    }
+  },
+
+  renderListingsTable() {
+    const filter = (document.getElementById('descListingsFilter')?.value || '').toLowerCase();
+    const tbody = document.getElementById('descListingsTbody');
+    if (!tbody) return;
+    const filtered = this._listings.filter(x =>
+      !filter || (x.itemId + ' ' + (x.title || '')).toLowerCase().includes(filter)
+    );
+    const rows = filtered.map(x => {
+      const checked = this._listingsSelected.has(x.itemId) ? 'checked' : '';
+      const title = (x.title || '').replace(/</g, '&lt;').slice(0, 100);
+      const price = x.price != null ? '$' + x.price.toFixed(2) : '-';
+      return `
+        <tr>
+          <td style="padding:4px 8px; text-align:center; border-bottom:1px solid #fef3c7;">
+            <input type="checkbox" ${checked} onchange="DescMgr.toggleListing('${x.itemId}', this.checked)" />
+          </td>
+          <td style="padding:4px 8px; font-family:monospace; border-bottom:1px solid #fef3c7;">${x.itemId}</td>
+          <td style="padding:4px 8px; border-bottom:1px solid #fef3c7;">${title}</td>
+          <td style="padding:4px 8px; text-align:right; border-bottom:1px solid #fef3c7;">${price}</td>
+        </tr>
+      `;
+    }).join('');
+    tbody.innerHTML = rows || '<tr><td colspan="4" style="padding:10px; text-align:center; color:#888;">該当なし</td></tr>';
+    const info = document.getElementById('descListingsInfo');
+    if (info) {
+      info.textContent = `全 ${this._listings.length} 件 / 表示 ${filtered.length} 件 / 選択 ${this._listingsSelected.size} 件`;
+    }
+  },
+
+  toggleListing(itemId, checked) {
+    if (checked) this._listingsSelected.add(itemId);
+    else this._listingsSelected.delete(itemId);
+    const info = document.getElementById('descListingsInfo');
+    if (info) info.textContent = `全 ${this._listings.length} 件 / 選択 ${this._listingsSelected.size} 件`;
+  },
+
+  toggleListingsAll() {
+    // 「表示中」を全選択
+    const filter = (document.getElementById('descListingsFilter')?.value || '').toLowerCase();
+    const filtered = this._listings.filter(x =>
+      !filter || (x.itemId + ' ' + (x.title || '')).toLowerCase().includes(filter)
+    );
+    // 表示中 のうち何割が既に選択済みか判定 → 半分以上なら解除、半分未満なら全選択
+    let selectedInView = 0;
+    filtered.forEach(x => { if (this._listingsSelected.has(x.itemId)) selectedInView++; });
+    if (selectedInView >= filtered.length / 2) {
+      // 全解除
+      filtered.forEach(x => this._listingsSelected.delete(x.itemId));
+    } else {
+      // 全選択
+      filtered.forEach(x => this._listingsSelected.add(x.itemId));
+    }
+    this.renderListingsTable();
+  },
+
+  toggleListingsAllFromHeader(checked) {
+    const filter = (document.getElementById('descListingsFilter')?.value || '').toLowerCase();
+    const filtered = this._listings.filter(x =>
+      !filter || (x.itemId + ' ' + (x.title || '')).toLowerCase().includes(filter)
+    );
+    filtered.forEach(x => {
+      if (checked) this._listingsSelected.add(x.itemId);
+      else this._listingsSelected.delete(x.itemId);
+    });
+    this.renderListingsTable();
+  },
+
+  copySelectedToBulk() {
+    const ids = Array.from(this._listingsSelected);
+    if (ids.length === 0) { alert('選択されている listing がありません'); return; }
+    const ta = document.getElementById('descBulkItemIds');
+    ta.value = ids.join('\n');
+    alert(`✓ ${ids.length}件 の Item ID を Item ID 欄に転記しました`);
   },
 };
 
