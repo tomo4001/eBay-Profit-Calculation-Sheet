@@ -702,7 +702,12 @@ export default async function handler(req, res) {
               categoryId = (catBlock[1].match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i) || [,''])[1].trim();
               categoryName = (catBlock[1].match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i) || [,''])[1].trim();
             }
-            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName });
+            // 📦 数量 (Quantity - QuantitySold = 残り在庫)
+            const totalQty = parseInt((block.match(/<Quantity>([\s\S]*?)<\/Quantity>/i) || [,'0'])[1], 10) || 0;
+            const soldQtyMatch = block.match(/<QuantitySold>([\s\S]*?)<\/QuantitySold>/i);
+            const soldQty = soldQtyMatch ? (parseInt(soldQtyMatch[1], 10) || 0) : 0;
+            const availableQty = Math.max(0, totalQty - soldQty);
+            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty });
           }
           const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
           totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
