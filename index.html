@@ -12654,14 +12654,46 @@ const DescMgr = {
     document.getElementById('descPreviewModal').style.display = 'block';
   },
 
-  // マーカー間の内容を抽出 (見つからなければ null)
-  extractCustom(html) {
-    if (!html) return null;
+  // マーカー間の内容を抽出。マーカーなければ旧テンプレのパターンで抽出試行。
+  // 戻り値: { content: string|null, source: 'marker'|'old-pattern'|'none' }
+  extractCustomWithSource(html) {
+    if (!html) return { content: null, source: 'none' };
+    // 1. マーカー方式 (新規、確実)
     const escS = this.markerStart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const escE = this.markerEnd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(escS + '([\\s\\S]*?)' + escE);
     const m = html.match(re);
-    return m ? m[1] : null;
+    if (m) {
+      return { content: m[1].trim(), source: 'marker' };
+    }
+    // 2. 旧テンプレのパターン (fallback、既存 listing 用)
+    //    「Please feel free to contact us if you have any questions」の直後 〜 次の <table> or "For used items" までを抽出
+    const startAnchor = 'Please feel free to contact us if you have any questions';
+    const sIdx = html.indexOf(startAnchor);
+    if (sIdx >= 0) {
+      const pEnd = html.indexOf('</p>', sIdx);
+      if (pEnd > 0) {
+        const contentStart = pEnd + 4;
+        // 終端候補: <table>, "For used items", 次の <section>
+        const cands = [
+          html.indexOf('<table>', contentStart),
+          html.indexOf('For used items', contentStart),
+          html.indexOf('<section>', contentStart),
+        ].filter(i => i > 0);
+        if (cands.length > 0) {
+          const eIdx = Math.min(...cands);
+          const extracted = html.slice(contentStart, eIdx).trim();
+          return { content: extracted || '', source: 'old-pattern' };
+        }
+      }
+    }
+    return { content: null, source: 'none' };
+  },
+
+  // 旧 API 互換 (string or null を返す)
+  extractCustom(html) {
+    const r = this.extractCustomWithSource(html);
+    return r.content;
   },
 
   // テンプレの ${markerStart}...${markerEnd} を customContent で置換
@@ -12705,13 +12737,23 @@ const DescMgr = {
       }
 
       this._testGet = data;
-      const customContent = this.extractCustom(data.description);
+      const extracted = this.extractCustomWithSource(data.description);
+      const customContent = extracted.content;
       const merged = this.mergeTemplate(customContent);
       this._testMerged = merged;
 
-      const customStatus = customContent
-        ? `<span style="color:#16a34a;">✅ 抽出 ${customContent.length}文字</span>`
-        : `<span style="color:#f59e0b;">⚠️ マーカーなし (個別説明を保持できません、テンプレのみ適用されます)</span>`;
+      let customStatus;
+      if (extracted.source === 'marker') {
+        customStatus = `<span style="color:#16a34a;">✅ マーカー方式で抽出 ${customContent.length}文字</span>`;
+      } else if (extracted.source === 'old-pattern') {
+        if (customContent && customContent.length > 0) {
+          customStatus = `<span style="color:#0891b2;">🔍 旧テンプレパターンで抽出 ${customContent.length}文字 (fallback)</span>`;
+        } else {
+          customStatus = `<span style="color:#6b7280;">💭 旧テンプレ検出、但し個別説明は空</span>`;
+        }
+      } else {
+        customStatus = `<span style="color:#f59e0b;">⚠️ 検出不能 (テンプレ丸ごと適用、個別説明が保持されません)</span>`;
+      }
 
       result.innerHTML = `
         <div style="background:#fff; padding:8px 10px; border-radius:4px; border:1px solid #93c5fd;">
@@ -12816,21 +12858,29 @@ const DescMgr = {
       try {
         const data = await this.apiCall('description-get', { itemId });
         if (data.ok) {
-          const customContent = this.extractCustom(data.description);
+          const extracted = this.extractCustomWithSource(data.description);
+          const customContent = extracted.content;
           const merged = this.mergeTemplate(customContent);
           this._bulkData[itemId] = {
             title: data.title,
             currentLength: data.descriptionLength,
             customContent,
-            hasMarker: customContent !== null,
+            source: extracted.source,
             mergedDescription: merged,
             mergedLength: merged ? merged.length : 0,
           };
-          if (customContent === null) {
-            this.log(`⚠️ ${itemId} マーカーなし (${data.title || 'no title'})`, 'warn');
-            noMarker++;
+          const titleShort = (data.title || 'no title').slice(0, 40);
+          if (extracted.source === 'marker') {
+            this.log(`✅ ${itemId} [marker] ${data.descriptionLength}→${merged.length} (custom ${customContent.length}) - ${titleShort}`, 'ok');
+          } else if (extracted.source === 'old-pattern') {
+            if (customContent && customContent.length > 0) {
+              this.log(`🔍 ${itemId} [old-pattern] ${data.descriptionLength}→${merged.length} (custom ${customContent.length}) - ${titleShort}`, 'ok');
+            } else {
+              this.log(`💭 ${itemId} [old-pattern, empty] ${data.descriptionLength}→${merged.length} (個別説明なし) - ${titleShort}`, 'warn');
+            }
           } else {
-            this.log(`✅ ${itemId} ${data.descriptionLength}→${merged.length} (custom ${customContent.length})`, 'ok');
+            this.log(`⚠️ ${itemId} [detect失敗] テンプレ丸適用 - ${titleShort}`, 'warn');
+            noMarker++;
           }
           ok++;
         } else {
