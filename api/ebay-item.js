@@ -658,6 +658,7 @@ export default async function handler(req, res) {
         while (page <= maxPages) {
           const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
   <ActiveList>
     <Pagination>
       <EntriesPerPage>${perPage}</EntriesPerPage>
@@ -696,11 +697,26 @@ export default async function handler(req, res) {
             const price = priceMatch ? parseFloat(priceMatch[1]) : null;
             const sku = (block.match(/<SKU>([\s\S]*?)<\/SKU>/i) || [,''])[1].trim();
             // 🔍 PrimaryCategory (カテゴリID + 名前)
-            const catBlock = block.match(/<PrimaryCategory>([\s\S]*?)<\/PrimaryCategory>/i);
             let categoryId = '', categoryName = '';
+            const catBlock = block.match(/<PrimaryCategory>([\s\S]*?)<\/PrimaryCategory>/i);
             if (catBlock) {
               categoryId = (catBlock[1].match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i) || [,''])[1].trim();
               categoryName = (catBlock[1].match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i) || [,''])[1].trim();
+            }
+            // フォールバック: ProductListingDetails 等の別位置
+            if (!categoryId) {
+              const idMatch = block.match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i);
+              if (idMatch) categoryId = idMatch[1].trim();
+              const nameMatch = block.match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i);
+              if (nameMatch) categoryName = nameMatch[1].trim();
+            }
+            // さらにフォールバック: PrimaryCategoryIDPath や CategoryPath
+            if (!categoryId) {
+              const pathMatch = block.match(/<PrimaryCategoryIDPath>([\s\S]*?)<\/PrimaryCategoryIDPath>/i);
+              if (pathMatch) {
+                const ids = pathMatch[1].trim().split(':');
+                categoryId = ids[ids.length - 1] || '';
+              }
             }
             // 📦 数量 (Quantity - QuantitySold = 残り在庫)
             const totalQty = parseInt((block.match(/<Quantity>([\s\S]*?)<\/Quantity>/i) || [,'0'])[1], 10) || 0;
