@@ -738,7 +738,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // === 🏷️ listings-enrich-categories: Shopping API で category 一括取得 ===
+    // === 🏷️ listings-enrich-categories: Trading API GetItem で category 一括取得 ===
     if (action === 'listings-enrich-categories') {
       const itemIds = req.body.itemIds;
       if (!Array.isArray(itemIds) || itemIds.length === 0) {
@@ -746,52 +746,40 @@ export default async function handler(req, res) {
         return;
       }
       try {
-        // App Token (Shopping API は client credentials で OK)
-        const appTokenRes = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Basic ' + Buffer.from(`${appId}:${certId}`).toString('base64'),
-          },
-          body: 'grant_type=client_credentials&scope=' + encodeURIComponent('https://api.ebay.com/oauth/api_scope'),
-        });
-        if (!appTokenRes.ok) {
-          const t = await appTokenRes.text();
-          res.status(500).json({ ok: false, action, error: 'App Token 取得失敗: ' + t.slice(0, 300) });
-          return;
-        }
-        const appTokenData = await appTokenRes.json();
-        const appToken = appTokenData.access_token;
-
-        // 20 件ずつバッチ
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
         const results = {};
-        const batchSize = 20;
-        for (let i = 0; i < itemIds.length; i += batchSize) {
-          const batch = itemIds.slice(i, i + batchSize);
-          const idsParam = batch.join(',');
-          const url = 'https://open.api.ebay.com/shopping?' + new URLSearchParams({
-            callname: 'GetMultipleItems',
-            responseencoding: 'JSON',
-            appid: appId,
-            version: '1199',
-            ItemID: idsParam,
-            IncludeSelector: 'Details',
-          }).toString();
-          const shopRes = await fetch(url, {
-            headers: { 'X-EBAY-API-IAF-TOKEN': appToken },
-          });
-          if (!shopRes.ok) continue;
-          const shopData = await shopRes.json();
-          if (shopData.Item && Array.isArray(shopData.Item)) {
-            for (const it of shopData.Item) {
-              if (it.ItemID) {
-                results[it.ItemID] = {
-                  categoryId: (it.PrimaryCategoryID || '').toString(),
-                  categoryName: it.PrimaryCategoryName || '',
-                };
+
+        // 並列 10 本ずつ処理 (Vercel 30秒制限を意識)
+        const parallel = 10;
+        for (let i = 0; i < itemIds.length; i += parallel) {
+          const batch = itemIds.slice(i, i + parallel);
+          await Promise.all(batch.map(async (itmId) => {
+            try {
+              const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itmId}</ItemID>
+  <IncludeItemSpecifics>false</IncludeItemSpecifics>
+</GetItemRequest>`;
+              const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+                method: 'POST',
+                headers: {
+                  'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+                  'X-EBAY-API-CALL-NAME': 'GetItem',
+                  'X-EBAY-API-SITEID': '0',
+                  'X-EBAY-API-IAF-TOKEN': token,
+                  'Content-Type': 'text/xml',
+                },
+                body: xmlReq,
+              });
+              const xml = await apiRes.text();
+              const catBlock = xml.match(/<PrimaryCategory>([\s\S]*?)<\/PrimaryCategory>/i);
+              if (catBlock) {
+                const catId = (catBlock[1].match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i) || [,''])[1].trim();
+                const catName = (catBlock[1].match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i) || [,''])[1].trim();
+                if (catId) results[itmId] = { categoryId: catId, categoryName: catName };
               }
-            }
-          }
+            } catch (e) { /* skip individual failure */ }
+          }));
         }
         res.status(200).json({ ok: true, action, count: Object.keys(results).length, results });
         return;
