@@ -635,7 +635,7 @@ export default async function handler(req, res) {
 
   // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
   //    Trading API 経由で listing の description を取得・更新
-  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active')) {
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories')) {
     const appId = process.env.EBAY_APP_ID;
     const certId = process.env.EBAY_CERT_ID;
     const refreshToken = process.env.EBAY_REFRESH_TOKEN;
@@ -731,6 +731,69 @@ export default async function handler(req, res) {
           page++;
         }
         res.status(200).json({ ok: true, action, itemCount: items.length, totalPages, items });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
+    // === 🏷️ listings-enrich-categories: Shopping API で category 一括取得 ===
+    if (action === 'listings-enrich-categories') {
+      const itemIds = req.body.itemIds;
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        res.status(400).json({ error: 'itemIds 配列が必要' });
+        return;
+      }
+      try {
+        // App Token (Shopping API は client credentials で OK)
+        const appTokenRes = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': 'Basic ' + Buffer.from(`${appId}:${certId}`).toString('base64'),
+          },
+          body: 'grant_type=client_credentials&scope=' + encodeURIComponent('https://api.ebay.com/oauth/api_scope'),
+        });
+        if (!appTokenRes.ok) {
+          const t = await appTokenRes.text();
+          res.status(500).json({ ok: false, action, error: 'App Token 取得失敗: ' + t.slice(0, 300) });
+          return;
+        }
+        const appTokenData = await appTokenRes.json();
+        const appToken = appTokenData.access_token;
+
+        // 20 件ずつバッチ
+        const results = {};
+        const batchSize = 20;
+        for (let i = 0; i < itemIds.length; i += batchSize) {
+          const batch = itemIds.slice(i, i + batchSize);
+          const idsParam = batch.join(',');
+          const url = 'https://open.api.ebay.com/shopping?' + new URLSearchParams({
+            callname: 'GetMultipleItems',
+            responseencoding: 'JSON',
+            appid: appId,
+            version: '1199',
+            ItemID: idsParam,
+            IncludeSelector: 'Details',
+          }).toString();
+          const shopRes = await fetch(url, {
+            headers: { 'X-EBAY-API-IAF-TOKEN': appToken },
+          });
+          if (!shopRes.ok) continue;
+          const shopData = await shopRes.json();
+          if (shopData.Item && Array.isArray(shopData.Item)) {
+            for (const it of shopData.Item) {
+              if (it.ItemID) {
+                results[it.ItemID] = {
+                  categoryId: (it.PrimaryCategoryID || '').toString(),
+                  categoryName: it.PrimaryCategoryName || '',
+                };
+              }
+            }
+          }
+        }
+        res.status(200).json({ ok: true, action, count: Object.keys(results).length, results });
         return;
       } catch (e) {
         res.status(500).json({ ok: false, action, error: e.message || String(e) });
