@@ -2794,8 +2794,9 @@
     <div style="background:#fefce8; border:1px solid #fde047; border-radius:6px; padding:12px 14px; margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
         <div style="font-weight:700; color:#713f12;">📋 全 active listing 一覧 (選択支援)</div>
-        <div style="display:flex; gap:6px;">
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
           <button onclick="DescMgr.fetchActiveListings()" style="background:#ca8a04; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">📥 全 listing 取得</button>
+          <button onclick="DescMgr.enrichCategories()" style="background:#0891b2; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">🏷️ カテゴリ enrich</button>
           <button onclick="DescMgr.toggleListingsAll()" style="background:#eab308; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✓ 表示中を全選択</button>
           <button onclick="DescMgr.copySelectedToBulk()" style="background:#16a34a; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">↓ 選択分を下の Item ID 欄に転記</button>
         </div>
@@ -13143,6 +13144,47 @@ const DescMgr = {
     const ta = document.getElementById('descBulkItemIds');
     ta.value = ids.join('\n');
     alert(`✓ ${ids.length}件 の Item ID を Item ID 欄に転記しました`);
+  },
+
+  // 🏷️ Shopping API でカテゴリ情報を後追い取得 (バッチ処理)
+  async enrichCategories() {
+    if (!this._listings || this._listings.length === 0) {
+      alert('まず 📥 全 listing 取得 を実行してください');
+      return;
+    }
+    const info = document.getElementById('descListingsInfo');
+    // カテゴリ未取得のみ対象
+    const missing = this._listings.filter(x => !x.categoryId).map(x => x.itemId);
+    if (missing.length === 0) {
+      alert('全 listing にカテゴリ情報あり (追加取得不要)');
+      return;
+    }
+    if (!confirm(`${missing.length} 件のカテゴリを Shopping API で取得します。約 ${Math.ceil(missing.length / 20)} 秒かかります。実行しますか?`)) return;
+
+    info.textContent = `🏷️ カテゴリ取得中... (${missing.length}件)`;
+    try {
+      // 200 件ずつ送信 (server 側で 20 件 batch 処理)
+      const chunkSize = 200;
+      let enriched = 0;
+      for (let i = 0; i < missing.length; i += chunkSize) {
+        const chunk = missing.slice(i, i + chunkSize);
+        info.textContent = `🏷️ カテゴリ取得中... ${i + chunk.length}/${missing.length}`;
+        const data = await this.apiCall('listings-enrich-categories', { itemIds: chunk });
+        if (data.ok && data.results) {
+          this._listings.forEach(x => {
+            if (data.results[x.itemId]) {
+              x.categoryId = data.results[x.itemId].categoryId || '';
+              x.categoryName = data.results[x.itemId].categoryName || '';
+              enriched++;
+            }
+          });
+        }
+      }
+      info.textContent = `✅ カテゴリ enrich 完了: ${enriched}件更新`;
+      this.renderListingsTable();
+    } catch (e) {
+      info.textContent = '❌ enrich エラー: ' + (e.message || e);
+    }
   },
 };
 
