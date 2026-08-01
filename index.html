@@ -13163,8 +13163,8 @@ const DescMgr = {
 
     info.textContent = `🏷️ カテゴリ取得中... (${missing.length}件)`;
     try {
-      // 200 件ずつ送信 (server 側で 20 件 batch 処理)
-      const chunkSize = 200;
+      // 50 件ずつ送信 (Vercel 30秒制限 / Trading API GetItem = 並列10本で 5-10秒)
+      const chunkSize = 50;
       let enriched = 0;
       for (let i = 0; i < missing.length; i += chunkSize) {
         const chunk = missing.slice(i, i + chunkSize);
