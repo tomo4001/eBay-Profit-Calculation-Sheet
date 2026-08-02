@@ -635,7 +635,7 @@ export default async function handler(req, res) {
 
   // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
   //    Trading API 経由で listing の description を取得・更新
-  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test' || req.body.action === 'check-disclosure-status')) {
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test' || req.body.action === 'check-disclosure-status' || req.body.action === 'check-api-usage')) {
     const appId = process.env.EBAY_APP_ID;
     const certId = process.env.EBAY_CERT_ID;
     const refreshToken = process.env.EBAY_REFRESH_TOKEN;
@@ -784,6 +784,46 @@ export default async function handler(req, res) {
           }));
         }
         res.status(200).json({ ok: true, action, count: Object.keys(results).length, results });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
+    // === 📊 check-api-usage: GetAPIAccessRules で API 使用量確認 ===
+    if (action === 'check-api-usage') {
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetAPIAccessRulesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+</GetAPIAccessRulesRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'GetAPIAccessRules',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        // 主要 call の使用量を抽出
+        const rules = [];
+        const ruleRe = /<APIAccessRule>([\s\S]*?)<\/APIAccessRule>/gi;
+        let m;
+        while ((m = ruleRe.exec(xml)) !== null) {
+          const b = m[1];
+          const name = (b.match(/<CallName>([\s\S]*?)<\/CallName>/i) || [,''])[1].trim();
+          const dailyLimit = (b.match(/<DailyHardLimit>([\s\S]*?)<\/DailyHardLimit>/i) || [,''])[1].trim();
+          const dailyUsage = (b.match(/<DailyUsage>([\s\S]*?)<\/DailyUsage>/i) || [,''])[1].trim();
+          const periodicLimit = (b.match(/<PeriodicHardLimit>([\s\S]*?)<\/PeriodicHardLimit>/i) || [,''])[1].trim();
+          const periodicUsage = (b.match(/<PeriodicUsage>([\s\S]*?)<\/PeriodicUsage>/i) || [,''])[1].trim();
+          if (name) rules.push({ name, dailyLimit, dailyUsage, periodicLimit, periodicUsage });
+        }
+        res.status(200).json({ ok: true, action, ruleCount: rules.length, rules });
         return;
       } catch (e) {
         res.status(500).json({ ok: false, action, error: e.message || String(e) });
