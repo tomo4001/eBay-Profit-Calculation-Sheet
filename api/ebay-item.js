@@ -635,7 +635,7 @@ export default async function handler(req, res) {
 
   // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
   //    Trading API 経由で listing の description を取得・更新
-  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test')) {
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test' || req.body.action === 'check-disclosure-status')) {
     const appId = process.env.EBAY_APP_ID;
     const certId = process.env.EBAY_CERT_ID;
     const refreshToken = process.env.EBAY_REFRESH_TOKEN;
@@ -784,6 +784,65 @@ export default async function handler(req, res) {
           }));
         }
         res.status(200).json({ ok: true, action, count: Object.keys(results).length, results });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
+    // === 🔍 check-disclosure-status: GetItem で listing に attach されてる Custom Policies を取得 ===
+    if (action === 'check-disclosure-status') {
+      if (!itemId) { res.status(400).json({ error: 'itemId が必要' }); return; }
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itemId}</ItemID>
+  <IncludeItemSpecifics>false</IncludeItemSpecifics>
+  <IncludeCrossPromotion>false</IncludeCrossPromotion>
+</GetItemRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'GetItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        // CustomPolicies を抽出
+        const customBlock = xml.match(/<CustomPolicies>([\s\S]*?)<\/CustomPolicies>/i);
+        const compliancePolicies = [];
+        const takebackPolicies = [];
+        if (customBlock) {
+          const complianceBlock = customBlock[1].match(/<ProductCompliancePolicies>([\s\S]*?)<\/ProductCompliancePolicies>/i);
+          if (complianceBlock) {
+            const re = /<PolicyID>([\s\S]*?)<\/PolicyID>/gi;
+            let m;
+            while ((m = re.exec(complianceBlock[1])) !== null) {
+              compliancePolicies.push(m[1].trim());
+            }
+          }
+          const takebackBlock = customBlock[1].match(/<TakeBackPolicies>([\s\S]*?)<\/TakeBackPolicies>/i);
+          if (takebackBlock) {
+            const re = /<PolicyID>([\s\S]*?)<\/PolicyID>/gi;
+            let m;
+            while ((m = re.exec(takebackBlock[1])) !== null) {
+              takebackPolicies.push(m[1].trim());
+            }
+          }
+        }
+        res.status(200).json({
+          ok: true, action, itemId,
+          hasCustomPolicies: !!customBlock,
+          compliancePolicies,
+          takebackPolicies,
+          rawCustomBlock: customBlock ? customBlock[1].slice(0, 1500) : null,
+        });
         return;
       } catch (e) {
         res.status(500).json({ ok: false, action, error: e.message || String(e) });
