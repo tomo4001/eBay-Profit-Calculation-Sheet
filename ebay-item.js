@@ -1,0 +1,1454 @@
+// =============================================================================
+// Vercel Serverless Function: eBay 出品情報取得
+// GET /api/ebay-item?url=<eBay出品URL>
+//   → 商品タイトル / カテゴリーID / 価格+送料(ライバル合計価格) を返す
+//
+// 必要な環境変数(Vercel Settings → Environment Variables):
+//   EBAY_APP_ID   = Production App ID (Client ID)
+//   EBAY_CERT_ID  = Production Cert ID (Client Secret)
+// =============================================================================
+
+// URL から eBay アイテムID(数値)を抽出
+function extractItemId(url) {
+  if (!url) return null;
+  // 例: https://www.ebay.com/itm/123456789012
+  //     https://www.ebay.co.uk/itm/Some-Title/123456789012
+  //     https://www.ebay.com/itm/123456789012?hash=...
+  const patterns = [
+    /\/itm\/(\d{9,15})/,           // /itm/123456789012
+    /\/itm\/[^/]+\/(\d{9,15})/,    // /itm/Title/123456789012
+    /[?&]item=(\d{9,15})/,         // ?item=123456789012
+    /(\d{12,15})/,                 // フォールバック: 12-15桁の数字
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// URL からバリエーションID(?var=xxx)を抽出。バリエーション出品でない場合は null。
+function extractVariationId(url) {
+  if (!url) return null;
+  const m = url.match(/[?&]var=(\d+)/);
+  return m ? m[1] : null;
+}
+
+// URL ドメインから eBay マーケットプレイスIDを判定
+function detectMarketplace(url) {
+  if (!url) return 'EBAY_US';
+  if (url.includes('ebay.co.uk')) return 'EBAY_GB';
+  if (url.includes('ebay.de')) return 'EBAY_DE';
+  if (url.includes('ebay.com.au')) return 'EBAY_AU';
+  if (url.includes('ebay.ca')) return 'EBAY_CA';
+  if (url.includes('ebay.fr')) return 'EBAY_FR';
+  if (url.includes('ebay.it')) return 'EBAY_IT';
+  if (url.includes('ebay.es')) return 'EBAY_ES';
+  return 'EBAY_US';
+}
+
+// eBay OAuth アプリケーショントークン取得(client credentials)
+async function getAppToken(appId, certId) {
+  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64');
+  const res = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: 'grant_type=client_credentials&scope=' +
+          encodeURIComponent('https://api.ebay.com/oauth/api_scope'),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OAuth失敗 (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data.access_token;
+}
+
+// 📷 汎用 HTML から画像 URL を抽出(eBay 以外のサイト用)
+// Amazon の同一画像複数サイズを正規化(._SX300_.jpg → .jpg)
+function normalizeForDedup(u) {
+  // Amazon: 画像 ID は同じ、サイズ指定 (._SX300_, ._SL1500_, ._AC_UF1000,1000_QL80_) が違うだけ
+  return u.replace(/\._[A-Z0-9,_]+_\./gi, '.');
+}
+
+function extractImagesFromHtml(html, baseUrl) {
+  const urls = new Set();
+  const seenNormalized = new Set();  // 重複検出用(正規化後)
+  const addAbs = (raw) => {
+    if (!raw) return;
+    let u = raw.trim();
+    if (!u || u.startsWith('data:')) return;
+    if (u.startsWith('//')) u = 'https:' + u;
+    else if (u.startsWith('/')) {
+      try { u = new URL(baseUrl).origin + u; } catch (e) { return; }
+    } else if (!/^https?:/i.test(u)) {
+      try { u = new URL(u, baseUrl).href; } catch (e) { return; }
+    }
+    // 重複チェック(正規化後 = Amazon の異なるサイズも同じものとみなす)
+    const norm = normalizeForDedup(u);
+    if (seenNormalized.has(norm)) return;
+    seenNormalized.add(norm);
+    urls.add(u);
+  };
+
+  // og:image / og:image:secure_url / og:image:url
+  const ogRegex = /<meta[^>]+property=["']og:image(?::secure_url|:url)?["'][^>]+content=["']([^"']+)["']/gi;
+  let m;
+  while ((m = ogRegex.exec(html)) !== null) addAbs(m[1]);
+  const ogRegex2 = /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url|:url)?["']/gi;
+  while ((m = ogRegex2.exec(html)) !== null) addAbs(m[1]);
+
+  // twitter:image
+  const twRegex = /<meta[^>]+(?:name|property)=["']twitter:image["'][^>]+content=["']([^"']+)["']/gi;
+  while ((m = twRegex.exec(html)) !== null) addAbs(m[1]);
+
+  // 🆕 __NEXT_DATA__ (Next.js / メルカリ等)を明示パース
+  // 構造の中から画像 URL らしき文字列を再帰的に抽出
+  const nextDataMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (nextDataMatch) {
+    try {
+      const nd = JSON.parse(nextDataMatch[1].trim());
+      const collect = (obj) => {
+        if (obj == null) return;
+        if (typeof obj === 'string') {
+          // 画像 URL パターン or 既知の CDN
+          if (/^https?:\/\//.test(obj)) {
+            if (/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(obj)) addAbs(obj);
+            else if (/static\.mercdn\.net|mercari/i.test(obj)) addAbs(obj);
+            else if (/m\.media-amazon\.com\/images/i.test(obj)) addAbs(obj);
+          }
+          return;
+        }
+        if (Array.isArray(obj)) { obj.forEach(collect); return; }
+        if (typeof obj === 'object') {
+          // 既知のキー名を優先(image, photo, photos, imageUrl 等)
+          ['image','images','photo','photos','imageUrl','imageUri','uri','src'].forEach(k => {
+            if (obj[k]) collect(obj[k]);
+          });
+          // それ以外も再帰
+          Object.values(obj).forEach(collect);
+        }
+      };
+      collect(nd);
+    } catch (e) {}
+  }
+
+  // JSON-LD product images
+  const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  while ((m = ldRegex.exec(html)) !== null) {
+    try {
+      const ld = JSON.parse(m[1].trim());
+      const collect = (obj) => {
+        if (obj == null) return;
+        if (typeof obj === 'string') {
+          if (/^https?:\/\//.test(obj) && /\.(jpg|jpeg|png|webp|gif|avif)/i.test(obj)) addAbs(obj);
+          return;
+        }
+        if (Array.isArray(obj)) { obj.forEach(collect); return; }
+        if (typeof obj === 'object') {
+          if (obj.image) collect(obj.image);
+          if (obj.url && obj['@type'] && /image/i.test(obj['@type'])) collect(obj.url);
+          if (obj['@graph']) collect(obj['@graph']);
+        }
+      };
+      collect(ld);
+    } catch (e) {}
+  }
+
+  // <img src/data-src/data-zoom-image/...>
+  const imgRegex = /<img[^>]+(?:src|data-src|data-zoom-image|data-large|data-original|data-lazy)=["']([^"']+)["']/gi;
+  while ((m = imgRegex.exec(html)) !== null) {
+    const src = m[1];
+    if (/icon|logo|sprite|spacer|placeholder|loading/i.test(src)) continue;
+    if (/\.svg(\?|$)/i.test(src)) continue;
+    addAbs(src);
+  }
+
+  // 🔍 Aggressive: HTML 全体から画像 URL パターンをスキャン
+  // (Next.js の __NEXT_DATA__ / SPA の inline JSON に埋め込まれた画像 URL を拾う)
+  // パターン: https?://...拡張子.jpg|jpeg|png|webp|gif|avif (クエリ任意)
+  const aggressiveRegex = /https?:\\?\/\\?\/[^"'\s<>(){}\[\]]+?\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"'\s<>(){}\[\]]*)?/gi;
+  while ((m = aggressiveRegex.exec(html)) !== null) {
+    // JSON 内のエスケープを除去(\/  → /)
+    let u = m[0].replace(/\\\//g, '/');
+    // 細かい除外: アイコン, ロゴ, プレースホルダ, アバター, OG 画像のサイズ違いコピー等は別途排除
+    if (/icon|logo|sprite|spacer|placeholder|loading|favicon/i.test(u)) continue;
+    // アバター / プロフィール画像系は除外(個別商品とは無関係)
+    if (/avatar|profile|user[-_]?img/i.test(u)) continue;
+    addAbs(u);
+  }
+
+  // 🔍 メルカリ / 主要 CDN の URL を念のため別途検出(拡張子なしの場合あり)
+  // 例: https://static.mercdn.net/item/detail/orig/photos/m123456789_1.jpg
+  //     https://static.mercdn.net/c!/.../photos/m123_1
+  const cdnPatterns = [
+    /https?:\\?\/\\?\/static\.mercdn\.net\/[^"'\s<>(){}\[\]]+/gi,        // メルカリ
+    /https?:\\?\/\\?\/[^"'\s<>(){}\[\]]*?\.akamaized\.net\/[^"'\s<>(){}\[\]]+/gi,  // Akamai CDN
+    /https?:\\?\/\\?\/[^"'\s<>(){}\[\]]*?\.cloudfront\.net\/[^"'\s<>(){}\[\]]+/gi, // CloudFront
+  ];
+  for (const re of cdnPatterns) {
+    while ((m = re.exec(html)) !== null) {
+      let u = m[0].replace(/\\\//g, '/');
+      if (/icon|logo|sprite|favicon|avatar|profile/i.test(u)) continue;
+      // 末尾のクォート文字などの除去
+      u = u.replace(/[,;)\]}'"`]+$/, '');
+      addAbs(u);
+    }
+  }
+
+  return Array.from(urls);
+}
+
+function extractTitleFromHtml(html) {
+  let t = '';
+  let m = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+  if (m) t = m[1];
+  if (!t) {
+    m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (m) t = m[1];
+  }
+  return t.trim();
+}
+
+// 💰 汎用 + サイト別の価格抽出(JPY 想定)
+// =============================================================================
+// Mercari Shops 完全分離抽出器
+//   関連商品の price で誤検出されないように、汎用パス一切使わず URL の productId
+//   をキーに __NEXT_DATA__ と HTML 周辺を精密にスキャン。
+//   Mercari Shops は SPA で価格を JS フェッチするため、信頼できる出所が無ければ
+//   null を返す(誤値は返さない)。
+// =============================================================================
+function extractMercariShopsPrice(html, url, tryParseAmount) {
+  const result = { price: null, currency: 'JPY', _diag: { steps: [] } };
+  const pidMatch = url.match(/\/shops\/product\/([A-Za-z0-9_-]+)/);
+  const productId = pidMatch ? pidMatch[1] : null;
+  result._diag.productId = productId;
+  if (!productId) {
+    result._diag.steps.push('NO_PRODUCT_ID_IN_URL');
+    return result;
+  }
+
+  // ---- 方法 1: __NEXT_DATA__ の中で productId に一致するノード ----
+  const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  result._diag.hasNextData = !!nd;
+  if (nd) {
+    result._diag.nextDataSize = nd[1].length;
+    try {
+      const data = JSON.parse(nd[1]);
+      // 走査して productId が一致するノード(複数あり得る)を全部集める
+      const matched = [];
+      const stack = [data];
+      const seen = new WeakSet();
+      while (stack.length) {
+        const node = stack.pop();
+        if (!node || typeof node !== 'object') continue;
+        if (seen.has(node)) continue;
+        seen.add(node);
+        if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
+        const idMatches = [node.id, node.productId, node.shopProductId, node.uuid, node.slug]
+          .some(v => v === productId);
+        if (idMatches) matched.push(node);
+        for (const k in node) stack.push(node[k]);
+      }
+      result._diag.matchedCount = matched.length;
+      if (matched.length) {
+        // 最初のマッチノードの全フィールド名と数値値を診断に含める
+        const sample = matched[0];
+        result._diag.matchedKeys = Object.keys(sample).slice(0, 50);
+        result._diag.matchedNums = {};
+        for (const k in sample) {
+          if (typeof sample[k] === 'number') result._diag.matchedNums[k] = sample[k];
+        }
+        // 価格候補フィールド優先順
+        const priceFields = ['sellingPrice', 'displayPrice', 'salePrice', 'price', 'amount', 'listPrice', 'unitPrice'];
+        for (const node of matched) {
+          for (const f of priceFields) {
+            if (typeof node[f] === 'number' && node[f] >= 100) {
+              result.price = node[f];
+              result._diag.steps.push(`MATCH_NODE_${f}=${node[f]}`);
+              return result;
+            }
+          }
+        }
+        result._diag.steps.push('MATCHED_NODE_HAS_NO_PRICE_FIELD');
+      } else {
+        result._diag.steps.push('NO_MATCHING_NODE');
+      }
+    } catch (e) {
+      result._diag.steps.push('NEXT_DATA_PARSE_ERROR: ' + e.message);
+    }
+  }
+
+  // ---- 方法 2: HTML 内 productId 出現箇所の周辺 ¥XXX,XXX ----
+  const escId = productId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const idRe = new RegExp(escId, 'g');
+  const pidMatches = [...html.matchAll(idRe)].slice(0, 20);
+  result._diag.pidOccurrenceCount = pidMatches.length;
+  for (const pm of pidMatches) {
+    const start = Math.max(0, pm.index - 200);
+    const end = Math.min(html.length, pm.index + 800);
+    const win = html.slice(start, end);
+    const ym = win.match(/[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/);
+    if (ym) {
+      const p = tryParseAmount(ym[1]);
+      if (p && p >= 100) {
+        result.price = p;
+        result._diag.steps.push(`NEAR_PID_TEXT=${p}`);
+        return result;
+      }
+    }
+  }
+
+  // ---- 方法 3: 「送料近接」フォールバックは Mercari Shops では信頼できない ----
+  //   理由: SPA で本商品の価格は SSR HTML に含まれず、ヘッダー/フッターに別商品の
+  //         「¥XXX,XXX 送料込み」がある場合に誤検出してしまう。
+  //   → ¥133,000 取れず ¥70,000 を返した実例があったため、このパスは無効化。
+  //   送料近接を試みた結果だけ診断に残しておき、null を返す方が安全。
+  const idxSoryo = html.search(/送料(?:込み|無料|の負担)/);
+  result._diag.soryouIdx = idxSoryo;
+  if (idxSoryo > 0) {
+    const winStart = Math.max(0, idxSoryo - 1000);
+    const win = html.slice(winStart, idxSoryo);
+    const candidates = [];
+    const re1 = /[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/g;
+    for (const m of win.matchAll(re1)) candidates.push({ val: m[1], at: m.index, score: 2 });
+    const re3 = /(?:^|[^0-9.])([0-9]{1,3}(?:,[0-9]{3})+)(?=[^0-9]|$)/g;
+    for (const m of win.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
+    candidates.sort((a, b) => (b.score - a.score) || (b.at - a.at));
+    result._diag.soryouCandidates_disabled = candidates.slice(0, 5);
+  }
+
+  result._diag.steps.push('SPA_NO_RELIABLE_PRICE_IN_SSR_HTML');
+  return result;
+}
+
+function extractPriceFromHtml(html, url) {
+  let price = null;
+  let currency = 'JPY';
+  let m;
+
+  const tryParseAmount = (raw) => {
+    if (!raw) return null;
+    const cleaned = String(raw).replace(/[¥￥,\s円]/g, '');
+    const n = parseFloat(cleaned);
+    return (isFinite(n) && n > 0) ? n : null;
+  };
+
+  // === Mercari Shops は完全分離(他のフォールバック一切使わない) ===
+  if (/jp\.mercari\.com\/shops\/product/i.test(url)) {
+    return extractMercariShopsPrice(html, url, tryParseAmount);
+  }
+
+  // 1. og:price:amount or product:price:amount
+  m = html.match(/<meta[^>]+property=["'](?:og|product):price:amount["'][^>]+content=["']([^"']+)["']/i)
+   || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["'](?:og|product):price:amount["']/i);
+  if (m) price = tryParseAmount(m[1]);
+
+  m = html.match(/<meta[^>]+property=["'](?:og|product):price:currency["'][^>]+content=["']([^"']+)["']/i);
+  if (m) currency = m[1].trim().toUpperCase();
+
+  // 2. JSON-LD Product.offers.price
+  // ※ Mercari Shops は関連商品が並ぶため、誤検出回避のため専用ロジックに任せる
+  const isMercariShops = /jp\.mercari\.com\/shops\/product/i.test(url);
+  if (!price && !isMercariShops) {
+    const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let lm;
+    while ((lm = ldRegex.exec(html)) !== null) {
+      try {
+        const ld = JSON.parse(lm[1].trim());
+        const find = (obj) => {
+          if (obj == null || typeof obj !== 'object') return null;
+          if (Array.isArray(obj)) {
+            for (const x of obj) { const r = find(x); if (r) return r; }
+            return null;
+          }
+          if (obj.price != null) {
+            const p = tryParseAmount(obj.price);
+            if (p) return { price: p, currency: obj.priceCurrency || obj.currency || 'JPY' };
+          }
+          for (const k of Object.keys(obj)) {
+            const r = find(obj[k]);
+            if (r) return r;
+          }
+          return null;
+        };
+        const r = find(ld);
+        if (r) { price = r.price; currency = r.currency; break; }
+      } catch (e) {}
+    }
+  }
+
+  // 3. itemprop="price" content
+  if (!price) {
+    m = html.match(/itemprop=["']price["'][^>]+content=["']([^"']+)["']/i)
+     || html.match(/content=["']([^"']+)["'][^>]+itemprop=["']price["']/i);
+    if (m) price = tryParseAmount(m[1]);
+  }
+
+  // 4. サイト別 extractor
+  let urlHost = '';
+  try { urlHost = new URL(url).hostname.toLowerCase(); } catch (e) {}
+
+  if (!price) {
+    // Amazon
+    if (/amazon\./i.test(urlHost)) {
+      m = html.match(/<span[^>]*class=["'][^"']*a-offscreen[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
+      if (!m) m = html.match(/class=["'][^"']*a-price-whole[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
+      if (m) price = tryParseAmount(m[1]);
+    }
+    // オフモール: 税込み価格優先(税抜き表示と並ぶ場合がある)
+    else if (/netmall\.hardoff/i.test(urlHost)) {
+      // 税込: nnnn 円 / ¥nnnn 税込 / "税込価格" 直近の数字
+      let pm = html.match(/税込[\s\S]{0,200}?[¥￥]?([0-9,]+)\s*円?/);
+      if (!pm) pm = html.match(/[¥￥]([0-9,]+)\s*円?[\s\S]{0,40}?税込/);
+      if (!pm) pm = html.match(/([0-9,]+)\s*円\s*\(税込/);
+      if (pm) price = tryParseAmount(pm[1]);
+    }
+    // Yodobashi: data-priceかspecific class
+    else if (/yodobashi/i.test(urlHost)) {
+      let pm = html.match(/<span[^>]*class=["'][^"']*productPrice[^"']*["'][^>]*>[¥￥]?([0-9,]+)/i);
+      if (!pm) pm = html.match(/data-price=["']([0-9]+)["']/i);
+      if (!pm) pm = html.match(/[¥￥]([0-9,]+)\s*\(税込/);
+      if (pm) price = tryParseAmount(pm[1]);
+    }
+    // メルカリ / メルカリショップ: 信頼性高い順
+    else if (/mercari/i.test(urlHost)) {
+      // 方法1: meta property="product:price:amount" を強制的に検索
+      // (通常メルカリ /item/m... では存在)
+      let pm = html.match(/<meta[^>]+(?:property|name)=["'](?:og|product):price:amount["'][^>]+content=["']([^"']+)["']/i)
+            || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og|product):price:amount["']/i);
+      if (pm) {
+        const p = tryParseAmount(pm[1]);
+        if (p) price = p;
+      }
+      // 方法2: og:description / twitter:description から "¥XX,XXX" 抽出
+      if (!price) {
+        const desc = html.match(/<meta[^>]+(?:property|name)=["'](?:og|twitter):description["'][^>]+content=["']([^"']+)["']/i);
+        if (desc) {
+          const pm2 = desc[1].match(/[¥￥]\s*([0-9,]+)/);
+          if (pm2) price = tryParseAmount(pm2[1]);
+        }
+      }
+      // 方法3: Mercari Shops 専用(※実際は冒頭の早期 return で処理済み)
+      if (false) {
+        const pidMatch = url.match(/\/shops\/product\/([A-Za-z0-9_-]+)/);
+        const productId = pidMatch ? pidMatch[1] : null;
+
+        // 3a: __NEXT_DATA__ の中で productId に紐づくノードの price を取得
+        // ★ 診断のため、マッチしたノードの全フィールドを記録
+        var __mercariMatchedNode = null;
+        if (!price && productId) {
+          const nd = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+          if (nd) {
+            try {
+              const data = JSON.parse(nd[1]);
+              const stack = [data];
+              while (stack.length && !price) {
+                const node = stack.pop();
+                if (!node || typeof node !== 'object') continue;
+                if (Array.isArray(node)) { node.forEach(n => stack.push(n)); continue; }
+                const idMatches = [node.id, node.productId, node.shopProductId, node.uuid]
+                  .some(v => v === productId);
+                if (idMatches) {
+                  // マッチした商品ノード — 全フィールドを診断用に保存(数値系のみ抽出)
+                  if (!__mercariMatchedNode) {
+                    __mercariMatchedNode = {};
+                    for (const k in node) {
+                      const v = node[k];
+                      if (typeof v === 'number' || typeof v === 'string') {
+                        __mercariMatchedNode[k] = v;
+                      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+                        const subKeys = Object.keys(v).slice(0, 5);
+                        __mercariMatchedNode[k] = `{${subKeys.join(',')}}`;
+                      }
+                    }
+                  }
+                  // 価格候補: price, sellingPrice, displayPrice, salePrice, listPrice 順
+                  const priceFields = ['sellingPrice', 'displayPrice', 'salePrice', 'price', 'amount', 'listPrice'];
+                  for (const f of priceFields) {
+                    if (typeof node[f] === 'number' && node[f] >= 100) {
+                      price = node[f];
+                      break;
+                    }
+                  }
+                  if (price) break;
+                }
+                for (const k in node) stack.push(node[k]);
+              }
+            } catch (e) {}
+          }
+        }
+        // 診断情報をグローバルに格納(後で responseBody に含める)
+        if (typeof globalThis !== 'undefined') globalThis.__mercariDiag = { productId, matchedNode: __mercariMatchedNode };
+        // 3b: HTML 内で productId 周辺の ¥XXX,XXX (productId は data-* / link 等で現れる)
+        if (!price && productId) {
+          // productId の出現箇所すべてを調べ、その前後 800 字以内の最初の ¥XXX,XXX
+          const escId = productId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+          const idRe = new RegExp(escId, 'g');
+          const pidMatches = [...html.matchAll(idRe)].slice(0, 10);
+          for (const pm of pidMatches) {
+            const start = Math.max(0, pm.index - 200);
+            const end = Math.min(html.length, pm.index + 800);
+            const win = html.slice(start, end);
+            const ym = win.match(/[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/);
+            if (ym) {
+              const p = tryParseAmount(ym[1]);
+              if (p && p >= 100) { price = p; break; }
+            }
+          }
+        }
+        // 3c: 「送料込み」近接(productId が見つからない時用のフォールバック)
+        if (!price) {
+          const idxSoryo = html.search(/送料(?:込み|無料|の負担)/);
+          if (idxSoryo > 0) {
+            const winStart = Math.max(0, idxSoryo - 1000);
+            const win = html.slice(winStart, idxSoryo);
+            const candidates = [];
+            const re1 = /[¥￥](?:[^0-9]{0,40})?([0-9]{1,3}(?:,[0-9]{3})+)/g;
+            for (const m of win.matchAll(re1)) candidates.push({ val: m[1], at: m.index, score: 2 });
+            const re3 = /(?:^|[^0-9.])([0-9]{1,3}(?:,[0-9]{3})+)(?=[^0-9]|$)/g;
+            for (const m of win.matchAll(re3)) candidates.push({ val: m[1], at: m.index + (m[0].length - m[1].length), score: 1 });
+            candidates.sort((a, b) => (b.score - a.score) || (b.at - a.at));
+            for (const c of candidates) {
+              const p = tryParseAmount(c.val);
+              if (p && p >= 100) { price = p; break; }
+            }
+          }
+        }
+      }
+    }
+    // ヤフオク: 即決価格 のみ
+    else if (/auctions\.yahoo/i.test(urlHost)) {
+      m = html.match(/即決(?:価格)?[\s\S]{0,300}?[¥￥]([0-9,]+)/);
+      if (m) price = tryParseAmount(m[1]);
+    }
+    // Yahoo!フリマ: __NEXT_DATA__
+    else if (/paypayfleamarket\.yahoo/i.test(urlHost)) {
+      const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+      if (ndMatch) {
+        try {
+          const nd = JSON.parse(ndMatch[1]);
+          const find = (o) => {
+            if (o == null || typeof o !== 'object') return null;
+            if (Array.isArray(o)) {
+              for (const x of o) { const r = find(x); if (r) return r; }
+              return null;
+            }
+            if (typeof o.price === 'number' && o.price > 0) return o.price;
+            for (const k of Object.keys(o)) {
+              const r = find(o[k]);
+              if (r) return r;
+            }
+            return null;
+          };
+          const p = find(nd);
+          if (p) price = p;
+        } catch (e) {}
+      }
+    }
+    // 楽天
+    else if (/rakuten/i.test(urlHost)) {
+      m = html.match(/itemprop=["']price["'][^>]+content=["']([0-9]+)["']/i);
+      if (m) price = tryParseAmount(m[1]);
+      if (!price) {
+        m = html.match(/data-price=["']([0-9]+)["']/i);
+        if (m) price = tryParseAmount(m[1]);
+      }
+    }
+  }
+
+  return { price, currency };
+}
+
+
+// =============================================================================
+// 📝 description (商品説明) の GET / UPDATE 用ヘルパー (Trading API)
+// =============================================================================
+async function getDescUserAccessToken(appId, certId, refreshToken) {
+  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64');
+  // Trading API GetItem/ReviseItem は sell.inventory スコープを含む
+  const scopes = 'https://api.ebay.com/oauth/api_scope/sell.inventory';
+  const r = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: scopes,
+    }).toString(),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Access Token取得失敗 (HTTP ${r.status}): ${t.slice(0, 300)}`);
+  }
+  const j = await r.json();
+  return j.access_token;
+}
+function descExtractDescription(xml) {
+  const cdataMatch = xml.match(/<Description><!\[CDATA\[([\s\S]*?)\]\]><\/Description>/i);
+  if (cdataMatch) return cdataMatch[1];
+  const plainMatch = xml.match(/<Description>([\s\S]*?)<\/Description>/i);
+  if (plainMatch) {
+    return plainMatch[1]
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+  return '';
+}
+function descExtractTitle(xml) {
+  const m = xml.match(/<Title>([\s\S]*?)<\/Title>/i);
+  return m ? m[1].trim() : '';
+}
+function descExtractErrors(xml) {
+  const errs = [];
+  const re = /<Errors>([\s\S]*?)<\/Errors>/gi;
+  let block;
+  while ((block = re.exec(xml)) !== null) {
+    const b = block[1];
+    errs.push({
+      short: (b.match(/<ShortMessage>([\s\S]*?)<\/ShortMessage>/i) || [,''])[1].trim(),
+      long: (b.match(/<LongMessage>([\s\S]*?)<\/LongMessage>/i) || [,''])[1].trim(),
+      code: (b.match(/<ErrorCode>([\s\S]*?)<\/ErrorCode>/i) || [,''])[1].trim(),
+      severity: (b.match(/<SeverityCode>([\s\S]*?)<\/SeverityCode>/i) || [,''])[1].trim(),
+    });
+  }
+  return errs;
+}
+function descExtractAck(xml) {
+  const m = xml.match(/<Ack>([\s\S]*?)<\/Ack>/i);
+  return m ? m[1].trim() : '';
+}
+
+export default async function handler(req, res) {
+  // CORS(同一オリジンだが念のため)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
+  //    Trading API 経由で listing の description を取得・更新
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test')) {
+    const appId = process.env.EBAY_APP_ID;
+    const certId = process.env.EBAY_CERT_ID;
+    const refreshToken = process.env.EBAY_REFRESH_TOKEN;
+    if (!appId || !certId || !refreshToken) {
+      res.status(500).json({ error: '環境変数(EBAY_APP_ID/CERT_ID/REFRESH_TOKEN)が未設定' });
+      return;
+    }
+    const { action, itemId, description: newDesc, dryRun } = req.body;
+
+    // === 📋 listings-active: 全 active listing 一覧を取得 (paginated) ===
+    if (action === 'listings-active') {
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const items = [];
+        let page = 1;
+        const perPage = 200;  // eBay 最大
+        const maxPages = 20;  // 安全側の上限 (=最大 4000 件)
+        let totalPages = 1;
+
+        while (page <= maxPages) {
+          const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
+  <ActiveList>
+    <Pagination>
+      <EntriesPerPage>${perPage}</EntriesPerPage>
+      <PageNumber>${page}</PageNumber>
+    </Pagination>
+    <Include>true</Include>
+  </ActiveList>
+</GetMyeBaySellingRequest>`;
+          const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+            method: 'POST',
+            headers: {
+              'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+              'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
+              'X-EBAY-API-SITEID': '0',
+              'X-EBAY-API-IAF-TOKEN': token,
+              'Content-Type': 'text/xml',
+            },
+            body: xmlReq,
+          });
+          const xml = await apiRes.text();
+          const ack = descExtractAck(xml);
+          if (ack === 'Failure') {
+            const errors = descExtractErrors(xml);
+            res.status(400).json({ ok: false, action, errors, page });
+            return;
+          }
+          const activeMatch = xml.match(/<ActiveList>([\s\S]*?)<\/ActiveList>/i);
+          if (!activeMatch) break;
+          const activeXml = activeMatch[1];
+          const itemBlocks = activeXml.match(/<Item>([\s\S]*?)<\/Item>/g) || [];
+          if (itemBlocks.length === 0 && page === 1) break;
+          for (const block of itemBlocks) {
+            const itmId = (block.match(/<ItemID>([\s\S]*?)<\/ItemID>/i) || [,''])[1].trim();
+            const title = (block.match(/<Title>([\s\S]*?)<\/Title>/i) || [,''])[1].trim();
+            const priceMatch = block.match(/<CurrentPrice[^>]*>([\s\S]*?)<\/CurrentPrice>/i);
+            const price = priceMatch ? parseFloat(priceMatch[1]) : null;
+            const sku = (block.match(/<SKU>([\s\S]*?)<\/SKU>/i) || [,''])[1].trim();
+            // 🔍 PrimaryCategory (カテゴリID + 名前)
+            let categoryId = '', categoryName = '';
+            const catBlock = block.match(/<PrimaryCategory>([\s\S]*?)<\/PrimaryCategory>/i);
+            if (catBlock) {
+              categoryId = (catBlock[1].match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i) || [,''])[1].trim();
+              categoryName = (catBlock[1].match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i) || [,''])[1].trim();
+            }
+            // フォールバック: ProductListingDetails 等の別位置
+            if (!categoryId) {
+              const idMatch = block.match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i);
+              if (idMatch) categoryId = idMatch[1].trim();
+              const nameMatch = block.match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i);
+              if (nameMatch) categoryName = nameMatch[1].trim();
+            }
+            // さらにフォールバック: PrimaryCategoryIDPath や CategoryPath
+            if (!categoryId) {
+              const pathMatch = block.match(/<PrimaryCategoryIDPath>([\s\S]*?)<\/PrimaryCategoryIDPath>/i);
+              if (pathMatch) {
+                const ids = pathMatch[1].trim().split(':');
+                categoryId = ids[ids.length - 1] || '';
+              }
+            }
+            // 📦 数量 (Quantity - QuantitySold = 残り在庫)
+            const totalQty = parseInt((block.match(/<Quantity>([\s\S]*?)<\/Quantity>/i) || [,'0'])[1], 10) || 0;
+            const soldQtyMatch = block.match(/<QuantitySold>([\s\S]*?)<\/QuantitySold>/i);
+            const soldQty = soldQtyMatch ? (parseInt(soldQtyMatch[1], 10) || 0) : 0;
+            const availableQty = Math.max(0, totalQty - soldQty);
+            // 🌐 Site (US / CA / UK 等) — eBaymag 他国版判別用
+            const site = (block.match(/<Site>([\s\S]*?)<\/Site>/i) || [,''])[1].trim();
+            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty, site });
+          }
+          const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
+          totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
+          if (page >= totalPages) break;
+          page++;
+        }
+        res.status(200).json({ ok: true, action, itemCount: items.length, totalPages, items });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
+    // === 🏷️ listings-enrich-categories: Trading API GetItem で category 一括取得 ===
+    if (action === 'listings-enrich-categories') {
+      const itemIds = req.body.itemIds;
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        res.status(400).json({ error: 'itemIds 配列が必要' });
+        return;
+      }
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const results = {};
+
+        // 並列 10 本ずつ処理 (Vercel 30秒制限を意識)
+        const parallel = 10;
+        for (let i = 0; i < itemIds.length; i += parallel) {
+          const batch = itemIds.slice(i, i + parallel);
+          await Promise.all(batch.map(async (itmId) => {
+            try {
+              const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itmId}</ItemID>
+  <IncludeItemSpecifics>false</IncludeItemSpecifics>
+</GetItemRequest>`;
+              const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+                method: 'POST',
+                headers: {
+                  'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+                  'X-EBAY-API-CALL-NAME': 'GetItem',
+                  'X-EBAY-API-SITEID': '0',
+                  'X-EBAY-API-IAF-TOKEN': token,
+                  'Content-Type': 'text/xml',
+                },
+                body: xmlReq,
+              });
+              const xml = await apiRes.text();
+              const catBlock = xml.match(/<PrimaryCategory>([\s\S]*?)<\/PrimaryCategory>/i);
+              if (catBlock) {
+                const catId = (catBlock[1].match(/<CategoryID>([\s\S]*?)<\/CategoryID>/i) || [,''])[1].trim();
+                const catName = (catBlock[1].match(/<CategoryName>([\s\S]*?)<\/CategoryName>/i) || [,''])[1].trim();
+                if (catId) results[itmId] = { categoryId: catId, categoryName: catName };
+              }
+            } catch (e) { /* skip individual failure */ }
+          }));
+        }
+        res.status(200).json({ ok: true, action, count: Object.keys(results).length, results });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
+    // === 🧪 attach-disclosure-test: ReviseItem に CustomPolicies を含めて disclosure attach 可能か検証 ===
+    if (action === 'attach-disclosure-test') {
+      const disclosureId = req.body.disclosureId;
+      const policyType = req.body.policyType || 'compliance';  // 'compliance' | 'takeback'
+      if (!itemId || !disclosureId) {
+        res.status(400).json({ error: 'itemId と disclosureId が必要' });
+        return;
+      }
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        // 2 パターンで送信できるように policyType で切替
+        const policyBlock = policyType === 'takeback'
+          ? `<TakeBackPolicies><PolicyID>${disclosureId}</PolicyID></TakeBackPolicies>`
+          : `<ProductCompliancePolicies><PolicyID>${disclosureId}</PolicyID></ProductCompliancePolicies>`;
+
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>${itemId}</ItemID>
+    <CustomPolicies>
+      ${policyBlock}
+    </CustomPolicies>
+  </Item>
+</ReviseItemRequest>`;
+
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'ReviseItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        const ack = descExtractAck(xml);
+        const errors = descExtractErrors(xml);
+        res.status(200).json({
+          ok: ack !== 'Failure',
+          action, itemId, disclosureId, policyType,
+          ack, errors,
+          xmlRequest: xmlReq,
+          xmlResponse: xml.slice(0, 3000),
+        });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
+    if (!itemId) { res.status(400).json({ error: 'itemId が必要' }); return; }
+
+    if (action === 'description-get') {
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itemId}</ItemID>
+  <DetailLevel>ItemReturnDescription</DetailLevel>
+</GetItemRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'GetItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        const ack = descExtractAck(xml);
+        const errors = descExtractErrors(xml);
+        if (ack === 'Failure') {
+          res.status(400).json({ ok: false, action, itemId, ack, errors, rawXml: xml.slice(0, 2000) });
+          return;
+        }
+        const title = descExtractTitle(xml);
+        const description = descExtractDescription(xml);
+        res.status(200).json({
+          ok: true, action, itemId, ack, title, description,
+          descriptionLength: description.length,
+          warnings: errors.filter(e => e.severity === 'Warning'),
+        });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e), itemId });
+        return;
+      }
+    }
+
+    if (action === 'description-update') {
+      if (!newDesc || typeof newDesc !== 'string') {
+        res.status(400).json({ error: 'description (HTML 文字列) が必要' });
+        return;
+      }
+      if (dryRun === true) {
+        res.status(200).json({
+          ok: true, action, dryRun: true, itemId,
+          descriptionLength: newDesc.length,
+          descriptionPreview: newDesc.slice(0, 500) + (newDesc.length > 500 ? '...' : ''),
+          message: '✓ dry-run: eBay にはまだ送信していません',
+        });
+        return;
+      }
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const safeDesc = newDesc.replace(/\]\]>/g, ']]]]><![CDATA[>');
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>${itemId}</ItemID>
+    <Description><![CDATA[${safeDesc}]]></Description>
+  </Item>
+</ReviseItemRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'ReviseItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        const ack = descExtractAck(xml);
+        const errors = descExtractErrors(xml);
+        if (ack === 'Failure') {
+          res.status(400).json({ ok: false, action, itemId, ack, errors, rawXml: xml.slice(0, 2000) });
+          return;
+        }
+        res.status(200).json({
+          ok: true, action, itemId, ack,
+          warnings: errors.filter(e => e.severity === 'Warning'),
+          descriptionLength: newDesc.length,
+          message: '✓ ReviseItem 成功',
+        });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e), itemId });
+        return;
+      }
+    }
+  }
+
+  // 🆕 POST /api/ebay-item: 画像 URL 配列から ZIP を生成してダウンロード
+  if (req.method === 'POST') {
+    const { images, filename } = req.body || {};
+    if (!Array.isArray(images) || images.length === 0) {
+      res.status(400).json({ error: 'images 配列が必要です' });
+      return;
+    }
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      let ok = 0, total = 0;
+
+      for (const img of images) {
+        try {
+          const imgRes = await fetch(img.url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            },
+            redirect: 'follow',
+          });
+          if (!imgRes.ok) continue;
+          const buf = await imgRes.arrayBuffer();
+          if (buf.byteLength > 100) {
+            const ext = img.url.match(/\.([a-z]+)(?:\?|$)/i)?.[1] || 'jpg';
+            zip.file(`${img.name || ok}.${ext}`, buf);
+            ok++;
+            total += buf.byteLength;
+          }
+        } catch (e) {}
+      }
+
+      if (ok === 0) {
+        res.status(400).json({ error: '取得できた画像がありません' });
+        return;
+      }
+
+      const zipBuf = await zip.generateAsync({ type: 'arraybuffer' });
+      const fname = (filename || 'images').replace(/[^a-z0-9_-]/gi, '_');
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${fname}.zip"`);
+      res.status(200).send(Buffer.from(zipBuf));
+      return;
+    } catch (e) {
+      res.status(500).json({ error: 'ZIP 生成エラー: ' + (e.message || String(e)) });
+      return;
+    }
+  }
+
+
+  // 🆕 画像プロキシモード: ?proxy=<imageUrl> で画像バイナリを CORS 付きで返す
+  // (Yahoo Shopping 等で直接 fetch が CORS で失敗する場合のフォールバック)
+  const proxyUrl = req.query.proxy || '';
+  if (proxyUrl) {
+    try {
+      // Referer は元サイトのドメインを推測(Mercari の画像は Referer 必須の場合あり)
+      let referer = '';
+      try {
+        const u = new URL(proxyUrl);
+        referer = u.origin + '/';
+      } catch (e) {}
+      const imgRes = await fetch(proxyUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          ...(referer ? { 'Referer': referer } : {}),
+        },
+        redirect: 'follow',
+      });
+      if (!imgRes.ok) {
+        res.status(imgRes.status).json({ error: `画像取得失敗 HTTP ${imgRes.status}`, url: proxyUrl });
+        return;
+      }
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      const ct = imgRes.headers.get('content-type') || 'image/jpeg';
+      res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.status(200).send(buf);
+      return;
+    } catch (e) {
+      res.status(500).json({ error: '画像プロキシエラー: ' + (e.message || String(e)), url: proxyUrl });
+      return;
+    }
+  }
+
+  const url = req.query.url || '';
+  if (!url) {
+    res.status(400).json({ error: 'URL を指定してください' });
+    return;
+  }
+
+  // 📷 メルカリ専用: URL パターン推測で画像取得(HTML 解析より確実)
+  // 例: https://jp.mercari.com/item/m12345678 → m{id}_1.jpg, _2.jpg, ... を順次ヒット
+  const mercariMatch = url.match(/(?:mercari\.com|mercari\.jp)\/(?:item|jp\/items)\/(m\d+)/i)
+                     || url.match(/jp\.mercari\.com\/item\/(m\d+)/i);
+  if (mercariMatch) {
+    const itemId = mercariMatch[1];
+    const imageUrls = [];
+    // CDN の orig サイズで取得
+    const maxImages = 20;  // 最大 20 枚試す
+    for (let i = 1; i <= maxImages; i++) {
+      const imgUrl = `https://static.mercdn.net/item/detail/orig/photos/${itemId}_${i}.jpg`;
+      try {
+        const r = await fetch(imgUrl, {
+          method: 'HEAD',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Referer': 'https://jp.mercari.com/',
+          },
+        });
+        if (r.ok) {
+          imageUrls.push(imgUrl);
+        } else {
+          // 404 = この index 以降は画像なし
+          break;
+        }
+      } catch (e) {
+        break;
+      }
+    }
+    // 🆕 価格・タイトルも HTML から抽出(画像と並行)
+    let mercariPrice = null;
+    let mercariTitle = 'mercari_' + itemId;
+    let mercariDiag = null;
+    try {
+      const htmlRes = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        redirect: 'follow',
+      });
+      if (htmlRes.ok) {
+        const html = await htmlRes.text();
+        const priceInfo = extractPriceFromHtml(html, url);
+        if (priceInfo.price) mercariPrice = priceInfo.price;
+        const extractedTitle = extractTitleFromHtml(html);
+        if (extractedTitle) mercariTitle = extractedTitle;
+        // 診断情報(取れなかった時の手がかり)
+        if (!mercariPrice) {
+          mercariDiag = {
+            htmlSize: html.length,
+            hasProductPriceMeta: /<meta[^>]+(?:property|name)=["'](?:og|product):price:amount["']/i.test(html),
+            sampleMetaTags: (html.match(/<meta[^>]+(?:property|name)=["'][^"']+["'][^>]*>/gi) || []).slice(0, 10).join('\n'),
+          };
+        }
+      } else {
+        mercariDiag = { fetchStatus: htmlRes.status };
+      }
+    } catch (e) {
+      mercariDiag = { fetchError: e.message };
+    }
+
+    if (imageUrls.length === 0 && !mercariPrice) {
+      // fallback: アイテムが存在しない or 別の URL パターン
+      res.status(200).json({
+        ok: false,
+        error: 'メルカリの画像・価格が取得できませんでした(商品 ID パターン違いかも)',
+        url, itemId,
+      });
+      return;
+    }
+    res.status(200).json({
+      ok: true,
+      mercari: true,
+      itemId,
+      title: mercariTitle,
+      imageUrls,
+      imageCount: imageUrls.length,
+      price: mercariPrice,
+      currency: 'JPY',
+      diagnostics: mercariDiag,
+    });
+    return;
+  }
+
+  // 📷 eBay 以外: 汎用 HTML 抽出モード
+  const isEbay = /(^|\.)ebay\./i.test(url);
+  if (!isEbay) {
+    try {
+      // 🆕 ブラウザに近いヘッダー(WAF / bot 防御の bypass を試みる)
+      const htmlRes = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'max-age=0',
+          'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+          'Dnt': '1',
+        },
+        redirect: 'follow',
+      });
+      if (!htmlRes.ok) {
+        res.status(htmlRes.status).json({ error: `HTML 取得失敗 (HTTP ${htmlRes.status})`, url });
+        return;
+      }
+      // 🆕 Content-Type の charset を読み取って正しく decode
+      // (楽天は EUC-JP、Yahoo の一部は Shift_JIS など)
+      const contentType = htmlRes.headers.get('content-type') || '';
+      const charsetMatch = contentType.match(/charset=([^;]+)/i);
+      let charset = charsetMatch ? charsetMatch[1].trim().toLowerCase() : 'utf-8';
+      // 別名を統一
+      if (charset === 'sjis' || charset === 'shift-jis') charset = 'shift_jis';
+      if (charset === 'eucjp') charset = 'euc-jp';
+
+      let html = '';
+      try {
+        const arrayBuf = await htmlRes.arrayBuffer();
+        try {
+          const decoder = new TextDecoder(charset, { fatal: false });
+          html = decoder.decode(arrayBuf);
+        } catch (e) {
+          html = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuf);
+        }
+      } catch (e) {
+        res.status(500).json({ error: 'HTML decode エラー: ' + e.message, url });
+        return;
+      }
+      if (!html || html.length === 0) {
+        res.status(500).json({ error: 'HTML が空でした', url });
+        return;
+      }
+
+      // HTML 内の <meta charset> も確認(http header と違うことがある)
+      const metaCharsetMatch = html.match(/<meta[^>]+charset=["']?([^"'\s/>]+)/i);
+      if (metaCharsetMatch) {
+        let metaCharset = metaCharsetMatch[1].trim().toLowerCase();
+        if (metaCharset === 'sjis' || metaCharset === 'shift-jis') metaCharset = 'shift_jis';
+        if (metaCharset === 'eucjp') metaCharset = 'euc-jp';
+        if (metaCharset !== charset) {
+          // 再デコード
+          try {
+            html = new TextDecoder(metaCharset, { fatal: false }).decode(arrayBuf);
+            charset = metaCharset;
+          } catch (e) {}
+        }
+      }
+
+      // 🆕 WAF / bot 防御ブロック検出(HTML サイズが極端に小さい)
+      const isLikelyBlocked =
+        html.length < 2000 && (
+          /reference\s*#\d+\.[a-f0-9.]+/i.test(html) ||  // Akamai
+          /access denied|forbidden|blocked|captcha|cloudflare|datadome|imperva/i.test(html) ||
+          /you (have been|are) blocked/i.test(html)
+        );
+      if (isLikelyBlocked) {
+        res.status(200).json({
+          ok: false,
+          blocked: true,
+          error: 'このサイトは bot 防御(WAF)でサーバーからのアクセスをブロックしています。残念ながら自動取得できません。',
+          url,
+          diagnostics: {
+            htmlSize: html.length,
+            contentType,
+            detectedCharset: charset,
+            sampleHtmlStart: html.slice(0, 400),
+          },
+        });
+        return;
+      }
+
+      let imageUrls = extractImagesFromHtml(html, url);
+      const title = extractTitleFromHtml(html);
+      const priceInfo = extractPriceFromHtml(html, url);
+
+      // 🆕 楽天専用処理: og:image を起点に連番推測でギャラリー画像を発見
+      // 楽天はギャラリーが JS でロードされるため、初期 HTML には og:image しか無い場合が多い。
+      // → og:image の URL の末尾数字を +1, +2, +3... と試して 200 が返るものを追加する。
+      if (/(^|\.)rakuten\.co\.jp/i.test(url)) {
+        const ogMatch = html.match(/<meta[^>]+property=["']og:image[^"']*["'][^>]+content=["']([^"']+)["']/i);
+        if (ogMatch) {
+          const ogImg = ogMatch[1];
+          // og:image と同じパスのものに一旦フィルタ(バナー除外)
+          // 注意: ギャラリー画像は image.rakuten.co.jp、og:image は shop.r10s.jp の場合がある
+          //       → ドメインは無視してパス部分だけで比較する
+          const pathMatch = ogImg.match(/^https?:\/\/[^/]+(\/.+\/)[^/]+\.(jpg|jpeg|png|webp|gif|avif)/i);
+          if (pathMatch) {
+            const pathPrefix = pathMatch[1];
+            imageUrls = imageUrls.filter(u => {
+              // shop.r10s.jp と image.rakuten.co.jp の両方を許可
+              if (!/^https?:\/\/(shop\.r10s\.jp|image\.rakuten\.co\.jp|thumbnail\.image\.rakuten\.co\.jp)\//i.test(u)) return false;
+              // パス部分が一致するか
+              const m = u.match(/^https?:\/\/[^/]+(\/.+\/)[^/]+\.[a-z]+/i);
+              return m && m[1] === pathPrefix;
+            });
+          }
+
+          // og:image 自体は確実に追加
+          if (!imageUrls.includes(ogImg)) imageUrls.unshift(ogImg);
+
+          // 連番推測: og:image のファイル名から末尾数字を抽出
+          // 例: imgrc0136149730.jpg → prefix="imgrc" / num="0136149730" / ext=".jpg"
+          // 例: 5572045_a01.jpg → prefix="5572045_a" / num="01" / ext=".jpg"
+          const nameMatch = ogImg.match(/^(.+\/)(.*?)(\d+)(\.[a-z]+)$/i);
+          if (nameMatch) {
+            const dir = nameMatch[1];
+            const numPrefix = nameMatch[2];
+            const numStr = nameMatch[3];
+            const ext = nameMatch[4];
+            const startNum = parseInt(numStr, 10);
+            const digits = numStr.length;
+
+            let consecutiveFailures = 0;
+            const guessed = [];
+            for (let i = 1; i <= 20; i++) {
+              const newNumStr = String(startNum + i).padStart(digits, '0');
+              const guessUrl = dir + numPrefix + newNumStr + ext;
+              if (imageUrls.includes(guessUrl)) continue;  // 既にある
+              try {
+                const r = await fetch(guessUrl, {
+                  method: 'HEAD',
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Referer': 'https://item.rakuten.co.jp/',
+                  },
+                });
+                if (r.ok) {
+                  guessed.push(guessUrl);
+                  consecutiveFailures = 0;
+                } else {
+                  consecutiveFailures++;
+                  if (consecutiveFailures >= 2) break;  // 2 連続失敗で停止
+                }
+              } catch (e) {
+                consecutiveFailures++;
+                if (consecutiveFailures >= 2) break;
+              }
+            }
+            imageUrls.push(...guessed);
+          }
+        }
+      }
+
+      const responseBody = {
+        ok: true,
+        generic: true,
+        title,
+        imageUrls,
+        imageCount: imageUrls.length,
+        price: priceInfo.price,
+        currency: priceInfo.currency,
+        _v: 'mercariShops-v8-noSpoof',  // デプロイ確認用マーカー
+      };
+      // Mercari Shops 専用関数からの診断情報
+      if (priceInfo._diag) responseBody.mercariDiag = priceInfo._diag;
+      // 🆕 価格 null または 0 件抽出時は診断情報を含める
+      if (priceInfo.price == null || imageUrls.length === 0) {
+        // HTML 内の重要キーワード出現位置を抜粋
+        const findSnippet = (keyword) => {
+          const idx = html.indexOf(keyword);
+          if (idx < 0) return null;
+          return { at: idx, ctx: html.slice(Math.max(0, idx - 100), idx + 200) };
+        };
+        // ¥XXX,XXX パターンの出現箇所(先頭 5 件、HTML タグを許容)
+        const yenMatches = [...html.matchAll(/[¥￥&][^0-9]{0,30}?([0-9]{1,3}(?:,[0-9]{3})+)/g)].slice(0, 10).map(m => ({
+          full: m[0].slice(0, 80),
+          val: m[1],
+          at: m.index,
+        }));
+        // __NEXT_DATA__ サイズ
+        const ndMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+        responseBody.diagnostics = {
+          htmlSize: html.length,
+          contentType,
+          detectedCharset: charset,
+          urlHost: (() => { try { return new URL(url).host; } catch { return null; } })(),
+          hasJsonLd: /<script[^>]*type=["']application\/ld\+json["']/i.test(html),
+          hasNextData: !!ndMatch,
+          nextDataSize: ndMatch ? ndMatch[1].length : 0,
+          has_soryoukomi: html.includes('送料込み'),
+          has_soryouMuryou: html.includes('送料無料'),
+          has_yenSymbol: /[¥￥]/.test(html),
+          has_yenEntity: /&yen;|&#x?[Aa]5;/.test(html),
+          yenMatches,
+          soryouContext: findSnippet('送料込み') || findSnippet('送料無料'),
+          sampleHtmlStart: html.slice(0, 500),
+        };
+      }
+      res.status(200).json(responseBody);
+      return;
+    } catch (e) {
+      res.status(500).json({ error: '汎用 HTML 取得エラー: ' + (e.message || String(e)), url });
+      return;
+    }
+  }
+
+  // 以下、eBay モード(既存処理)
+  const itemId = extractItemId(url);
+  if (!itemId) {
+    res.status(400).json({ error: 'eBayアイテムIDをURLから抽出できませんでした。URLを確認してください。' });
+    return;
+  }
+
+  // バリエーション ID(?var=xxx)。バリエーション出品は legacy_variation_id 指定が必要。
+  const variationId = extractVariationId(url);
+
+  const appId = process.env.EBAY_APP_ID;
+  const certId = process.env.EBAY_CERT_ID;
+  if (!appId || !certId) {
+    res.status(500).json({ error: 'サーバー側に EBAY_APP_ID / EBAY_CERT_ID が設定されていません(Vercel環境変数)。' });
+    return;
+  }
+
+  const marketplace = detectMarketplace(url);
+
+  try {
+    const token = await getAppToken(appId, certId);
+
+    // Browse API: legacy item ID で取得
+    // バリエーション出品の場合、legacy_variation_id を付ける(付けないと HTTP 400 になる)
+    let apiUrl = `https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id?legacy_item_id=${itemId}`;
+    if (variationId) {
+      apiUrl += `&legacy_variation_id=${variationId}`;
+    }
+    const itemRes = await fetch(apiUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': marketplace,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!itemRes.ok) {
+      const text = await itemRes.text();
+      res.status(itemRes.status).json({
+        error: `eBay商品取得失敗 (HTTP ${itemRes.status})`,
+        detail: text.slice(0, 300),
+        itemId, marketplace, variationId,
+      });
+      return;
+    }
+
+    const item = await itemRes.json();
+
+    // 価格(商品本体)
+    const priceValue = item.price && item.price.value ? parseFloat(item.price.value) : 0;
+    const priceCurrency = item.price && item.price.currency ? item.price.currency : '';
+
+    // 送料(最安の配送オプション)
+    let shipping = 0;
+    if (Array.isArray(item.shippingOptions) && item.shippingOptions.length > 0) {
+      const costs = item.shippingOptions
+        .map(o => (o.shippingCost && o.shippingCost.value != null) ? parseFloat(o.shippingCost.value) : null)
+        .filter(v => v != null);
+      if (costs.length > 0) shipping = Math.min(...costs);
+    }
+
+    const total = priceValue + shipping;
+
+    // カテゴリーID(leaf category)
+    let categoryId = '';
+    if (item.categoryId) {
+      categoryId = String(item.categoryId);
+    } else if (Array.isArray(item.categoryPath) && item.categoryPath.length > 0) {
+      // フォールバック
+      categoryId = '';
+    }
+
+    // 📷 画像 URL 一覧(メイン + 追加画像)
+    // 可能なら最高画質バリアント(eBay の場合 s-l1600 等)に置換
+    const upscaleEbayImage = (u) => {
+      if (!u) return u;
+      // i.ebayimg.com の URL は s-l64, s-l140, s-l500, s-l1600 等のサイズ指定がある
+      return u.replace(/s-l\d+\./i, 's-l1600.');
+    };
+    const imageUrls = [];
+    if (item.image && item.image.imageUrl) imageUrls.push(upscaleEbayImage(item.image.imageUrl));
+    if (Array.isArray(item.additionalImages)) {
+      item.additionalImages.forEach(img => {
+        if (img && img.imageUrl) imageUrls.push(upscaleEbayImage(img.imageUrl));
+      });
+    }
+
+    res.status(200).json({
+      ok: true,
+      itemId,
+      variationId,           // バリエーション ID(non-variation の場合 null)
+      marketplace,
+      title: item.title || '',
+      categoryId,
+      categoryPath: item.categoryPath || '',
+      price: priceValue,
+      shipping,
+      total,                 // ライバル合計価格(価格 + 送料)
+      currency: priceCurrency,
+      imageUrls,             // 📷 画像 URL 一覧(高画質版)
+      imageCount: imageUrls.length,
+    });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e), itemId, marketplace, variationId });
+  }
+}
