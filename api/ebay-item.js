@@ -825,7 +825,11 @@ export default async function handler(req, res) {
         }
         res.status(200).json({
           ok: true, action, ruleCount: rules.length, rules,
+          httpStatus: apiRes.status,
+          httpHeaders: Object.fromEntries([...apiRes.headers.entries()].slice(0, 10)),
+          xmlLength: xml.length,
           rawXmlSample: xml.slice(0, 5000),
+          xmlReqSent: xmlReq,
         });
         return;
       } catch (e) {
