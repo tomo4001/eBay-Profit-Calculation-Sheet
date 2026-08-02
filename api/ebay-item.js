@@ -823,7 +823,10 @@ export default async function handler(req, res) {
           const periodicUsage = (b.match(/<PeriodicUsage>([\s\S]*?)<\/PeriodicUsage>/i) || [,''])[1].trim();
           if (name) rules.push({ name, dailyLimit, dailyUsage, periodicLimit, periodicUsage });
         }
-        res.status(200).json({ ok: true, action, ruleCount: rules.length, rules });
+        res.status(200).json({
+          ok: true, action, ruleCount: rules.length, rules,
+          rawXmlSample: xml.slice(0, 5000),
+        });
         return;
       } catch (e) {
         res.status(500).json({ ok: false, action, error: e.message || String(e) });
