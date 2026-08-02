@@ -814,25 +814,27 @@ export default async function handler(req, res) {
           body: xmlReq,
         });
         const xml = await apiRes.text();
-        // CustomPolicies を抽出
+        // CustomPolicies を抽出 (単数形 <ProductCompliancePolicyID> 対応)
         const customBlock = xml.match(/<CustomPolicies>([\s\S]*?)<\/CustomPolicies>/i);
         const compliancePolicies = [];
         const takebackPolicies = [];
         if (customBlock) {
-          const complianceBlock = customBlock[1].match(/<ProductCompliancePolicies>([\s\S]*?)<\/ProductCompliancePolicies>/i);
-          if (complianceBlock) {
-            const re = /<PolicyID>([\s\S]*?)<\/PolicyID>/gi;
-            let m;
-            while ((m = re.exec(complianceBlock[1])) !== null) {
-              compliancePolicies.push(m[1].trim());
-            }
+          // <ProductCompliancePolicyID> (単数形) を全部拾う
+          const complianceRe = /<ProductCompliancePolicyID>([\s\S]*?)<\/ProductCompliancePolicyID>/gi;
+          let m;
+          while ((m = complianceRe.exec(customBlock[1])) !== null) {
+            compliancePolicies.push(m[1].trim());
           }
-          const takebackBlock = customBlock[1].match(/<TakeBackPolicies>([\s\S]*?)<\/TakeBackPolicies>/i);
-          if (takebackBlock) {
-            const re = /<PolicyID>([\s\S]*?)<\/PolicyID>/gi;
-            let m;
-            while ((m = re.exec(takebackBlock[1])) !== null) {
-              takebackPolicies.push(m[1].trim());
+          // <TakeBackPolicyID> (単数形) も同様
+          const takebackRe = /<TakeBackPolicyID>([\s\S]*?)<\/TakeBackPolicyID>/gi;
+          while ((m = takebackRe.exec(customBlock[1])) !== null) {
+            takebackPolicies.push(m[1].trim());
+          }
+          // フォールバック: <PolicyID> 形式も拾う (旧形式)
+          if (compliancePolicies.length === 0 && takebackPolicies.length === 0) {
+            const legacyRe = /<PolicyID>([\s\S]*?)<\/PolicyID>/gi;
+            while ((m = legacyRe.exec(customBlock[1])) !== null) {
+              compliancePolicies.push(m[1].trim());
             }
           }
         }
@@ -860,10 +862,10 @@ export default async function handler(req, res) {
       }
       try {
         const token = await getDescUserAccessToken(appId, certId, refreshToken);
-        // 2 パターンで送信できるように policyType で切替
+        // eBay の実際のフィールド名 (単数形) を使用
         const policyBlock = policyType === 'takeback'
-          ? `<TakeBackPolicies><PolicyID>${disclosureId}</PolicyID></TakeBackPolicies>`
-          : `<ProductCompliancePolicies><PolicyID>${disclosureId}</PolicyID></ProductCompliancePolicies>`;
+          ? `<TakeBackPolicyID>${disclosureId}</TakeBackPolicyID>`
+          : `<ProductCompliancePolicyID>${disclosureId}</ProductCompliancePolicyID>`;
 
         const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
 <ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
