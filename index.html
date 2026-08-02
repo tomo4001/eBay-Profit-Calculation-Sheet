@@ -2799,7 +2799,6 @@
           <button onclick="DescMgr.enrichCategories()" style="background:#0891b2; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">🏷️ カテゴリ enrich</button>
           <button onclick="DescMgr.toggleListingsAll()" style="background:#eab308; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✓ 表示中を全選択</button>
           <button onclick="DescMgr.copySelectedToBulk()" style="background:#16a34a; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">↓ 選択分を下の Item ID 欄に転記</button>
-          <button onclick="DescMgr.clearListingsCache()" style="background:#9ca3af; color:#fff; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:11px;" title="キャッシュ削除 (再取得したい時のみ)">🗑️ キャッシュ削除</button>
         </div>
       </div>
       <div id="descListingsInfo" style="font-size:11px; color:#713f12; margin-bottom:6px;">未取得</div>
@@ -12565,23 +12564,9 @@ const DescMgr = {
       const curId = localStorage.getItem(this.STORAGE_CURRENT_ID);
       this.currentTemplateId = (curId && this.templates[curId]) ? curId : Object.keys(this.templates)[0];
 
-      // 📦 全 listing キャッシュ復元
-      const cached = localStorage.getItem(this.STORAGE_LISTINGS);
-      if (cached) {
-        try {
-          this._listings = JSON.parse(cached);
-          const fetchedAt = localStorage.getItem(this.STORAGE_LISTINGS_FETCHED_AT);
-          const dt = fetchedAt ? new Date(parseInt(fetchedAt, 10)) : null;
-          setTimeout(() => {
-            const info = document.getElementById('descListingsInfo');
-            if (info && this._listings.length > 0) {
-              info.textContent = `📦 キャッシュから復元: 全 ${this._listings.length}件` + (dt ? ` (取得: ${dt.toLocaleString('ja-JP')})` : '');
-              document.getElementById('descListingsTableWrap').style.display = 'block';
-              this.renderListingsTable();
-            }
-          }, 100);
-        } catch (e) { console.warn('[DescMgr] listings キャッシュ復元失敗:', e); }
-      }
+      // 🗑️ 旧 listings キャッシュを削除 (混乱を避けるため)
+      localStorage.removeItem(this.STORAGE_LISTINGS);
+      localStorage.removeItem(this.STORAGE_LISTINGS_FETCHED_AT);
     } catch (err) {
       console.warn('[DescMgr] localStorage 読込失敗:', err);
     }
@@ -12589,26 +12574,7 @@ const DescMgr = {
     this.loadCurrentTemplate();
   },
 
-  // 📦 listings を localStorage に保存
-  _saveListingsCache() {
-    try {
-      localStorage.setItem(this.STORAGE_LISTINGS, JSON.stringify(this._listings));
-      localStorage.setItem(this.STORAGE_LISTINGS_FETCHED_AT, Date.now().toString());
-    } catch (e) {
-      console.warn('[DescMgr] listings キャッシュ保存失敗:', e);
-    }
-  },
-
-  // 📦 listings キャッシュを削除
-  clearListingsCache() {
-    if (!confirm('listings キャッシュを削除しますか?次回起動時に再取得が必要になります。')) return;
-    localStorage.removeItem(this.STORAGE_LISTINGS);
-    localStorage.removeItem(this.STORAGE_LISTINGS_FETCHED_AT);
-    this._listings = [];
-    this._listingsSelected = new Set();
-    document.getElementById('descListingsTableWrap').style.display = 'none';
-    document.getElementById('descListingsInfo').textContent = 'キャッシュ削除済 (未取得)';
-  },
+  // (listings キャッシュ機能は削除。毎回 📥 全 listing 取得 で最新データ取得)
 
   persistTemplates() {
     localStorage.setItem(this.STORAGE_TEMPLATES, JSON.stringify(this.templates));
@@ -13090,8 +13056,7 @@ const DescMgr = {
       }
       this._listings = data.items || [];
       this._listingsSelected = new Set();
-      this._saveListingsCache();  // 💾 キャッシュ保存
-      info.textContent = `✅ ${this._listings.length} 件取得完了 (全 ${data.totalPages}ページ) - キャッシュ保存済`;
+      info.textContent = `✅ ${this._listings.length} 件取得完了 (全 ${data.totalPages}ページ)`;
       document.getElementById('descListingsTableWrap').style.display = 'block';
       this.renderListingsTable();
     } catch (e) {
@@ -13240,8 +13205,7 @@ const DescMgr = {
           });
         }
       }
-      this._saveListingsCache();  // 💾 enrich 後もキャッシュ更新
-      info.textContent = `✅ カテゴリ enrich 完了: ${enriched}件更新 (キャッシュ保存済)`;
+      info.textContent = `✅ カテゴリ enrich 完了: ${enriched}件更新`;
       this.renderListingsTable();
     } catch (e) {
       info.textContent = '❌ enrich エラー: ' + (e.message || e);
