@@ -723,7 +723,9 @@ export default async function handler(req, res) {
             const soldQtyMatch = block.match(/<QuantitySold>([\s\S]*?)<\/QuantitySold>/i);
             const soldQty = soldQtyMatch ? (parseInt(soldQtyMatch[1], 10) || 0) : 0;
             const availableQty = Math.max(0, totalQty - soldQty);
-            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty });
+            // 🌐 Site (US / CA / UK 等) — eBaymag 他国版判別用
+            const site = (block.match(/<Site>([\s\S]*?)<\/Site>/i) || [,''])[1].trim();
+            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty, site });
           }
           const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
           totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
