@@ -13187,7 +13187,7 @@ const DescMgr = {
 
   copySelectedToBulk() {
     // 🐛 修正: 今表示されてる中で選択されてる分だけ転記 (フィルタ外の残留選択を無視)
-    const filtered = this.filteredListings();
+    const filtered = this._filterListings();
     const visibleSelectedIds = filtered
       .filter(x => this._listingsSelected.has(x.itemId))
       .map(x => x.itemId);
