@@ -735,6 +735,8 @@ export default async function handler(req, res) {
               const catInUrl = naturalUrl.match(/category=(\d+)/);
               if (catInUrl) categoryId = catInUrl[1];
             }
+            // 📅 出品開始日時 (現在の 30日サイクルの StartTime)
+            const startTime = (block.match(/<StartTime>([\s\S]*?)<\/StartTime>/i) || [,''])[1].trim();
             // 📦 数量 (Quantity - QuantitySold = 残り在庫)
             const totalQty = parseInt((block.match(/<Quantity>([\s\S]*?)<\/Quantity>/i) || [,'0'])[1], 10) || 0;
             const soldQtyMatch = block.match(/<QuantitySold>([\s\S]*?)<\/QuantitySold>/i);
@@ -758,7 +760,7 @@ export default async function handler(req, res) {
                 else site = host; // 未知はそのまま domain
               } catch (e) {}
             }
-            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty, site, url });
+            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty, site, url, startTime });
           }
           const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
           totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
