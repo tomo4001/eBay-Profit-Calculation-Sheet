@@ -791,6 +791,51 @@ export default async function handler(req, res) {
       }
     }
 
+    // === 🔍 debug-listings-xml: GetMyeBaySelling の生 XML を返す (Site 調査用) ===
+    if (action === 'debug-listings-xml') {
+      try {
+        const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
+  <ActiveList>
+    <Pagination>
+      <EntriesPerPage>3</EntriesPerPage>
+      <PageNumber>1</PageNumber>
+    </Pagination>
+    <Include>true</Include>
+  </ActiveList>
+</GetMyeBaySellingRequest>`;
+        const apiRes = await fetch('https://api.ebay.com/ws/api.dll', {
+          method: 'POST',
+          headers: {
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+            'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-IAF-TOKEN': token,
+            'Content-Type': 'text/xml',
+          },
+          body: xmlReq,
+        });
+        const xml = await apiRes.text();
+        // 最初の 3 件の Item ブロックだけ返す
+        const itemBlocks = xml.match(/<Item>[\s\S]*?<\/Item>/g) || [];
+        const samples = itemBlocks.slice(0, 3).map(b => b.slice(0, 5000));
+        res.status(200).json({
+          ok: true,
+          totalItemsInPage: itemBlocks.length,
+          samples,
+          hasSiteTag: xml.includes('<Site>'),
+          hasCountryTag: xml.includes('<Country>'),
+          hasSiteHostedTag: xml.includes('<SiteHostedPictureDetails>'),
+        });
+        return;
+      } catch (e) {
+        res.status(500).json({ ok: false, action, error: e.message || String(e) });
+        return;
+      }
+    }
+
     // === 📊 check-api-usage: GetAPIAccessRules で API 使用量確認 ===
     if (action === 'check-api-usage') {
       try {
