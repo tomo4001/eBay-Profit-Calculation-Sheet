@@ -718,6 +718,13 @@ export default async function handler(req, res) {
                 categoryId = ids[ids.length - 1] || '';
               }
             }
+            // 最終フォールバック: ViewItemURLForNaturalSearch の ?category=NNN から抽出
+            // GetMyeBaySelling は PrimaryCategory を返さないので URL から取る
+            if (!categoryId) {
+              const naturalUrl = (block.match(/<ViewItemURLForNaturalSearch>([\s\S]*?)<\/ViewItemURLForNaturalSearch>/i) || [,''])[1];
+              const catInUrl = naturalUrl.match(/[?&]category=(\d+)/);
+              if (catInUrl) categoryId = catInUrl[1];
+            }
             // 📦 数量 (Quantity - QuantitySold = 残り在庫)
             const totalQty = parseInt((block.match(/<Quantity>([\s\S]*?)<\/Quantity>/i) || [,'0'])[1], 10) || 0;
             const soldQtyMatch = block.match(/<QuantitySold>([\s\S]*?)<\/QuantitySold>/i);
