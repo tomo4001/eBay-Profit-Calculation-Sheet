@@ -795,12 +795,13 @@ export default async function handler(req, res) {
     if (action === 'debug-listings-xml') {
       try {
         const token = await getDescUserAccessToken(appId, certId, refreshToken);
+        // 200 件取得して currency と URL domain の分布を見る
         const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <DetailLevel>ReturnAll</DetailLevel>
   <ActiveList>
     <Pagination>
-      <EntriesPerPage>3</EntriesPerPage>
+      <EntriesPerPage>200</EntriesPerPage>
       <PageNumber>1</PageNumber>
     </Pagination>
     <Include>true</Include>
@@ -818,16 +819,48 @@ export default async function handler(req, res) {
           body: xmlReq,
         });
         const xml = await apiRes.text();
-        // 最初の 3 件の Item ブロックだけ返す
         const itemBlocks = xml.match(/<Item>[\s\S]*?<\/Item>/g) || [];
-        const samples = itemBlocks.slice(0, 3).map(b => b.slice(0, 5000));
+
+        // 各 Item から currencyID / ViewItemURL domain / ItemID / Title を抽出
+        const parsed = itemBlocks.map(b => {
+          const id = (b.match(/<ItemID>(\d+)<\/ItemID>/) || [])[1] || '';
+          const title = (b.match(/<Title>([^<]*)<\/Title>/) || [])[1] || '';
+          const currencyMatches = [...b.matchAll(/currencyID="([A-Z]{3})"/g)].map(m => m[1]);
+          const currencies = [...new Set(currencyMatches)];
+          const url = (b.match(/<ViewItemURL>([^<]+)<\/ViewItemURL>/) || [])[1] || '';
+          let domain = '';
+          try { domain = new URL(url).hostname; } catch (e) {}
+          const site = (b.match(/<Site>([^<]+)<\/Site>/) || [])[1] || '';
+          return { id, title: title.slice(0, 50), currencies, domain, site };
+        });
+
+        // 集計
+        const currencyDist = {};
+        const domainDist = {};
+        parsed.forEach(p => {
+          const c = p.currencies.join(',') || 'NONE';
+          currencyDist[c] = (currencyDist[c] || 0) + 1;
+          domainDist[p.domain || 'NONE'] = (domainDist[p.domain || 'NONE'] || 0) + 1;
+        });
+
+        // 重複タイトルグループ (site 混在確認)
+        const titleGroups = {};
+        parsed.forEach(p => {
+          if (!p.title) return;
+          (titleGroups[p.title] = titleGroups[p.title] || []).push(p);
+        });
+        const dupSamples = Object.entries(titleGroups)
+          .filter(([_, g]) => g.length > 1)
+          .slice(0, 5)
+          .map(([title, group]) => ({ title, items: group }));
+
         res.status(200).json({
           ok: true,
           totalItemsInPage: itemBlocks.length,
-          samples,
-          hasSiteTag: xml.includes('<Site>'),
-          hasCountryTag: xml.includes('<Country>'),
-          hasSiteHostedTag: xml.includes('<SiteHostedPictureDetails>'),
+          currencyDistribution: currencyDist,
+          domainDistribution: domainDist,
+          duplicateTitleSamples: dupSamples,
+          firstItemFullXml: itemBlocks[0] ? itemBlocks[0].slice(0, 3000) : null,
         });
         return;
       } catch (e) {
