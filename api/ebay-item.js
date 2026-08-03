@@ -654,6 +654,14 @@ export default async function handler(req, res) {
         const perPage = 200;  // eBay 最大
         const maxPages = 20;  // 安全側の上限 (=最大 4000 件)
         let totalPages = 1;
+        // 🔀 Sort parameter (client 側 select から)
+        const sortInput = (req.body && req.body.sort) || '';
+        const allowedSorts = new Set([
+          'StartTimeNewest', 'StartTimeOldest',
+          'CurrentPriceHighest', 'CurrentPriceLowest',
+          'BidCountMost', 'TimeLeft'
+        ]);
+        const sortXml = allowedSorts.has(sortInput) ? `<Sort>${sortInput}</Sort>` : '';
 
         while (page <= maxPages) {
           const xmlReq = `<?xml version="1.0" encoding="utf-8"?>
@@ -664,6 +672,7 @@ export default async function handler(req, res) {
       <EntriesPerPage>${perPage}</EntriesPerPage>
       <PageNumber>${page}</PageNumber>
     </Pagination>
+    ${sortXml}
     <Include>true</Include>
   </ActiveList>
 </GetMyeBaySellingRequest>`;
