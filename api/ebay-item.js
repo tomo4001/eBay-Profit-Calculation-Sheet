@@ -635,7 +635,7 @@ export default async function handler(req, res) {
 
   // 📝 POST /api/ebay-item with body.action='description-get'|'description-update'
   //    Trading API 経由で listing の description を取得・更新
-  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test' || req.body.action === 'check-disclosure-status' || req.body.action === 'check-api-usage')) {
+  if (req.method === 'POST' && req.body && (req.body.action === 'description-get' || req.body.action === 'description-update' || req.body.action === 'listings-active' || req.body.action === 'listings-enrich-categories' || req.body.action === 'attach-disclosure-test' || req.body.action === 'check-disclosure-status' || req.body.action === 'check-api-usage' || req.body.action === 'debug-listings-xml')) {
     const appId = process.env.EBAY_APP_ID;
     const certId = process.env.EBAY_CERT_ID;
     const refreshToken = process.env.EBAY_REFRESH_TOKEN;
