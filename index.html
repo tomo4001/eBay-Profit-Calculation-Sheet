@@ -2798,6 +2798,7 @@
           <button onclick="DescMgr.fetchActiveListings()" style="background:#ca8a04; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">📥 全 listing 取得</button>
           <button onclick="DescMgr.enrichCategories()" style="background:#0891b2; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">🏷️ カテゴリ enrich</button>
           <button onclick="DescMgr.toggleListingsAll()" style="background:#eab308; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✓ 表示中を全選択</button>
+          <button onclick="DescMgr.clearAllSelection()" style="background:#6b7280; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✗ 選択全解除</button>
           <button onclick="DescMgr.copySelectedToBulk()" style="background:#16a34a; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">↓ 選択分を下の Item ID 欄に転記</button>
         </div>
       </div>
@@ -13142,7 +13143,11 @@ const DescMgr = {
     tbody.innerHTML = rows || '<tr><td colspan="7" style="padding:10px; text-align:center; color:#888;">該当なし</td></tr>';
     const info = document.getElementById('descListingsInfo');
     if (info) {
-      info.textContent = `全 ${this._listings.length} 件 / 表示 ${filtered.length} 件 / 選択 ${this._listingsSelected.size} 件`;
+      const visibleSelected = filtered.filter(x => this._listingsSelected.has(x.itemId)).length;
+      const total = this._listingsSelected.size;
+      const outside = total - visibleSelected;
+      const outsideStr = outside > 0 ? ` (⚠️ 表示外に ${outside} 件残留)` : '';
+      info.textContent = `全 ${this._listings.length} 件 / 表示 ${filtered.length} 件 / 選択 ${visibleSelected} 件${outsideStr}`;
     }
   },
 
@@ -13175,12 +13180,28 @@ const DescMgr = {
     this.renderListingsTable();
   },
 
+  clearAllSelection() {
+    this._listingsSelected.clear();
+    this.renderListingsTable();
+  },
+
   copySelectedToBulk() {
-    const ids = Array.from(this._listingsSelected);
-    if (ids.length === 0) { alert('選択されている listing がありません'); return; }
+    // 🐛 修正: 今表示されてる中で選択されてる分だけ転記 (フィルタ外の残留選択を無視)
+    const filtered = this.filteredListings();
+    const visibleSelectedIds = filtered
+      .filter(x => this._listingsSelected.has(x.itemId))
+      .map(x => x.itemId);
+    if (visibleSelectedIds.length === 0) {
+      alert('表示されている中で選択されている listing がありません。\n(フィルタ外の選択は転記対象外です)');
+      return;
+    }
     const ta = document.getElementById('descBulkItemIds');
-    ta.value = ids.join('\n');
-    alert(`✓ ${ids.length}件 の Item ID を Item ID 欄に転記しました`);
+    ta.value = visibleSelectedIds.join('\n');
+    // 表示外の残留選択があれば知らせる
+    const totalSelected = this._listingsSelected.size;
+    const outsideView = totalSelected - visibleSelectedIds.length;
+    const extra = outsideView > 0 ? `\n(表示外に選択されている ${outsideView} 件は転記していません)` : '';
+    alert(`✓ ${visibleSelectedIds.length}件 の Item ID を Item ID 欄に転記しました${extra}`);
   },
 
   // 🏷️ Shopping API でカテゴリ情報を後追い取得 (バッチ処理)
