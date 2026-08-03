@@ -724,8 +724,24 @@ export default async function handler(req, res) {
             const soldQty = soldQtyMatch ? (parseInt(soldQtyMatch[1], 10) || 0) : 0;
             const availableQty = Math.max(0, totalQty - soldQty);
             // 🌐 Site (US / CA / UK 等) — eBaymag 他国版判別用
-            const site = (block.match(/<Site>([\s\S]*?)<\/Site>/i) || [,''])[1].trim();
-            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty, site });
+            // GetMyeBaySelling は <Site> タグを返さないので ViewItemURL の domain から推定
+            let site = (block.match(/<Site>([\s\S]*?)<\/Site>/i) || [,''])[1].trim();
+            const url = (block.match(/<ViewItemURL>([\s\S]*?)<\/ViewItemURL>/i) || [,''])[1].trim();
+            if (!site && url) {
+              try {
+                const host = new URL(url).hostname.replace(/^www\./, '');
+                if (host === 'ebay.com') site = 'US';
+                else if (host === 'ebay.co.uk') site = 'UK';
+                else if (host === 'ebay.com.au') site = 'AU';
+                else if (host === 'ebay.ca') site = 'CA';
+                else if (host === 'ebay.de') site = 'DE';
+                else if (host === 'ebay.fr') site = 'FR';
+                else if (host === 'ebay.it') site = 'IT';
+                else if (host === 'ebay.es') site = 'ES';
+                else site = host; // 未知はそのまま domain
+              } catch (e) {}
+            }
+            if (itmId) items.push({ itemId: itmId, title, price, sku, categoryId, categoryName, totalQty, soldQty, availableQty, site, url });
           }
           const totalPagesMatch = activeXml.match(/<TotalNumberOfPages>([\s\S]*?)<\/TotalNumberOfPages>/i);
           totalPages = totalPagesMatch ? parseInt(totalPagesMatch[1], 10) : 1;
