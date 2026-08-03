@@ -2795,6 +2795,14 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
         <div style="font-weight:700; color:#713f12;">📋 全 active listing 一覧 (選択支援)</div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <select id="descListingsSortSelect" style="padding:5px 8px; border:1px solid #fde047; border-radius:4px; font-size:12px; background:#fff;" title="取得時の並び順">
+            <option value="">残り時間少ない順 (デフォルト)</option>
+            <option value="StartTimeNewest">出品日 新しい順</option>
+            <option value="StartTimeOldest">出品日 古い順</option>
+            <option value="CurrentPriceHighest">価格 高い順</option>
+            <option value="CurrentPriceLowest">価格 安い順</option>
+            <option value="BidCountMost">Watch/Bid 多い順</option>
+          </select>
           <button onclick="DescMgr.fetchActiveListings()" style="background:#ca8a04; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">📥 全 listing 取得</button>
           <button onclick="DescMgr.toggleListingsAll()" style="background:#eab308; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✓ 表示中を全選択</button>
           <button onclick="DescMgr.clearAllSelection()" style="background:#6b7280; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✗ 選択全解除</button>
@@ -13047,9 +13055,10 @@ const DescMgr = {
 
   async fetchActiveListings() {
     const info = document.getElementById('descListingsInfo');
+    const sort = document.getElementById('descListingsSortSelect')?.value || '';
     info.textContent = '📥 取得中... (件数によっては数十秒かかります)';
     try {
-      const data = await this.apiCall('listings-active', {});
+      const data = await this.apiCall('listings-active', { sort });
       if (!data.ok) {
         info.textContent = '❌ 取得失敗: ' + JSON.stringify(data.errors || data.error).slice(0, 200);
         return;
