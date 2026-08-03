@@ -2795,13 +2795,15 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
         <div style="font-weight:700; color:#713f12;">📋 全 active listing 一覧 (選択支援)</div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
-          <select id="descListingsSortSelect" style="padding:5px 8px; border:1px solid #fde047; border-radius:4px; font-size:12px; background:#fff;" title="取得時の並び順">
-            <option value="">残り時間少ない順 (デフォルト)</option>
-            <option value="StartTimeNewest">出品日 新しい順</option>
-            <option value="StartTimeOldest">出品日 古い順</option>
-            <option value="CurrentPriceHighest">価格 高い順</option>
-            <option value="CurrentPriceLowest">価格 安い順</option>
-            <option value="BidCountMost">Watch/Bid 多い順</option>
+          <select id="descListingsSortSelect" onchange="DescMgr.renderListingsTable()" style="padding:5px 8px; border:1px solid #fde047; border-radius:4px; font-size:12px; background:#fff;" title="表示順">
+            <option value="">並び: eBay デフォルト</option>
+            <option value="startTimeDesc">出品日 新しい順</option>
+            <option value="startTimeAsc">出品日 古い順</option>
+            <option value="priceDesc">価格 高い順</option>
+            <option value="priceAsc">価格 安い順</option>
+            <option value="titleAsc">タイトル A→Z</option>
+            <option value="itemIdAsc">Item ID 小さい順</option>
+            <option value="itemIdDesc">Item ID 大きい順</option>
           </select>
           <button onclick="DescMgr.fetchActiveListings()" style="background:#ca8a04; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">📥 全 listing 取得</button>
           <button onclick="DescMgr.toggleListingsAll()" style="background:#eab308; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✓ 表示中を全選択</button>
@@ -13055,10 +13057,9 @@ const DescMgr = {
 
   async fetchActiveListings() {
     const info = document.getElementById('descListingsInfo');
-    const sort = document.getElementById('descListingsSortSelect')?.value || '';
     info.textContent = '📥 取得中... (件数によっては数十秒かかります)';
     try {
-      const data = await this.apiCall('listings-active', { sort });
+      const data = await this.apiCall('listings-active', {});
       if (!data.ok) {
         info.textContent = '❌ 取得失敗: ' + JSON.stringify(data.errors || data.error).slice(0, 200);
         return;
@@ -13120,7 +13121,25 @@ const DescMgr = {
   renderListingsTable() {
     const tbody = document.getElementById('descListingsTbody');
     if (!tbody) return;
-    const filtered = this._filterListings();
+    let filtered = this._filterListings();
+    // 🔀 クライアント側ソート
+    const sortKey = document.getElementById('descListingsSortSelect')?.value || '';
+    if (sortKey) {
+      const sorted = [...filtered];
+      sorted.sort((a, b) => {
+        switch (sortKey) {
+          case 'startTimeDesc': return (b.startTime || '').localeCompare(a.startTime || '');
+          case 'startTimeAsc':  return (a.startTime || '').localeCompare(b.startTime || '');
+          case 'priceDesc':     return (b.price || 0) - (a.price || 0);
+          case 'priceAsc':      return (a.price || 0) - (b.price || 0);
+          case 'titleAsc':      return (a.title || '').localeCompare(b.title || '');
+          case 'itemIdAsc':     return (a.itemId || '').localeCompare(b.itemId || '');
+          case 'itemIdDesc':    return (b.itemId || '').localeCompare(a.itemId || '');
+          default: return 0;
+        }
+      });
+      filtered = sorted;
+    }
     const rows = filtered.map(x => {
       const checked = this._listingsSelected.has(x.itemId) ? 'checked' : '';
       const title = (x.title || '').replace(/</g, '&lt;').slice(0, 80);
