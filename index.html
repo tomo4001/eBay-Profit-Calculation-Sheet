@@ -13069,9 +13069,21 @@ const DescMgr = {
     const catFilter = (document.getElementById('descListingsCatFilter')?.value || '').trim();
     const priceFilter = document.getElementById('descListingsPriceFilter')?.value || '';
     const inStockOnly = document.getElementById('descListingsInStockOnly')?.checked;
+    // カンマ / 空白 / 改行区切りで複数 Item ID 指定を許容
+    const idTokens = filter
+      ? filter.split(/[\s,、;]+/).map(s => s.trim()).filter(Boolean)
+      : [];
+    const isMultiId = idTokens.length > 1 && idTokens.every(t => /^\d{9,}$/.test(t));
+    const idSet = isMultiId ? new Set(idTokens) : null;
     return this._listings.filter(x => {
       // タイトル / Item ID 絞込み
-      if (filter && !((x.itemId + ' ' + (x.title || '')).toLowerCase().includes(filter))) return false;
+      if (filter) {
+        if (isMultiId) {
+          if (!idSet.has(x.itemId)) return false;
+        } else {
+          if (!((x.itemId + ' ' + (x.title || '')).toLowerCase().includes(filter))) return false;
+        }
+      }
       // カテゴリID 絞込み (前方一致で複数カテゴリID 対応可)
       if (catFilter && !(x.categoryId || '').startsWith(catFilter)) return false;
       // 価格絞込み
