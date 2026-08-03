@@ -720,9 +720,10 @@ export default async function handler(req, res) {
             }
             // 最終フォールバック: ViewItemURLForNaturalSearch の ?category=NNN から抽出
             // GetMyeBaySelling は PrimaryCategory を返さないので URL から取る
+            // XML 内は &amp;category= になってるので緩く match
             if (!categoryId) {
               const naturalUrl = (block.match(/<ViewItemURLForNaturalSearch>([\s\S]*?)<\/ViewItemURLForNaturalSearch>/i) || [,''])[1];
-              const catInUrl = naturalUrl.match(/[?&]category=(\d+)/);
+              const catInUrl = naturalUrl.match(/category=(\d+)/);
               if (catInUrl) categoryId = catInUrl[1];
             }
             // 📦 数量 (Quantity - QuantitySold = 残り在庫)
