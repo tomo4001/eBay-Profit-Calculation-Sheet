@@ -13008,6 +13008,80 @@ const DescMgr = {
     this.updateProgress(`完了: 成功 ${ok} / 失敗 ${ng} / マーカーなし ${noMarker}`);
   },
 
+  // 🚨 本番実行前のテンプレ確認モーダル
+  _showBulkConfirmModal(itemCount, templateName) {
+    return new Promise((resolve) => {
+      // 既存があれば削除
+      document.getElementById('bulkConfirmModal')?.remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'bulkConfirmModal';
+      overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:99999; display:flex; align-items:center; justify-content:center; padding:20px;';
+
+      const modal = document.createElement('div');
+      modal.style.cssText = 'background:#fff; max-width:560px; width:100%; border-radius:8px; padding:24px 28px; box-shadow:0 20px 60px rgba(0,0,0,0.4); font-family:system-ui, sans-serif;';
+
+      modal.innerHTML = `
+        <div style="font-size:22px; font-weight:800; color:#dc2626; margin-bottom:16px;">
+          🚨 本番実行 最終確認
+        </div>
+        <div style="background:#fef2f2; border:2px solid #fca5a5; border-radius:6px; padding:16px 18px; margin-bottom:18px;">
+          <div style="font-size:14px; color:#7f1d1d; margin-bottom:8px;">これから ${itemCount} 件を eBay に反映します</div>
+          <div style="font-size:16px; font-weight:700; color:#7f1d1d;">
+            現在のテンプレ: <span style="background:#fde047; padding:3px 10px; border-radius:4px; color:#000;">${templateName}</span>
+          </div>
+        </div>
+
+        <div style="font-size:15px; color:#111; margin-bottom:16px; font-weight:600;">
+          以下を必ず確認してください:
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
+          <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:10px 12px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb;">
+            <input type="checkbox" id="bulkChk1" style="margin-top:3px; width:18px; height:18px; cursor:pointer;" />
+            <span style="font-size:14px; color:#111;">テンプレートは <strong style="color:#dc2626;">「${templateName}」</strong> で合っていますか？</span>
+          </label>
+          <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:10px 12px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb;">
+            <input type="checkbox" id="bulkChk2" style="margin-top:3px; width:18px; height:18px; cursor:pointer;" />
+            <span style="font-size:14px; color:#111;">プレビューのログに <strong style="color:#dc2626;">エラー表示 (❌ / ⚠️)</strong> はありませんでしたか？</span>
+          </label>
+          <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:10px 12px; background:#f9fafb; border-radius:6px; border:1px solid #e5e7eb;">
+            <input type="checkbox" id="bulkChk3" style="margin-top:3px; width:18px; height:18px; cursor:pointer;" />
+            <span style="font-size:14px; color:#111;">showPreview() で <strong style="color:#dc2626;">生成 HTML の見た目</strong>を確認しましたか？</span>
+          </label>
+        </div>
+
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+          <button id="bulkCancelBtn" style="background:#e5e7eb; color:#111; border:none; padding:10px 20px; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600;">キャンセル</button>
+          <button id="bulkConfirmBtn" disabled style="background:#9ca3af; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:not-allowed; font-size:14px; font-weight:700;">✓ 確認済み、実行する</button>
+        </div>
+      `;
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const chk1 = modal.querySelector('#bulkChk1');
+      const chk2 = modal.querySelector('#bulkChk2');
+      const chk3 = modal.querySelector('#bulkChk3');
+      const confirmBtn = modal.querySelector('#bulkConfirmBtn');
+      const cancelBtn = modal.querySelector('#bulkCancelBtn');
+
+      const updateBtnState = () => {
+        const allChecked = chk1.checked && chk2.checked && chk3.checked;
+        confirmBtn.disabled = !allChecked;
+        confirmBtn.style.cssText = allChecked
+          ? 'background:#dc2626; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:14px; font-weight:700;'
+          : 'background:#9ca3af; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:not-allowed; font-size:14px; font-weight:700;';
+      };
+      chk1.addEventListener('change', updateBtnState);
+      chk2.addEventListener('change', updateBtnState);
+      chk3.addEventListener('change', updateBtnState);
+
+      const cleanup = () => overlay.remove();
+      confirmBtn.addEventListener('click', () => { cleanup(); resolve(true); });
+      cancelBtn.addEventListener('click', () => { cleanup(); resolve(false); });
+    });
+  },
+
   async bulkExecute(dryRun) {
     if (!this._bulkData || Object.keys(this._bulkData).length === 0) {
       alert('先に 🔍 全件取得+プレビュー を実行してください');
@@ -13015,8 +13089,10 @@ const DescMgr = {
     }
     const items = Object.entries(this._bulkData);
     if (!dryRun) {
-      if (!confirm(`🚨 本番実行\n\n${items.length}件の description を eBay に UPDATE します。\nよろしいですか?`)) return;
-      if (!confirm('もう一度確認: 本当に本番実行しますか?')) return;
+      // 🚨 テンプレ確認モーダル (今回のような誤テンプレ事故防止)
+      const currentTplName = this.templates[this.currentTemplateId]?.name || '(未設定)';
+      const confirmed = await this._showBulkConfirmModal(items.length, currentTplName);
+      if (!confirmed) return;
     }
 
     document.getElementById('descBulkLog').innerHTML = '';
